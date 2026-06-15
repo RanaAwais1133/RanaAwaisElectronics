@@ -7,7 +7,7 @@ RUN go mod download
 
 COPY . .
 
-RUN go build -tags netgo -ldflags '-s -w' -o app
+RUN go build -tags netgo -ldflags '-s -w' -o app ./cmd/server/main.go
 
 EXPOSE 8080
 
