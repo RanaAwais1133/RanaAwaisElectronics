@@ -68,11 +68,11 @@ func main() {
 	})
 
 	corsObj := handlers.CORS(
-		handlers.AllowedOrigins([]string{"*"}),
-		handlers.AllowedMethods([]string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}),
-		handlers.AllowedHeaders([]string{"Content-Type", "Authorization", "Accept-Language"}),
-		handlers.AllowCredentials(),
-	)
+    handlers.AllowedOrigins([]string{"https://rana-awais-electronics-orcin.vercel.app"}),
+    handlers.AllowedMethods([]string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}),
+    handlers.AllowedHeaders([]string{"Content-Type", "Authorization", "Accept-Language"}),
+    handlers.AllowCredentials(),
+)
 
 	go scheduleReminders(notifSvc)
 

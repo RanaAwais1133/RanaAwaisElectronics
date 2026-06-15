@@ -1,4 +1,4 @@
-export const APP_NAME = 'rana-awais Electronics';
+export const APP_NAME = 'Rana Awais Electronics';
 export const DATE_FORMAT = 'DD-MM-YYYY';
 export const DEFAULT_PAGE_SIZE = 20;
 export const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8080/api';
