@@ -1,1 +1,21 @@
-{"buildCommand":"DISABLE_ESLINT_PLUGIN=true npm run build","devCommand":"npm start","installCommand":"npm install","framework":"create-react-app","outputDirectory":"build","routes":[{"src":"/(.*)","dest":"/index.html"}],"env":{"REACT_APP_API_URL":"https://your-backend-url.onrender.com/api"}}
+{
+  "buildCommand": "DISABLE_ESLINT_PLUGIN=true npm run build",
+  "devCommand": "npm start",
+  "installCommand": "npm install",
+  "framework": "create-react-app",
+  "outputDirectory": "build",
+  "routes": [
+    {
+      "src": "/static/(.*)",
+      "dest": "/static/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
+    }
+  ],
+  "env": {
+    "REACT_APP_API_URL": "https://your-backend-url.onrender.com/api"
+  }
+}
+
