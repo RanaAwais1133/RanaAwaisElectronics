@@ -7,22 +7,49 @@ interface CustomerSearchProps {
   selectedCustomerId: string;
   onSelect: (customerId: string) => void;
   onAddNew?: () => void;
+  placeholder?: string;
+  disabled?: boolean;
+  className?: string;
 }
 
-const CustomerSearch: React.FC<CustomerSearchProps> = ({ selectedCustomerId, onSelect, onAddNew }) => {
+const CustomerSearch: React.FC<CustomerSearchProps> = ({
+  selectedCustomerId,
+  onSelect,
+  onAddNew,
+  placeholder,
+  disabled = false,
+  className = '',
+}) => {
   const { t, i18n } = useTranslation();
   const isUrdu = i18n.language === 'ur';
-  const { customers } = useCustomerStore();
+  
+  // ✅ FIX: Use loading from store with fallback
+  const { customers, fetchCustomers, loading: storeLoading } = useCustomerStore();
+  const [isLoading, setIsLoading] = useState(false);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
 
   const wrapperRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  
+  // ✅ FIX: Use proper timeout type for browser
+  const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ✅ Fetch customers if not loaded
+  useEffect(() => {
+    if (customers.length === 0 && !storeLoading) {
+      setIsLoading(true);
+      fetchCustomers().finally(() => {
+        setIsLoading(false);
+      });
+    }
+  }, [customers.length, fetchCustomers, storeLoading]);
 
   const selectedCustomer = customers.find(c => c.id === selectedCustomerId);
 
-  // Filter customers locally - FAST (no API call)
+  // Filter customers locally
   const filteredCustomers = useMemo(() => {
     if (!searchTerm) return customers;
     const q = searchTerm.toLowerCase();
@@ -42,6 +69,7 @@ const CustomerSearch: React.FC<CustomerSearchProps> = ({ selectedCustomerId, onS
     const handleClickOutside = (event: MouseEvent) => {
       if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
         setShowDropdown(false);
+        setIsFocused(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -52,10 +80,14 @@ const CustomerSearch: React.FC<CustomerSearchProps> = ({ selectedCustomerId, onS
     onSelect(customer.id);
     setSearchTerm('');
     setShowDropdown(false);
+    setIsFocused(false);
   };
 
   const handleInputFocus = () => {
-    setShowDropdown(true);
+    if (!disabled) {
+      setIsFocused(true);
+      setShowDropdown(true);
+    }
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -70,15 +102,17 @@ const CustomerSearch: React.FC<CustomerSearchProps> = ({ selectedCustomerId, onS
   // Display text in input when customer is selected
   const getInputDisplayValue = () => {
     if (searchTerm) return searchTerm;
-    if (selectedCustomer && !showDropdown) {
+    if (selectedCustomer && !showDropdown && !isFocused) {
       const name = isUrdu ? selectedCustomer.nameUrdu || selectedCustomer.name : selectedCustomer.name;
       return `${name} (${formatPhone(selectedCustomer.phone)})`;
     }
     return '';
   };
 
+  const defaultPlaceholder = isUrdu ? 'گاہک تلاش کریں...' : 'Search customer...';
+
   return (
-    <div ref={wrapperRef} className="relative">
+    <div ref={wrapperRef} className={`relative ${className}`}>
       <div className="flex gap-2">
         <div className="relative flex-1">
           {/* Search Icon */}
@@ -92,28 +126,35 @@ const CustomerSearch: React.FC<CustomerSearchProps> = ({ selectedCustomerId, onS
             type="text"
             inputMode="text"
             autoComplete="off"
-            placeholder={isUrdu ? 'گاہک تلاش کریں...' : 'Search customer...'}
+            placeholder={placeholder || defaultPlaceholder}
             value={getInputDisplayValue()}
             onChange={handleInputChange}
             onFocus={handleInputFocus}
-            className="w-full pl-10 pr-4 py-2.5 border rounded-xl bg-white dark:bg-gray-700 text-sm focus:ring-2 focus:ring-blue-400 focus:border-transparent outline-none"
+            disabled={disabled}
+            className={`w-full pl-10 pr-4 py-2.5 border rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-400 focus:border-transparent outline-none transition-colors
+              ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
+              ${showDropdown ? 'ring-2 ring-blue-400 border-transparent' : 'border-gray-300 dark:border-gray-600'}`}
           />
 
           {/* Dropdown */}
-          {showDropdown && (
-            <div className="absolute z-20 mt-1 w-full bg-white dark:bg-gray-700 border rounded-xl shadow-lg overflow-hidden">
+          {showDropdown && !disabled && (
+            <div className="absolute z-20 mt-1 w-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl shadow-lg overflow-hidden">
               <div className="overflow-y-auto" style={{ maxHeight: '280px' }}>
-                {filteredCustomers.length === 0 ? (
-                  <p className="px-4 py-6 text-sm text-gray-500 text-center">
+                {isLoading ? (
+                  <div className="px-4 py-6 text-sm text-gray-500 text-center">
+                    {isUrdu ? 'لوڈ ہو رہا ہے...' : 'Loading...'}
+                  </div>
+                ) : filteredCustomers.length === 0 ? (
+                  <div className="px-4 py-6 text-sm text-gray-500 text-center">
                     {isUrdu ? 'کوئی گاہک نہیں ملا' : t('no_customers_found')}
-                  </p>
+                  </div>
                 ) : (
                   filteredCustomers.map((c: any) => (
                     <button
                       key={c.id}
                       type="button"
                       onClick={() => handleSelect(c)}
-                      className={`w-full text-left px-4 py-3 text-sm hover:bg-blue-50 dark:hover:bg-blue-900/20 border-b last:border-0 transition-colors ${
+                      className={`w-full text-left px-4 py-3 text-sm hover:bg-blue-50 dark:hover:bg-blue-900/20 border-b border-gray-100 dark:border-gray-600 last:border-0 transition-colors ${
                         c.id === selectedCustomerId ? 'bg-blue-50 dark:bg-blue-900/30' : ''
                       }`}
                     >
@@ -147,8 +188,8 @@ const CustomerSearch: React.FC<CustomerSearchProps> = ({ selectedCustomerId, onS
           )}
         </div>
 
-        {/* Add Customer Button - only show if onAddNew is provided */}
-        {onAddNew && (
+        {/* Add Customer Button */}
+        {onAddNew && !disabled && (
           <button
             type="button"
             onClick={onAddNew}

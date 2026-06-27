@@ -69,3 +69,38 @@ task-progress.md
 clear.js
 .vercel
 .env*
+
+# =====================
+# BACKUP FILES
+# =====================
+*.backup
+
+# =====================
+# LOG FILES
+# =====================
+server.log
+
+# =====================
+# PROJECT STRUCTURE FILES
+# =====================
+structure.txt
+project_structure.txt
+
+# =====================
+# ROOT-LEVEL DEV COPIES (not tracked)
+# =====================
+/src/
+/public/
+/package.json
+/package-lock.json
+/yarn.lock
+/tsconfig.json
+/.eslintrc.json
+/go.work
+/go.work.sum
+
+# =====================
+# WINDOWS SPECIAL
+# =====================
+nul
+

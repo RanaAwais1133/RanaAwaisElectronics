@@ -85,12 +85,15 @@ func (r *CustomerRepository) Count(ctx context.Context) (int64, error) {
 func (r *CustomerRepository) Search(ctx context.Context, query string, skip, limit int64) ([]domain.Customer, error) {
 	filter := bson.M{
 		"$or": []bson.M{
-			{"name":        bson.M{"$regex": query, "$options": "i"}},
-			{"name_urdu":   bson.M{"$regex": query, "$options": "i"}},
-			{"father_name": bson.M{"$regex": query, "$options": "i"}},
+			{"name":             bson.M{"$regex": query, "$options": "i"}},
+			{"name_urdu":        bson.M{"$regex": query, "$options": "i"}},
+			{"father_name":      bson.M{"$regex": query, "$options": "i"}},
 			{"father_name_urdu": bson.M{"$regex": query, "$options": "i"}},
-			{"phone":       bson.M{"$regex": query}},
-			{"cnic":        bson.M{"$regex": query}},
+			{"phone":            bson.M{"$regex": query}},
+			{"cnic":             bson.M{"$regex": query}},
+			{"account_no":       bson.M{"$regex": query, "$options": "i"}},
+			{"cost_no":          bson.M{"$regex": query, "$options": "i"}},
+			{"process_no":       bson.M{"$regex": query, "$options": "i"}},
 		},
 	}
 	opts := options.Find().SetSkip(skip).SetLimit(limit).SetSort(bson.M{"created_at": -1})

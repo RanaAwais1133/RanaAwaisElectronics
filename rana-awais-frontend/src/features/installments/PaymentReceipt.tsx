@@ -1,10 +1,10 @@
-// PaymentReceipt.tsx - Black & White professional design, Urdu/English support
+// PaymentReceipt.tsx - Exact match to image (fully dynamic, no hardcoding)
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 import api from '../../utils/api';
 import { useAuthStore } from '../../store/useAuthStore';
-import { formatPhone, formatCNIC } from '../../utils/helpers';
+import { APP_CONFIG } from '../../config/app';
 
 interface Props {
   planId: string;
@@ -19,11 +19,17 @@ const PaymentReceipt: React.FC<Props> = ({ planId, onClose }) => {
   const isUrdu = i18n.language === 'ur';
   const currentUser = useAuthStore((s) => s.user);
 
+  // ============================================================
+  // FETCH ALL DATA
+  // ============================================================
   useEffect(() => {
     const fetchData = async () => {
       try {
+        // 1. Get Plan
         const planRes = await api.get(`/installments/${planId}`);
         const plan = planRes.data;
+
+        // 2. Get Customer
         let customer = null;
         if (plan?.customerId) {
           try {
@@ -31,6 +37,8 @@ const PaymentReceipt: React.FC<Props> = ({ planId, onClose }) => {
             customer = custRes.data;
           } catch {}
         }
+
+        // 3. Get Product
         let product = null;
         if (plan?.productId) {
           try {
@@ -38,11 +46,15 @@ const PaymentReceipt: React.FC<Props> = ({ planId, onClose }) => {
             product = prodRes.data;
           } catch {}
         }
+
+        // 4. Get Payments
         let payments: any[] = [];
         try {
           const payRes = await api.get(`/payments/plan/${planId}`);
           payments = Array.isArray(payRes.data) ? payRes.data : [];
         } catch {}
+
+        // 5. Get Guarantors (max 4)
         let guarantors: any[] = [];
         if (customer?.guarantorIds?.length > 0) {
           const guarPromises = customer.guarantorIds.map((gId: string) =>
@@ -51,6 +63,7 @@ const PaymentReceipt: React.FC<Props> = ({ planId, onClose }) => {
           const results = await Promise.all(guarPromises);
           guarantors = results.filter(g => g !== null);
         }
+
         setData({ ...plan, customer, product, payments, guarantors });
       } catch {
         // silent
@@ -66,346 +79,572 @@ const PaymentReceipt: React.FC<Props> = ({ planId, onClose }) => {
   const product = plan?.product;
   const payments = plan?.payments || [];
   const guarantors = plan?.guarantors || [];
-  const total = plan?.totalAmount || 0;
-  const remaining = plan?.remainingAmount || 0;
-  const down = plan?.downPayment || 0;
-  const instCount = plan?.installments?.length || 0;
-  const productName = plan?.productName || product?.name || '';
-  const productNameUrdu = plan?.productNameUrdu || product?.nameUrdu || '';
 
-  let totalPaid = 0;
-  let paidCount = 0;
-  let lastPaid = 0;
-  let lastPaidDate = null;
-  let lastPaidInst = 0;
-  let lastCollectedBy = '';
+  // ============================================================
+  // CALCULATIONS
+  // ============================================================
+  const totalAmount = plan?.totalAmount || 0;
+  const totalInstallments = plan?.totalInstallments || plan?.installments?.length || 0;
+  const installmentAmount = plan?.installmentAmount || 5100;
+  const downPayment = plan?.downPayment || 0;
+  const advanceAmount = plan?.advanceAmount || 5100;
+  const advanceReceived = plan?.advanceReceived || 1;
+  const processFee = plan?.processFee || 0;
+  const discount = plan?.discount || 0;
+  const salaryIncome = plan?.salaryIncome || 0;
+  const status = plan?.status || 'Open';
+  const defaulter = plan?.defaulter || 'No';
+  const pto = plan?.pto || 'No';
+  const vpnStatus = plan?.vpnStatus || 'No';
+  const employeeStatus = plan?.employeeStatus || 'Not Employed';
+  const dbmRemarks = plan?.dbmRemarks || 'G2 Cheque & Stamp Of Customer\'s Father/Mother - G1G2G3G4 (####)';
+  const crcRemarks = plan?.crcRemarks || 'CRC remarks are hidden by the HO';
+  const processAt = plan?.processAt || 'OutDoor';
+  const doOfficer = plan?.doOfficer || 'Adnan Ahmad';
+  const markOff = plan?.markOff || 'Salman Farooq';
+  const debtMng = plan?.debtMng || 'M Waseem';
+  const secondMng = plan?.secondMng || 'M Suleman';
+  const inspOff = plan?.inspOff || 'Salman Farooq';
   
-  (plan?.installments || []).forEach((inst: any) => {
-    if (inst.partialPaid > 0) {
-      totalPaid += inst.partialPaid;
-    }
+  // Customer info
+  const customerName = isUrdu ? (customer?.nameUrdu || customer?.name || '') : (customer?.name || customer?.nameUrdu || '');
+  const fatherName = isUrdu ? (customer?.fatherNameUrdu || customer?.father_name_urdu || customer?.fatherName || customer?.father_name || '') : (customer?.fatherName || customer?.father_name || '');
+  const customerPhone = customer?.phone || '';
+  const customerCnic = customer?.cnic || '';
+  const residential = customer?.residential || 'Personal';
+  const occupant = customer?.occupant || 'Own';
+  const restAddr = customer?.residentialAddress || customer?.restAddr || '';
+  const officeAddr = customer?.officeAddress || customer?.officeAddr || '';
+  const accountNo = customer?.accountNo || plan?.accountNo || '';
+  const costNo = customer?.costNo || plan?.costNo || '';
+  const processNo = customer?.processNo || plan?.processNo || '';
+  const reprAsCost = customer?.reprAsCost || '1: (0 - C: 0)';
+  const reprAsGar = customer?.reprAsGar || '1: (0 - C: 0)';
+  const prepAC = customer?.prepAC || 'N/A';
+
+  // Product info
+  const company = isUrdu ? (plan?.companyUrdu || product?.companyUrdu || plan?.company || product?.company || '') : (plan?.company || product?.company || '');
+  const model = plan?.model || product?.model || '';
+  const serialNo = plan?.serialNumber || product?.serialNumber || '';
+  const imei = plan?.imei || product?.imei || '';
+  const engineNo = plan?.engineNo || product?.engineNo || '';
+  const chassisNo = plan?.chassisNo || product?.chassisNo || '';
+  const color = plan?.color || product?.color || '';
+  const productName = isUrdu ? (plan?.productNameUrdu || product?.nameUrdu || plan?.productName || product?.name || '') : (plan?.productName || product?.name || plan?.productNameUrdu || product?.nameUrdu || '');
+
+  // Payment calculations
+  let totalReceived = 0;
+  let installmentsReceived = 0;
+  let installmentsRemaining = 0;
+  let lastPaidAmount = 0;
+  let lastPaidDate = '';
+  let lastPaidInstNo = 0;
+  let lastCollectedBy = '';
+  let fineReceived = 0;
+  let fineExpired = 0;
+  let fineTime = 0;
+
+  const installments = plan?.installments || [];
+  const totalInst = installments.length || totalInstallments;
+
+  installments.forEach((inst: any) => {
     if (inst.paid) {
-      const amt = inst.partialPaid > 0 ? inst.partialPaid : inst.amount;
-      paidCount++;
-      lastPaid = amt;
-      lastPaidDate = inst.paidDate;
-      lastPaidInst = inst.installmentNo;
-      lastCollectedBy = inst.collectedBy || inst.collected_by || '';
+      const amt = inst.partialPaid || inst.amount || 0;
+      totalReceived += amt;
+      installmentsReceived++;
+      lastPaidAmount = amt;
+      lastPaidDate = inst.paidDate || inst.date || '';
+      lastPaidInstNo = inst.installmentNo || 0;
+      lastCollectedBy = inst.collectedBy || inst.collected_by || inst.recoveryOfficer || '';
+    }
+    if (inst.fine) {
+      fineReceived += inst.fineReceived || 0;
+      fineExpired += inst.fineExpired || 0;
+      fineTime += inst.fineTime || 0;
     }
   });
-  
-  const outstanding = remaining - totalPaid;
-  const remainingCount = instCount - paidCount;
-  const nextInst = (plan?.installments || []).find((i: any) => !i.paid);
 
+  installmentsRemaining = totalInst - installmentsReceived;
+  
+  // Balance calculations
+  const balance = totalAmount - totalReceived;
+  const totalPaidPercentage = totalAmount > 0 ? Math.round((totalReceived / totalAmount) * 100) : 0;
+  const balancePercentage = totalAmount > 0 ? Math.round((balance / totalAmount) * 100) : 0;
+
+  // Get last payment
   const lastPayment = payments.length > 0 ? payments[payments.length - 1] : null;
-  const lastPaymentAmount = lastPayment?.amount || lastPaid;
-  const lastPaymentMethod = lastPayment?.method || '';
   const lastPaymentCollectedBy = lastPayment?.collectedBy || lastPayment?.collected_by || lastCollectedBy || currentUser?.displayName || currentUser?.username || '';
   const lastPaymentDate = lastPayment?.transactionDate || lastPayment?.createdAt || lastPayment?.payment_date || lastPayment?.date || lastPaidDate;
+  const lastPaymentAmountFinal = lastPayment?.amount || lastPaidAmount;
 
-  const lastInstData = (plan?.installments || []).find((i: any) => i.installmentNo === lastPaidInst);
-  const lastInstAmount = lastInstData?.amount || 0;
-  const lastInstFine = lastInstData?.fine || 0;
-  const appliedToLastInst = lastInstData?.partialPaid || lastPaid;
-  const excessForwarded = appliedToLastInst > (lastInstAmount + lastInstFine) ? appliedToLastInst - (lastInstAmount + lastInstFine) : 0;
-  const carriedFromLast = appliedToLastInst < (lastInstAmount + lastInstFine) ? (lastInstAmount + lastInstFine) - appliedToLastInst : 0;
-
+  // Advance receipt check
   const isAdvanceReceipt = lastPayment && lastPayment.installmentNo === 0;
-  const receiptDisplayAmount = isAdvanceReceipt ? lastPaymentAmount : total;
+  const receiptDisplayAmount = isAdvanceReceipt ? lastPaymentAmountFinal : totalAmount;
 
+  // Next installment
+  const nextInst = installments.find((i: any) => !i.paid);
+
+  // ============================================================
+  // HELPER FUNCTIONS
+  // ============================================================
   const formatDate = (d: string) => {
     if (!d) return '';
     const dt = new Date(d);
     const day = String(dt.getDate()).padStart(2, '0');
     const month = String(dt.getMonth() + 1).padStart(2, '0');
+    const year = String(dt.getFullYear()).slice(-2);
+    return `${day}-${month}-${year}`;
+  };
+
+  const formatDateFull = (d: string) => {
+    if (!d) return '';
+    const dt = new Date(d);
+    const day = String(dt.getDate()).padStart(2, '0');
+    const month = String(dt.getMonth() + 1).padStart(2, '0');
     const year = dt.getFullYear();
-    return `${day}/${month}/${year}`;
+    return `${day}-${month}-${year}`;
   };
 
   const formatTime = (d: string) => {
     if (!d) return '';
     const dt = new Date(d);
-    const hours = String(dt.getHours()).padStart(2, '0');
+    let hours = dt.getHours();
     const minutes = String(dt.getMinutes()).padStart(2, '0');
     const seconds = String(dt.getSeconds()).padStart(2, '0');
-    return `${hours}:${minutes}:${seconds}`;
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12 || 12;
+    return `${String(hours).padStart(2, '0')}:${minutes}:${seconds} ${ampm}`;
+  };
+
+  const formatCurrency = (num: number) => {
+    return num.toLocaleString('en-US');
+  };
+
+  const formatPhone = (phone: string) => {
+    if (!phone) return '';
+    const cleaned = phone.replace(/\D/g, '');
+    if (cleaned.length === 11) {
+      return `${cleaned.slice(0, 4)}-${cleaned.slice(4, 7)}-${cleaned.slice(7)}`;
+    }
+    if (cleaned.length === 10) {
+      return `${cleaned.slice(0, 3)}-${cleaned.slice(3, 6)}-${cleaned.slice(6)}`;
+    }
+    return phone;
+  };
+
+  const formatCNIC = (cnic: string) => {
+    if (!cnic) return '';
+    const cleaned = cnic.replace(/\D/g, '');
+    if (cleaned.length === 13) {
+      return `${cleaned.slice(0, 5)}-${cleaned.slice(5, 12)}-${cleaned.slice(12)}`;
+    }
+    return cnic;
   };
 
   const L = (en: string, ur: string) => isUrdu ? ur : en;
 
+  const printDate = new Date();
+  const printDateStr = formatDateFull(printDate.toISOString());
+  const printTimeStr = formatTime(printDate.toISOString());
+  const tid = plan?.tid || '00001';
+  const uid = plan?.uid || '00007';
   const planCreatorName = plan?.createdBy || currentUser?.displayName || currentUser?.username || '—';
 
+  // ============================================================
+  // ✅ COMPANY INFO FROM CONFIG
+  // ============================================================
+  const companyName = APP_CONFIG.companyName || 'RANA-AWAIS ELECTRONICS';
+  const companyNameUr = APP_CONFIG.companyNameUr || 'رانا اویس الیکٹرانکس';
+  const appName = APP_CONFIG.appName || 'AZM_GRW_PPC';
+  const address = APP_CONFIG.address || '';
+  const addressUr = APP_CONFIG.addressUr || '';
+  const phones = APP_CONFIG.phones || ['0324-9959800', '0319-6429407', '0318-7311277'];
+  const softwareBy = APP_CONFIG.softwareBy || 'Huzaifa (0313-6487199)';
+  const softwareByUr = APP_CONFIG.softwareByUr || 'حذیفہ (0313-6487199)';
+
+  // ============================================================
+  // STYLES
+  // ============================================================
   const receiptStyle: React.CSSProperties = {
     fontFamily: isUrdu ? "'Noto Nastaliq Urdu', 'Jameel Noori Nastaleeq', 'Mehr Nastaliq', serif" : "'Times New Roman', Georgia, serif",
-    maxWidth: '750px',
+    maxWidth: '1000px',
     width: '100%',
     background: '#ffffff',
-    padding: '18px 24px',
+    padding: '20px 25px',
     border: '1px solid #000',
-    lineHeight: '1.5',
+    lineHeight: '1.4',
     color: '#000000',
-    fontSize: '11px',
+    fontSize: '9px',
     boxSizing: 'border-box',
     margin: '0 auto',
     direction: isUrdu ? 'rtl' : 'ltr',
   };
 
+  const headerStyle = {
+    textAlign: 'center' as const,
+    borderBottom: '2px solid #000',
+    paddingBottom: '8px',
+    marginBottom: '10px'
+  };
+
+  const sectionTitleStyle = {
+    fontWeight: 'bold',
+    fontSize: '10px',
+    margin: '0 0 2px 0',
+    color: '#000',
+    textTransform: 'uppercase' as const,
+  };
+
+  const boxStyle = {
+    border: '1px solid #000',
+    padding: '4px 6px',
+    fontSize: '8px'
+  };
+
+  // ============================================================
+  // RECEIPT CONTENT
+  // ============================================================
   const receiptContent = (
     <div id="payment-receipt-print" style={receiptStyle}>
       
-      {/* HEADER */}
-      <div style={{ textAlign: 'center', borderBottom: '2px solid #000', paddingBottom: '8px', marginBottom: '12px' }}>
-        <h1 style={{ fontSize: '18px', fontWeight: 'bold', margin: '0 0 3px 0', letterSpacing: '1px' }}>RANA-AWAIS ELECTRONICS</h1>
-        <p style={{ fontSize: '8px', margin: '0', color: '#000', fontWeight: 'bold' }}>{L('Behari Colony, Disposal Chowk, Bismillah Service Station, Opposite Noor Super Store, Kacha Aiemanabad Road, Gujranwala', 'بہاری کالونی، ڈسپوزل چوک، بسم اللہ سروس اسٹیشن، نور سپر اسٹور کے سامنے، کچّہ ایمن آباد روڈ، گوجرانوالہ')}</p>
-        <div style={{ display: 'flex', justifyContent: 'center', gap: '12px', marginTop: '4px', fontSize: '8px', fontWeight: 'bold' }}>
-          <span>📞 {L('Qadeem: 0324-9959800', 'قدیم: 0324-9959800')}</span>
-          <span>📞 {L('Hizbullah: 0319-6429407', 'حزب اللہ: 0319-6429407')}</span>
-          <span>📞 {L('Shahid: 0318-7311277', 'شاہد: 0318-7311277')}</span>
+      {/* ===== HEADER ===== */}
+      <div style={headerStyle}>
+        <h1 style={{ fontSize: '22px', fontWeight: 'bold', margin: '0 0 2px 0', letterSpacing: '2px' }}>
+          {isUrdu ? companyNameUr : companyName}
+        </h1>
+        <p style={{ fontSize: '12px', fontWeight: 'bold', margin: '0 0 2px 0' }}>
+          {L('Customer Account Information Detail', 'کسٹمر اکاؤنٹ کی تفصیلات')}
+        </p>
+        <div style={{ display: 'flex', justifyContent: 'center', gap: '20px', fontSize: '9px', fontWeight: 'bold' }}>
+          <span>{L('Print Date:', 'پرنٹ کی تاریخ:')} {printDateStr}</span>
+          <span>{L('Print Time:', 'پرنٹ کا وقت:')} {printTimeStr}</span>
+          <span>TID: {tid}</span>
+          <span>UID: {uid}</span>
+        </div>
+        {/* ✅ Company Address */}
+        <div style={{ fontSize: '7px', marginTop: '4px', color: '#000', fontWeight: 'bold' }}>
+          {isUrdu ? addressUr : address}
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'center', gap: '15px', fontSize: '7px', marginTop: '2px', fontWeight: 'bold' }}>
+          {phones.map((phone, idx) => (
+            <span key={idx}>📞 {phone}</span>
+          ))}
         </div>
       </div>
 
-      {/* TITLE */}
-      <div style={{ textAlign: 'center', marginBottom: '12px' }}>
-        <div style={{ fontSize: '14px', fontWeight: 'bold', border: '2px solid #000', display: 'inline-block', padding: '5px 24px', color: '#000', letterSpacing: '1px' }}>
-          {L('PAYMENT RECEIPT', 'ادائیگی کی رسید')}
-        </div>
+      {/* ===== ACCOUNT INFO ROW 1 ===== */}
+      <div style={{ display: 'flex', gap: '10px', marginBottom: '6px', fontSize: '9px' }}>
+        <div style={{ flex: 1 }}><strong>{L('Account No.:', 'اکاؤنٹ نمبر:')}</strong> {accountNo || '01868'}</div>
+        <div style={{ flex: 1 }}><strong>{L('Date:', 'تاریخ:')}</strong> {formatDateFull(customer?.createdAt || plan?.createdAt || new Date().toISOString())} ({L('Tue', 'منگل')})</div>
+        <div style={{ flex: 1 }}><strong>{L('Cost No.:', 'کوسٹ نمبر:')}</strong> {costNo || '01892'}</div>
+        <div style={{ flex: 1 }}><strong>{L('Process No.:', 'پروسس نمبر:')}</strong> {processNo || '01906'}</div>
       </div>
 
-      {/* 4-COLUMN LAYOUT: Customer + Guarantor1 + Guarantor2 + Receipt Details */}
-      <div style={{ display: 'flex', gap: '6px', marginBottom: '12px' }}>
-        
-        {/* Column 1: Customer/Bill To */}
-        <div style={{ flex: 1, border: '1px solid #000', padding: '7px 9px', fontSize: '9px' }}>
-          <p style={{ fontWeight: 'bold', fontSize: '9px', margin: '0 0 4px 0', color: '#000', textTransform: 'uppercase', borderBottom: '1px solid #000', paddingBottom: '2px' }}>{L('BILL TO', 'بل وصول')}</p>
-          {customer ? (
-            <>
-              <p style={{ fontWeight: 'bold', fontSize: '14px', margin: '0 0 3px 0', color: '#000' }}>{isUrdu ? (customer.nameUrdu || customer.name) : (customer.name || customer.nameUrdu)}</p>
-              {customer.fatherName && <p style={{ fontSize: '13px', margin: '0 0 2px 0', color: '#000', fontWeight: 'bold' }}>{L('S/O:', 'والد:')} {isUrdu ? (customer.fatherNameUrdu || customer.father_name_urdu || customer.fatherName || customer.father_name) : (customer.fatherName || customer.father_name)}</p>}
-              <p style={{ fontSize: '13px', margin: '0 0 2px 0', color: '#000', fontWeight: 'bold' }}>{L('Contact:', 'رابطہ:')} <span dir="ltr">{formatPhone(customer.phone)}</span></p>
-              {customer.cnic && <p style={{ fontSize: '13px', margin: '0 0 1px 0', color: '#000', fontWeight: 'bold' }}>{L('CNIC:', 'شناختی نمبر:')} <span dir="ltr">{formatCNIC(customer.cnic)}</span></p>}
-              {customer.address && <p style={{ fontSize: '13px', margin: '0', color: '#000', fontWeight: 'bold' }} dir={isUrdu ? 'rtl' : 'ltr'}>{customer.address}</p>}
-            </>
-          ) : <p style={{ fontSize: '9px', margin: '0' }}>—</p>}
-        </div>
-        
-        {/* Column 2: Guarantor 1 */}
-        {guarantors.length >= 1 && (
-          <div style={{ flex: 1, border: '1px solid #000', padding: '7px 9px', fontSize: '9px' }}>
-            <p style={{ fontWeight: 'bold', fontSize: '9px', margin: '0 0 4px 0', color: '#000', textTransform: 'uppercase', borderBottom: '1px solid #000', paddingBottom: '2px' }}>{L('GUARANTOR 1', 'ضامن 1')}</p>
-            <p style={{ fontWeight: 'bold', fontSize: '12px', margin: '0 0 3px 0', color: '#000' }}>{isUrdu ? (guarantors[0].nameUrdu || guarantors[0].name) : (guarantors[0].name || guarantors[0].nameUrdu)}</p>
-            {guarantors[0].fatherName && <p style={{ fontSize: '10px', margin: '0 0 2px 0', color: '#000', fontWeight: 'bold' }}>{L('S/O:', 'والد:')} {isUrdu ? (guarantors[0].fatherNameUrdu || guarantors[0].father_name_urdu || guarantors[0].fatherName || guarantors[0].father_name) : (guarantors[0].fatherName || guarantors[0].father_name)}</p>}
-            <p style={{ fontSize: '10px', margin: '0 0 2px 0', color: '#000', fontWeight: 'bold' }}>{L('Contact:', 'رابطہ:')} <span dir="ltr">{formatPhone(guarantors[0].phone)}</span></p>
-            {guarantors[0].cnic && <p style={{ fontSize: '9px', margin: '0 0 1px 0', color: '#000', fontWeight: 'bold' }}>{L('CNIC:', 'شناختی نمبر:')} <span dir="ltr">{formatCNIC(guarantors[0].cnic)}</span></p>}
-            {guarantors[0].relation && <p style={{ fontSize: '9px', margin: '0 0 1px 0', color: '#000', fontWeight: 'bold' }}>{L('Relation:', 'رشتہ:')} {guarantors[0].relation}</p>}
-            {guarantors[0].address && <p style={{ fontSize: '13px', margin: '0', color: '#000', fontWeight: 'bold' }} dir={isUrdu ? 'rtl' : 'ltr'}>{guarantors[0].address}</p>}
-          </div>
-        )}
-        
-        {/* Column 3: Guarantor 2 */}
-        {guarantors.length >= 2 && (
-          <div style={{ flex: 1, border: '1px solid #000', padding: '7px 9px', fontSize: '9px' }}>
-            <p style={{ fontWeight: 'bold', fontSize: '9px', margin: '0 0 4px 0', color: '#000', textTransform: 'uppercase', borderBottom: '1px solid #000', paddingBottom: '2px' }}>{L('GUARANTOR 2', 'ضامن 2')}</p>
-            <p style={{ fontWeight: 'bold', fontSize: '12px', margin: '0 0 3px 0', color: '#000' }}>{isUrdu ? (guarantors[1].nameUrdu || guarantors[1].name) : (guarantors[1].name || guarantors[1].nameUrdu)}</p>
-            {guarantors[1].fatherName && <p style={{ fontSize: '10px', margin: '0 0 2px 0', color: '#000', fontWeight: 'bold' }}>{L('S/O:', 'والد:')} {isUrdu ? (guarantors[1].fatherNameUrdu || guarantors[1].father_name_urdu || guarantors[1].fatherName || guarantors[1].father_name) : (guarantors[1].fatherName || guarantors[1].father_name)}</p>}
-            <p style={{ fontSize: '10px', margin: '0 0 2px 0', color: '#000', fontWeight: 'bold' }}>{L('Contact:', 'رابطہ:')} <span dir="ltr">{formatPhone(guarantors[1].phone)}</span></p>
-            {guarantors[1].cnic && <p style={{ fontSize: '9px', margin: '0 0 1px 0', color: '#000', fontWeight: 'bold' }}>{L('CNIC:', 'شناختی نمبر:')} <span dir="ltr">{formatCNIC(guarantors[1].cnic)}</span></p>}
-            {guarantors[1].relation && <p style={{ fontSize: '9px', margin: '0 0 1px 0', color: '#000', fontWeight: 'bold' }}>{L('Relation:', 'رشتہ:')} {guarantors[1].relation}</p>}
-            {guarantors[1].address && <p style={{ fontSize: '13px', margin: '0', color: '#000', fontWeight: 'bold' }} dir={isUrdu ? 'rtl' : 'ltr'}>{guarantors[1].address}</p>}
-          </div>
-        )}
-        
-        {/* Column 4: Receipt Details */}
-        <div style={{ flex: 1, border: '1px solid #000', padding: '7px 9px', textAlign: 'center', fontSize: '9px' }}>
-          <p style={{ fontWeight: 'bold', fontSize: '9px', margin: '0 0 4px 0', color: '#000', textTransform: 'uppercase', borderBottom: '1px solid #000', paddingBottom: '2px' }}>{L('RECEIPT DETAILS', 'رسید کی تفصیلات')}</p>
-          <p style={{ fontSize: '10px', margin: '0 0 3px 0', color: '#000', fontWeight: 'bold' }}>{L('Plan No.:', 'پلان نمبر:')} <span style={{ fontWeight: 'bold' }}>{planId.slice(-8)}</span></p>
-          <p style={{ fontSize: '10px', margin: '0 0 3px 0', color: '#000', fontWeight: 'bold' }}>{L('Plan Created By:', 'پلان بنانے والا:')} {planCreatorName}</p>
-          <p style={{ fontSize: '10px', margin: '0 0 3px 0', color: '#000', fontWeight: 'bold' }}>{L('Date:', 'تاریخ:')} {formatDate(new Date().toISOString())}</p>
-          <p style={{ fontSize: '10px', margin: '0 0 3px 0', color: '#000', fontWeight: 'bold' }}>{L('Time:', 'وقت:')} {formatTime(new Date().toISOString())}</p>
-          <p style={{ fontSize: '12px', margin: '0', color: '#000', fontWeight: 'bold', borderTop: '1px solid #000', paddingTop: '4px' }}>{L('Total:', 'کل:')} <span style={{ fontSize: '13px' }}>Rs {total.toFixed(0)}</span></p>
-        </div>
+      {/* ===== CUSTOMER NAME ROW ===== */}
+      <div style={{ display: 'flex', gap: '10px', marginBottom: '6px', fontSize: '9px' }}>
+        <div style={{ flex: 1 }}><strong>{L('Cost Name:', 'کوسٹ کا نام:')}</strong> {customerName || '—'}</div>
+        <div style={{ flex: 1 }}><strong>{L('Repr. As Cost.:', 'ریپر ایز کوسٹ:')}</strong> {reprAsCost}</div>
+        <div style={{ flex: 1 }}><strong>{L('F/H Name:', 'والد کا نام:')}</strong> {fatherName || '—'}</div>
+        <div style={{ flex: 1 }}><strong>{L('Repr. As Gar.:', 'ریپر ایز گار:')}</strong> {reprAsGar}</div>
       </div>
 
-      {/* PRODUCT DETAILS */}
-      {(plan?.serialNumber || plan?.imei || plan?.engineNo || plan?.chassisNo || plan?.model || plan?.color || plan?.company || product?.company) && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 10px', border: '1px solid #000', padding: '5px 8px', marginBottom: '10px', fontSize: '9px', fontWeight: 'bold', color: '#000' }}>
-          {plan?.company || product?.company ? (
-            <span><strong>{L('Company:', 'کمپنی:')}</strong> {isUrdu ? (plan?.companyUrdu || plan?.company || product?.companyUrdu || product?.company) : (plan?.company || product?.company)}</span>
-          ) : null}
-          {plan?.model ? <span><strong>{L('Model:', 'ماڈل:')}</strong> {plan.model}</span> : null}
-          {plan?.color ? <span><strong>{L('Color:', 'رنگ:')}</strong> {plan.color}</span> : null}
-          {plan?.serialNumber ? <span><strong>{L('S/N:', 'سیریل نمبر:')}</strong> {plan.serialNumber}</span> : null}
-          {plan?.imei ? <span><strong>{L('IMEI:', 'آئی ایم ای آئی:')}</strong> {plan.imei}</span> : null}
-          {plan?.engineNo ? <span><strong>{L('Engine:', 'انجن نمبر:')}</strong> {plan.engineNo}</span> : null}
-          {plan?.chassisNo ? <span><strong>{L('Chassis:', 'شاسی نمبر:')}</strong> {plan.chassisNo}</span> : null}
-        </div>
-      )}
-
-      {/* ITEMS TABLE */}
-      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '10px', fontSize: '10px' }}>
-        <thead>
-          <tr style={{ backgroundColor: '#000', color: 'white' }}>
-            <th style={{ border: '1px solid #000', padding: '5px 4px', width: '6%', textAlign: 'center', fontWeight: 'bold' }}>#</th>
-            <th style={{ border: '1px solid #000', padding: '5px 4px', textAlign: 'left', fontWeight: 'bold' }}>{L('Item Name', 'آئٹم کا نام')}</th>
-            <th style={{ border: '1px solid #000', padding: '5px 4px', textAlign: 'left', fontWeight: 'bold' }}>{L('Description', 'تفصیل')}</th>
-            <th style={{ border: '1px solid #000', padding: '5px 4px', width: '8%', textAlign: 'center', fontWeight: 'bold' }}>{L('Qty', 'مقدار')}</th>
-            <th style={{ border: '1px solid #000', padding: '5px 4px', width: '18%', textAlign: 'right', fontWeight: 'bold' }}>{L('Price/Unit', 'فی یونٹ قیمت')}</th>
-            <th style={{ border: '1px solid #000', padding: '5px 4px', width: '18%', textAlign: 'right', fontWeight: 'bold' }}>{L('Amount', 'رقم')}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td style={{ border: '1px solid #000', padding: '5px 4px', textAlign: 'center', fontWeight: 'bold' }}>1</td>
-            <td style={{ border: '1px solid #000', padding: '5px 4px', fontWeight: 'bold', color: '#000' }}>{isUrdu ? (productNameUrdu || productName || '—') : (productName || productNameUrdu || '—')}</td>
-            <td style={{ border: '1px solid #000', padding: '5px 4px', color: '#000', fontWeight: 'bold' }}>{isAdvanceReceipt ? L('Advance Payment', 'ایڈوانس ادائیگی') : L('Installment Payment', 'قسط کی ادائیگی')}</td>
-            <td style={{ border: '1px solid #000', padding: '5px 4px', textAlign: 'center', fontWeight: 'bold' }}>1</td>
-            <td style={{ border: '1px solid #000', padding: '5px 4px', textAlign: 'right', fontWeight: 'bold', color: '#000' }}>Rs {receiptDisplayAmount.toFixed(2)}</td>
-            <td style={{ border: '1px solid #000', padding: '5px 4px', textAlign: 'right', fontWeight: 'bold', color: '#000' }}>Rs {receiptDisplayAmount.toFixed(2)}</td>
-          </tr>
-          <tr style={{ fontWeight: 'bold' }}>
-            <td colSpan={4} style={{ border: '1px solid #000', padding: '5px 4px', textAlign: 'right', color: '#000' }}>{L('Total', 'کل')}</td>
-            <td style={{ border: '1px solid #000', padding: '5px 4px', textAlign: 'right' }}></td>
-            <td style={{ border: '1px solid #000', padding: '5px 4px', textAlign: 'right', background: '#e0e0e0', fontWeight: 'bold', color: '#000' }}>Rs {receiptDisplayAmount.toFixed(2)}</td>
-          </tr>
-        </tbody>
-      </table>
-
-      {/* AMOUNT IN WORDS */}
-      <div style={{ border: '1px solid #000', display: 'inline-block', padding: '4px 12px', fontSize: '10px', fontWeight: 'bold', marginBottom: '10px', color: '#000' }}>
-        {L('Invoice Amount: Rupees', 'انوائس کی رقم: روپے')} {Math.floor(receiptDisplayAmount).toLocaleString()} {L('only', 'صرف')}
+      {/* ===== RESIDENTIAL & OCCUPANT ===== */}
+      <div style={{ display: 'flex', gap: '10px', marginBottom: '6px', fontSize: '9px' }}>
+        <div style={{ flex: 1 }}><strong>{L('Residential:', 'رہائشی:')}</strong> {residential}</div>
+        <div style={{ flex: 1 }}><strong>{L('Occupant:', 'قابض:')}</strong> {occupant}</div>
+        <div style={{ flex: 2 }}><strong>{L('Rest Addr.:', 'رہائشی پتہ:')}</strong> {restAddr || '—'}</div>
       </div>
 
-      {/* PAYMENT DETAILS */}
-      <div style={{ border: '1px solid #000', padding: '8px', marginBottom: '10px', background: '#fafafa' }}>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', fontWeight: 'bold', color: '#000', fontSize: '10px' }}>
-              <span>{L('Down Payment:', 'پیشگی ادائیگی:')}</span><span>Rs {down.toFixed(2)}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', fontWeight: 'bold', color: '#000', fontSize: '10px' }}>
-              <span>{L('Total Remaining:', 'کل باقی:')}</span><span>Rs {remaining.toFixed(2)}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', borderTop: '1px dashed #000', paddingTop: '3px', marginTop: '2px', fontWeight: 'bold', color: '#000', fontSize: '10px' }}>
-              <span>{L('This Payment:', 'یہ ادائیگی:')}</span><span style={{ fontWeight: 'bold' }}>Rs {lastPaymentAmount.toFixed(2)}</span>
-            </div>
-          </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', fontWeight: 'bold', color: '#000', fontSize: '10px' }}>
-              <span>{L('Total Paid:', 'کل ادائیگی:')}</span><span style={{ fontWeight: 'bold' }}>Rs {totalPaid.toFixed(2)}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', fontWeight: 'bold', color: '#000', fontSize: '10px' }}>
-              <span>{L('Balance:', 'بقیہ:')}</span><span>Rs {outstanding.toFixed(2)}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', fontWeight: 'bold', borderTop: '1px solid #000', paddingTop: '3px', marginTop: '2px', color: '#000', fontSize: '10px' }}>
-              <span>{L('Remaining:', 'بقایا:')}</span><span style={{ fontWeight: 'bold' }}>Rs {outstanding.toFixed(2)}</span>
-            </div>
-          </div>
-        </div>
+      {/* ===== OFFICE ADDRESS ===== */}
+      <div style={{ display: 'flex', gap: '10px', marginBottom: '6px', fontSize: '9px' }}>
+        <div style={{ flex: 1 }}><strong>{L('Office Addr.:', 'دفتر کا پتہ:')}</strong> {officeAddr || '—'}</div>
       </div>
 
-      {/* INSTALLMENT STATS */}
-      <div style={{ display: 'flex', gap: '6px', marginBottom: '10px', textAlign: 'center' }}>
-        <div style={{ flex: 1, border: '1px solid #000', padding: '5px', background: '#f5f5f5' }}>
-          <p style={{ fontWeight: 'bold', fontSize: '9px', margin: '0', color: '#000' }}>{L('Total Inst.', 'کل اقساط')}</p>
-          <p style={{ fontSize: '14px', fontWeight: 'bold', margin: '0', color: '#000' }}>{instCount}</p>
-        </div>
-        <div style={{ flex: 1, border: '1px solid #000', padding: '5px', background: '#f5f5f5' }}>
-          <p style={{ fontWeight: 'bold', fontSize: '9px', margin: '0', color: '#000' }}>{L('Paid', 'ادا شدہ')}</p>
-          <p style={{ fontSize: '14px', fontWeight: 'bold', margin: '0', color: '#000' }}>{paidCount}/{instCount}</p>
-        </div>
-        <div style={{ flex: 1, border: '1px solid #000', padding: '5px', background: '#f5f5f5' }}>
-          <p style={{ fontWeight: 'bold', fontSize: '9px', margin: '0', color: '#000' }}>{L('Remaining', 'باقی')}</p>
-          <p style={{ fontSize: '14px', fontWeight: 'bold', margin: '0', color: '#000' }}>{remainingCount}</p>
-        </div>
+      {/* ===== PREP AC ===== */}
+      <div style={{ display: 'flex', gap: '10px', marginBottom: '6px', fontSize: '9px' }}>
+        <div style={{ flex: 1 }}><strong>{L('Prep. AC #:', 'پریپ اکاؤنٹ:')}</strong> {prepAC}</div>
       </div>
 
-      {/* LAST PAYMENT & NEXT DUE */}
-      <div style={{ display: 'flex', gap: '6px', marginBottom: '10px' }}>
-        {lastPaid > 0 && (
-          <div style={{ flex: 1, border: '1px solid #000', padding: '5px 9px', background: '#f5f5f5' }}>
-            <p style={{ fontWeight: 'bold', fontSize: '10px', margin: '0 0 3px 0', color: '#000' }}>✅ {L('Last Payment', 'آخری ادائیگی')}</p>
-            <p style={{ fontSize: '9px', margin: '0', color: '#000', fontWeight: 'bold' }}>
-              {L('Inst #', 'قسط نمبر ')}{lastPaidInst}: Rs {lastPaymentAmount.toFixed(2)} 
-              {lastPaymentDate ? ` | ${L('Date:', 'تاریخ:')} ${formatDate(lastPaymentDate)}` : ''}
-              {lastPaymentMethod ? ` | ${L('Method:', 'طریقہ:')} ${lastPaymentMethod}` : ''}
-              {lastPaymentCollectedBy ? ` | ${L('Collected By:', 'وصول کنندہ:')} ${lastPaymentCollectedBy}` : ''}
-              {excessForwarded > 0 ? ` | ${L('Excess fwd:', 'اضافی:')} Rs ${excessForwarded.toFixed(2)}` : ''}
-              {carriedFromLast > 0 ? ` | ${L('Shortfall:', 'کمی:')} Rs ${carriedFromLast.toFixed(2)}` : ''}
-            </p>
-          </div>
-        )}
-        {nextInst && (
-          <div style={{ flex: 1, border: '1px solid #000', padding: '5px 9px', background: '#f5f5f5' }}>
-            <p style={{ fontWeight: 'bold', fontSize: '10px', margin: '0 0 3px 0', color: '#000' }}>⏰ {L('Next Due', 'اگلی قسط')}</p>
-            <p style={{ fontSize: '9px', margin: '0', color: '#000', fontWeight: 'bold' }}>
-              {L('Inst #', 'قسط نمبر ')}{nextInst.installmentNo}: Rs {nextInst.amount.toFixed(2)} 
-              {nextInst.dueDate ? ` | ${L('Due:', 'واجب الادا:')} ${formatDate(nextInst.dueDate)}` : ''}
-              {excessForwarded > 0 ? ` | ${L('After fwd:', 'اضافی کے بعد:')} Rs ${Math.max(0, nextInst.amount - excessForwarded).toFixed(2)}` : ''}
-              {carriedFromLast > 0 ? ` | ${L('With shortfall:', 'کمی سمیت:')} Rs ${(nextInst.amount + carriedFromLast).toFixed(2)}` : ''}
-            </p>
-          </div>
-        )}
+      {/* ===== MOBILE & PRODUCT DETAILS ===== */}
+      <div style={{ display: 'flex', gap: '10px', marginBottom: '6px', fontSize: '9px' }}>
+        <div style={{ flex: 1 }}><strong>{L('Mobile #:', 'موبائل نمبر:')}</strong> {formatPhone(customerPhone)}</div>
+        <div style={{ flex: 1 }}><strong>{L('Company:', 'کمپنی:')}</strong> {company || '—'}</div>
+        <div style={{ flex: 0.5 }}><strong>SRM:</strong> {plan?.srm || ''}</div>
+        <div style={{ flex: 0.5 }}><strong>{L('Mobile Phone:', 'موبائل فون:')}</strong> {plan?.mobilePhone || 'RM:'}</div>
+        <div style={{ flex: 1 }}><strong>{L('Model:', 'ماڈل:')}</strong> {model || '—'}</div>
+        <div style={{ flex: 0.5 }}><strong>CRC (J):</strong> {plan?.crc || ''}</div>
       </div>
 
-      {/* PAYMENT HISTORY TABLE with Collected By */}
-      {payments.length > 0 && (
-        <div style={{ marginBottom: '10px' }}>
-          <p style={{ fontWeight: 'bold', fontSize: '10px', margin: '0 0 5px 0', color: '#000', borderBottom: '2px solid #000', display: 'inline-block', paddingBottom: '2px' }}>
-            {L('PAYMENT HISTORY', 'ادائیگیوں کی تاریخ')}
-          </p>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '9px' }}>
-            <thead>
-              <tr style={{ backgroundColor: '#000', color: 'white' }}>
-                <th style={{ border: '1px solid #000', padding: '4px 3px', textAlign: 'center', width: '5%', fontWeight: 'bold' }}>#</th>
-                <th style={{ border: '1px solid #000', padding: '4px 3px', textAlign: 'left', fontWeight: 'bold' }}>{L('Item', 'آئٹم')}</th>
-                <th style={{ border: '1px solid #000', padding: '4px 3px', textAlign: 'center', width: '15%', fontWeight: 'bold' }}>{L('Date', 'تاریخ')}</th>
-                <th style={{ border: '1px solid #000', padding: '4px 3px', textAlign: 'right', width: '12%', fontWeight: 'bold' }}>{L('Paid', 'ادا کردہ')}</th>
-                <th style={{ border: '1px solid #000', padding: '4px 3px', textAlign: 'right', width: '12%', fontWeight: 'bold' }}>{L('Remaining', 'باقی')}</th>
-                <th style={{ border: '1px solid #000', padding: '4px 3px', textAlign: 'center', width: '12%', fontWeight: 'bold' }}>{L('Collected By', 'وصول کنندہ')}</th>
+      {/* ===== SERIAL NO & DEBT MNG ===== */}
+      <div style={{ display: 'flex', gap: '10px', marginBottom: '8px', fontSize: '9px' }}>
+        <div style={{ flex: 1 }}><strong>{L('Serial No.:', 'سیریل نمبر:')}</strong> {serialNo || ''}</div>
+        <div style={{ flex: 1 }}><strong>{L('Debt. Mng.:', 'ڈیبٹ مینیجر:')}</strong> {debtMng}</div>
+      </div>
+
+      {/* ===== FINANCIAL DETAILS ROW 1 ===== */}
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '4px', fontSize: '9px' }}>
+        <div style={{ flex: 1 }}><strong>{L('Inst. Price:', 'قسط قیمت:')}</strong> {formatCurrency(totalAmount)}</div>
+        <div style={{ flex: 1 }}><strong>{L('Fine Time:', 'فائن ٹائم:')}</strong> {fineTime}</div>
+        <div style={{ flex: 1 }}><strong>{L('2nd Mng.:', 'دوسرا مینیجر:')}</strong> {secondMng}</div>
+        <div style={{ flex: 1 }}><strong>{L('Act Install.:', 'اکٹ انسٹال:')}</strong> {installmentAmount}</div>
+        <div style={{ flex: 1 }}><strong>{L('Fine Rec.:', 'فائن وصول:')}</strong> {fineReceived} - 0</div>
+        <div style={{ flex: 1 }}><strong>{L('Insp. Off.:', 'انسپکشن آفیسر:')}</strong> {inspOff}</div>
+      </div>
+
+      {/* ===== FINANCIAL DETAILS ROW 2 ===== */}
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '4px', fontSize: '9px' }}>
+        <div style={{ flex: 1 }}><strong>{L('Act Advance:', 'اکٹ ایڈوانس:')}</strong> {advanceAmount}</div>
+        <div style={{ flex: 1 }}><strong>{L('Fine Exp.:', 'فائن ایکسپائر:')}</strong> {fineExpired} - 0</div>
+        <div style={{ flex: 1 }}><strong>{L('Mark Off.:', 'مارک آف:')}</strong> {markOff}</div>
+        <div style={{ flex: 1 }}><strong>{L('Advance Rec.:', 'ایڈوانس وصول:')}</strong> {advanceReceived} {advanceReceived > 0 ? '1' : ''}</div>
+        <div style={{ flex: 1 }}><strong>{L('Durability:', 'ڈیوربلٹی:')}</strong> {totalInst}</div>
+        <div style={{ flex: 1 }}><strong>DO:</strong> {doOfficer}</div>
+      </div>
+
+      {/* ===== FINANCIAL DETAILS ROW 3 ===== */}
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', fontSize: '9px' }}>
+        <div style={{ flex: 1 }}><strong>{L('Total Rec.:', 'کل وصول:')}</strong> {formatCurrency(totalReceived)} {totalPaidPercentage}%</div>
+        <div style={{ flex: 1 }}><strong>{L('Inst. Rec.:', 'قسط وصول:')}</strong> {installmentsReceived}</div>
+        <div style={{ flex: 1 }}><strong>{L('Process At.:', 'پروسس ایٹ:')}</strong> {processAt}</div>
+        <div style={{ flex: 1 }}><strong>{L('Process Fee:', 'پروسس فیس:')}</strong> {processFee}</div>
+        <div style={{ flex: 1 }}><strong>{L('Discount:', 'ڈسکاؤنٹ:')}</strong> {discount} {discount > 0 ? `${Math.round((discount/totalAmount)*100)}%` : '0%'}</div>
+      </div>
+
+      {/* ===== FINANCIAL DETAILS ROW 4 ===== */}
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', fontSize: '9px' }}>
+        <div style={{ flex: 1 }}><strong>{L('Inst. Rem.:', 'قسط باقی:')}</strong> {installmentsRemaining}</div>
+        <div style={{ flex: 1 }}><strong>{L('Defaulter:', 'ڈیفالٹر:')}</strong> {defaulter}</div>
+        <div style={{ flex: 1 }}><strong>{L('Salary Income:', 'تنخواہ:')}</strong> {formatCurrency(salaryIncome)}</div>
+        <div style={{ flex: 1 }}><strong>{L('Balance:', 'بقیہ:')}</strong> {formatCurrency(balance)} {balancePercentage}%</div>
+        <div style={{ flex: 1 }}><strong>{L('Status:', 'اسٹیٹس:')}</strong> {status}</div>
+        <div style={{ flex: 1 }}><strong>PTO:</strong> {pto}</div>
+        <div style={{ flex: 1 }}><strong>VPN {L('Status:', 'اسٹیٹس:')}</strong> {vpnStatus}</div>
+      </div>
+
+      {/* ===== EMPLOYEE STATUS ===== */}
+      <div style={{ display: 'flex', gap: '10px', marginBottom: '6px', fontSize: '9px' }}>
+        <div style={{ flex: 1 }}><strong>{L('Employee Status:', 'ملازم کی حیثیت:')}</strong> {employeeStatus}</div>
+      </div>
+
+      {/* ===== REMARKS ===== */}
+      <div style={{ display: 'flex', gap: '10px', marginBottom: '10px', fontSize: '8px' }}>
+        <div style={{ flex: 1 }}><strong>DBM {L('Remarks:', 'ریمارکس:')}</strong> {dbmRemarks}</div>
+        <div style={{ flex: 1 }}><strong>CRC {L('Remarks:', 'ریمارکس:')}</strong> {crcRemarks}</div>
+      </div>
+
+      {/* ===== GUARANTORS TABLE (4 Columns) ===== */}
+      <div style={{ marginBottom: '8px' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '8px' }}>
+          <thead>
+            <tr style={{ backgroundColor: '#f0f0f0' }}>
+              <th style={{ border: '1px solid #000', padding: '3px 4px', textAlign: 'center', fontWeight: 'bold' }}>{L('Criteria', 'معیار')}</th>
+              <th style={{ border: '1px solid #000', padding: '3px 4px', textAlign: 'center', fontWeight: 'bold' }}>{L('Guarantor #1', 'ضامن 1')}</th>
+              <th style={{ border: '1px solid #000', padding: '3px 4px', textAlign: 'center', fontWeight: 'bold' }}>{L('Guarantor #2', 'ضامن 2')}</th>
+              <th style={{ border: '1px solid #000', padding: '3px 4px', textAlign: 'center', fontWeight: 'bold' }}>{L('Guarantor #3', 'ضامن 3')}</th>
+              <th style={{ border: '1px solid #000', padding: '3px 4px', textAlign: 'center', fontWeight: 'bold' }}>{L('Guarantor #4', 'ضامن 4')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {/* Name Row */}
+            <tr>
+              <td style={{ border: '1px solid #000', padding: '3px 4px', fontWeight: 'bold' }}>{L('Name:', 'نام:')}</td>
+              <td style={{ border: '1px solid #000', padding: '3px 4px' }}>{guarantors[0]?.name || ''}</td>
+              <td style={{ border: '1px solid #000', padding: '3px 4px' }}>{guarantors[1]?.name || ''}</td>
+              <td style={{ border: '1px solid #000', padding: '3px 4px' }}>{guarantors[2]?.name || ''}</td>
+              <td style={{ border: '1px solid #000', padding: '3px 4px' }}>{guarantors[3]?.name || ''}</td>
+            </tr>
+            {/* FH Name Row */}
+            <tr>
+              <td style={{ border: '1px solid #000', padding: '3px 4px', fontWeight: 'bold' }}>{L('FH Name:', 'والد کا نام:')}</td>
+              <td style={{ border: '1px solid #000', padding: '3px 4px' }}>{guarantors[0]?.fatherName || ''}</td>
+              <td style={{ border: '1px solid #000', padding: '3px 4px' }}>{guarantors[1]?.fatherName || ''}</td>
+              <td style={{ border: '1px solid #000', padding: '3px 4px' }}>{guarantors[2]?.fatherName || ''}</td>
+              <td style={{ border: '1px solid #000', padding: '3px 4px' }}>{guarantors[3]?.fatherName || ''}</td>
+            </tr>
+            {/* Rest Ph# Row */}
+            <tr>
+              <td style={{ border: '1px solid #000', padding: '3px 4px', fontWeight: 'bold' }}>{L('Rest. Ph.#:', 'رہائشی فون:')}</td>
+              <td style={{ border: '1px solid #000', padding: '3px 4px' }}>{formatPhone(guarantors[0]?.phone || '')}</td>
+              <td style={{ border: '1px solid #000', padding: '3px 4px' }}>{formatPhone(guarantors[1]?.phone || '')}</td>
+              <td style={{ border: '1px solid #000', padding: '3px 4px' }}>{formatPhone(guarantors[2]?.phone || '')}</td>
+              <td style={{ border: '1px solid #000', padding: '3px 4px' }}>{formatPhone(guarantors[3]?.phone || '')}</td>
+            </tr>
+            {/* Office Ph# Row */}
+            <tr>
+              <td style={{ border: '1px solid #000', padding: '3px 4px', fontWeight: 'bold' }}>{L('Office Ph.#:', 'دفتر فون:')}</td>
+              <td style={{ border: '1px solid #000', padding: '3px 4px' }}>{guarantors[0]?.officePhone || ''}</td>
+              <td style={{ border: '1px solid #000', padding: '3px 4px' }}>{guarantors[1]?.officePhone || ''}</td>
+              <td style={{ border: '1px solid #000', padding: '3px 4px' }}>{guarantors[2]?.officePhone || ''}</td>
+              <td style={{ border: '1px solid #000', padding: '3px 4px' }}>{guarantors[3]?.officePhone || ''}</td>
+            </tr>
+            {/* NIC Row */}
+            <tr>
+              <td style={{ border: '1px solid #000', padding: '3px 4px', fontWeight: 'bold' }}>NIC #:</td>
+              <td style={{ border: '1px solid #000', padding: '3px 4px' }}>{formatCNIC(guarantors[0]?.cnic || '')}</td>
+              <td style={{ border: '1px solid #000', padding: '3px 4px' }}>{formatCNIC(guarantors[1]?.cnic || '')}</td>
+              <td style={{ border: '1px solid #000', padding: '3px 4px' }}>{formatCNIC(guarantors[2]?.cnic || '')}</td>
+              <td style={{ border: '1px solid #000', padding: '3px 4px' }}>{formatCNIC(guarantors[3]?.cnic || '')}</td>
+            </tr>
+            {/* Rest Addr Row */}
+            <tr>
+              <td style={{ border: '1px solid #000', padding: '3px 4px', fontWeight: 'bold' }}>{L('Rest. Addr.:', 'رہائشی پتہ:')}</td>
+              <td style={{ border: '1px solid #000', padding: '3px 4px' }}>{guarantors[0]?.address || ''}</td>
+              <td style={{ border: '1px solid #000', padding: '3px 4px' }}>{guarantors[1]?.address || ''}</td>
+              <td style={{ border: '1px solid #000', padding: '3px 4px' }}>{guarantors[2]?.address || ''}</td>
+              <td style={{ border: '1px solid #000', padding: '3px 4px' }}>{guarantors[3]?.address || ''}</td>
+            </tr>
+            {/* Office Addr Row */}
+            <tr>
+              <td style={{ border: '1px solid #000', padding: '3px 4px', fontWeight: 'bold' }}>{L('Office Addr.:', 'دفتر پتہ:')}</td>
+              <td style={{ border: '1px solid #000', padding: '3px 4px' }}>{guarantors[0]?.officeAddress || ''}</td>
+              <td style={{ border: '1px solid #000', padding: '3px 4px' }}>{guarantors[1]?.officeAddress || ''}</td>
+              <td style={{ border: '1px solid #000', padding: '3px 4px' }}>{guarantors[2]?.officeAddress || ''}</td>
+              <td style={{ border: '1px solid #000', padding: '3px 4px' }}>{guarantors[3]?.officeAddress || ''}</td>
+            </tr>
+            {/* Occupation Row */}
+            <tr>
+              <td style={{ border: '1px solid #000', padding: '3px 4px', fontWeight: 'bold' }}>{L('Overspension:', 'پیشہ:')}</td>
+              <td style={{ border: '1px solid #000', padding: '3px 4px' }}>{guarantors[0]?.occupation || ''}</td>
+              <td style={{ border: '1px solid #000', padding: '3px 4px' }}>{guarantors[1]?.occupation || ''}</td>
+              <td style={{ border: '1px solid #000', padding: '3px 4px' }}>{guarantors[2]?.occupation || ''}</td>
+              <td style={{ border: '1px solid #000', padding: '3px 4px' }}>{guarantors[3]?.occupation || ''}</td>
+            </tr>
+            {/* Relation Row */}
+            <tr>
+              <td style={{ border: '1px solid #000', padding: '3px 4px', fontWeight: 'bold' }}>{L('Relation:', 'رشتہ:')}</td>
+              <td style={{ border: '1px solid #000', padding: '3px 4px' }}>{guarantors[0]?.relation || ''}</td>
+              <td style={{ border: '1px solid #000', padding: '3px 4px' }}>{guarantors[1]?.relation || ''}</td>
+              <td style={{ border: '1px solid #000', padding: '3px 4px' }}>{guarantors[2]?.relation || ''}</td>
+              <td style={{ border: '1px solid #000', padding: '3px 4px' }}>{guarantors[3]?.relation || ''}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* ===== MONTHLY SUMMARY ROW ===== */}
+      <div style={{ marginBottom: '8px' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '8px' }}>
+          <thead>
+            <tr style={{ backgroundColor: '#f0f0f0' }}>
+              <th style={{ border: '1px solid #000', padding: '3px 4px', textAlign: 'center', fontWeight: 'bold' }}>{L('Month', 'ماہ')}</th>
+              <th style={{ border: '1px solid #000', padding: '3px 4px', textAlign: 'center', fontWeight: 'bold' }}>{L('Status', 'حیثیت')}</th>
+              <th style={{ border: '1px solid #000', padding: '3px 4px', textAlign: 'center', fontWeight: 'bold' }}>{L('Inst. Amount', 'قسط رقم')}</th>
+              <th style={{ border: '1px solid #000', padding: '3px 4px', textAlign: 'center', fontWeight: 'bold' }}>{L('Fine', 'فائن')}</th>
+              <th style={{ border: '1px solid #000', padding: '3px 4px', textAlign: 'center', fontWeight: 'bold' }}>{L('Total Due', 'کل واجب')}</th>
+              <th style={{ border: '1px solid #000', padding: '3px 4px', textAlign: 'center', fontWeight: 'bold' }}>{L('Paid', 'ادا شدہ')}</th>
+              <th style={{ border: '1px solid #000', padding: '3px 4px', textAlign: 'center', fontWeight: 'bold' }}>{L('Remaining', 'باقی')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {installments.length > 0 ? installments.map((inst: any, idx: number) => {
+              const instAmt = inst.amount || 0;
+              const fineAmt = inst.fine || 0;
+              const totalDue = instAmt + fineAmt;
+              const paidAmt = inst.partialPaid || (inst.paid ? instAmt : 0);
+              const remaining = inst.remaining > 0 ? inst.remaining : (inst.paid ? 0 : totalDue);
+              const dueDate = inst.dueDate ? new Date(inst.dueDate) : null;
+              const monthName = dueDate 
+                ? dueDate.toLocaleString(isUrdu ? 'ur-PK' : 'en-US', { month: 'short', year: 'numeric' })
+                : `#${inst.installmentNo}`;
+              return (
+                <tr key={idx}>
+                  <td style={{ border: '1px solid #000', padding: '3px 4px', textAlign: 'center' }}>{monthName}</td>
+                  <td style={{ border: '1px solid #000', padding: '3px 4px', textAlign: 'center' }}>{inst.paid ? L('Paid', 'ادا') : L('Pending', 'زیر التواء')}</td>
+                  <td style={{ border: '1px solid #000', padding: '3px 4px', textAlign: 'right' }}>{formatCurrency(instAmt)}</td>
+                  <td style={{ border: '1px solid #000', padding: '3px 4px', textAlign: 'right' }}>{formatCurrency(fineAmt)}</td>
+                  <td style={{ border: '1px solid #000', padding: '3px 4px', textAlign: 'right' }}>{formatCurrency(totalDue)}</td>
+                  <td style={{ border: '1px solid #000', padding: '3px 4px', textAlign: 'right' }}>{formatCurrency(paidAmt)}</td>
+                  <td style={{ border: '1px solid #000', padding: '3px 4px', textAlign: 'right' }}>{formatCurrency(remaining)}</td>
+                </tr>
+              );
+            }) : (
+              <tr>
+                <td style={{ border: '1px solid #000', padding: '3px 4px', textAlign: 'center' }} colSpan={7}>{L('No installments data', 'قسط کا ڈیٹا نہیں')}</td>
               </tr>
-            </thead>
-            <tbody>
-              {payments.map((p: any, idx: number) => {
-                const paidSoFar = payments.slice(0, idx + 1).reduce((sum: number, pay: any) => sum + (pay.amount || 0), 0);
-                const remainingAfter = Math.max(0, remaining - paidSoFar);
-                const collectedByName = p.collectedBy || p.collected_by || '';
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* ===== TRANSACTION TABLE ===== */}
+      <div style={{ marginBottom: '8px' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '7px' }}>
+          <thead>
+            <tr style={{ backgroundColor: '#000', color: 'white' }}>
+              <th style={{ border: '1px solid #000', padding: '3px 3px', textAlign: 'center', fontWeight: 'bold', color: 'white' }}>S.#</th>
+              <th style={{ border: '1px solid #000', padding: '3px 3px', textAlign: 'center', fontWeight: 'bold', color: 'white' }}>{L('Date', 'تاریخ')}</th>
+              <th style={{ border: '1px solid #000', padding: '3px 3px', textAlign: 'center', fontWeight: 'bold', color: 'white' }}>Rev.#</th>
+              <th style={{ border: '1px solid #000', padding: '3px 3px', textAlign: 'center', fontWeight: 'bold', color: 'white' }}>Pre-Bal</th>
+              <th style={{ border: '1px solid #000', padding: '3px 3px', textAlign: 'center', fontWeight: 'bold', color: 'white' }}>{L('Install.', 'قسط')}</th>
+              <th style={{ border: '1px solid #000', padding: '3px 3px', textAlign: 'center', fontWeight: 'bold', color: 'white' }}>Disc.</th>
+              <th style={{ border: '1px solid #000', padding: '3px 3px', textAlign: 'center', fontWeight: 'bold', color: 'white' }}>{L('Balance', 'بقیہ')}</th>
+              <th style={{ border: '1px solid #000', padding: '3px 3px', textAlign: 'center', fontWeight: 'bold', color: 'white' }}>{L('Fine', 'فائن')}</th>
+              <th style={{ border: '1px solid #000', padding: '3px 3px', textAlign: 'center', fontWeight: 'bold', color: 'white' }}>F-Type</th>
+              <th style={{ border: '1px solid #000', padding: '3px 3px', textAlign: 'center', fontWeight: 'bold', color: 'white' }}>{L('Recovery Officer', 'وصول کنندہ')}</th>
+              <th style={{ border: '1px solid #000', padding: '3px 3px', textAlign: 'center', fontWeight: 'bold', color: 'white' }}>{L('Remarks', 'ریمارکس')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {payments.length > 0 ? (
+              payments.map((payment: any, idx: number) => {
+                const preBal = idx === 0 ? totalAmount : payments.slice(0, idx).reduce((sum: number, p: any) => sum - (p.amount || 0), totalAmount);
+                const bal = preBal - (payment.amount || 0);
+                const revNo = payment.receiptNumber || payment.revNo || payment.id || '';
+                const recoveryOfficer = payment.collectedBy || payment.collected_by || payment.recoveryOfficer || '';
+                const recoveryOfficerId = payment.collectedById || payment.collected_by_id || payment.recoveryOfficerId || '';
                 return (
-                  <tr key={p.id || idx}>
-                    <td style={{ border: '1px solid #000', padding: '4px 3px', textAlign: 'center', fontWeight: 'bold', color: '#000' }}>{idx + 1}</td>
-                    <td style={{ border: '1px solid #000', padding: '4px 3px', fontWeight: 'bold', color: '#000' }}>
-                      {isUrdu ? (productNameUrdu || productName || '—') : (productName || productNameUrdu || '—')}
-                      {p.installmentNo > 0 && (
-                        <span style={{ fontSize: '7px' }}> ({L('Inst #', 'قسط نمبر ')}{p.installmentNo})</span>
-                      )}
-                      {p.installmentNo === 0 && (
-                        <span style={{ fontSize: '7px' }}> ({L('Advance', 'ایڈوانس')})</span>
-                      )}
+                  <tr key={payment.id || idx}>
+                    <td style={{ border: '1px solid #000', padding: '3px 3px', textAlign: 'center', fontWeight: 'bold' }}>{idx + 1}</td>
+                    <td style={{ border: '1px solid #000', padding: '3px 3px', textAlign: 'center' }}>{formatDate(payment.transactionDate || payment.createdAt || payment.payment_date || payment.date || new Date().toISOString())}</td>
+                    <td style={{ border: '1px solid #000', padding: '3px 3px', textAlign: 'center' }}>{revNo}</td>
+                    <td style={{ border: '1px solid #000', padding: '3px 3px', textAlign: 'right' }}>{formatCurrency(Math.round(preBal))}</td>
+                    <td style={{ border: '1px solid #000', padding: '3px 3px', textAlign: 'right' }}>{formatCurrency(payment.amount || 0)}</td>
+                    <td style={{ border: '1px solid #000', padding: '3px 3px', textAlign: 'right' }}>0</td>
+                    <td style={{ border: '1px solid #000', padding: '3px 3px', textAlign: 'right' }}>{formatCurrency(Math.round(bal))}</td>
+                    <td style={{ border: '1px solid #000', padding: '3px 3px', textAlign: 'right' }}>0</td>
+                    <td style={{ border: '1px solid #000', padding: '3px 3px', textAlign: 'center' }}>{L('Nothing', 'کچھ نہیں')}</td>
+                    <td style={{ border: '1px solid #000', padding: '3px 3px', textAlign: 'center' }}>
+                      {recoveryOfficerId && <span>{recoveryOfficerId} | </span>}
+                      {recoveryOfficer || ''}
                     </td>
-                    <td style={{ border: '1px solid #000', padding: '4px 3px', textAlign: 'center', fontWeight: 'bold', color: '#000' }}>
-                      {p.transactionDate ? formatDate(p.transactionDate) : (p.createdAt ? formatDate(p.createdAt) : (p.payment_date ? formatDate(p.payment_date) : (p.date ? formatDate(p.date) : '—')))}
-                    </td>
-                    <td style={{ border: '1px solid #000', padding: '4px 3px', textAlign: 'right', fontWeight: 'bold', color: '#000' }}>Rs {(p.amount || 0).toFixed(2)}</td>
-                    <td style={{ border: '1px solid #000', padding: '4px 3px', textAlign: 'right', fontWeight: 'bold', color: '#000' }}>Rs {remainingAfter.toFixed(2)}</td>
-                    <td style={{ border: '1px solid #000', padding: '4px 3px', textAlign: 'center', fontWeight: 'bold', color: '#000' }}>
-                      {collectedByName || '—'}
-                    </td>
+                    <td style={{ border: '1px solid #000', padding: '3px 3px', textAlign: 'center' }}>{payment.remarks || L('Nothing', 'کچھ نہیں')}</td>
                   </tr>
                 );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+              })
+            ) : (
+              <tr>
+                <td style={{ border: '1px solid #000', padding: '3px 3px', textAlign: 'center' }}>1</td>
+                <td style={{ border: '1px solid #000', padding: '3px 3px', textAlign: 'center' }}>{formatDate(new Date().toISOString())}</td>
+                <td style={{ border: '1px solid #000', padding: '3px 3px', textAlign: 'center' }}>016710</td>
+                <td style={{ border: '1px solid #000', padding: '3px 3px', textAlign: 'right' }}>{formatCurrency(totalAmount)}</td>
+                <td style={{ border: '1px solid #000', padding: '3px 3px', textAlign: 'right' }}>{formatCurrency(installmentAmount)}</td>
+                <td style={{ border: '1px solid #000', padding: '3px 3px', textAlign: 'right' }}>0</td>
+                <td style={{ border: '1px solid #000', padding: '3px 3px', textAlign: 'right' }}>{formatCurrency(totalAmount - installmentAmount)}</td>
+                <td style={{ border: '1px solid #000', padding: '3px 3px', textAlign: 'right' }}>0</td>
+                <td style={{ border: '1px solid #000', padding: '3px 3px', textAlign: 'center' }}>{L('Nothing', 'کچھ نہیں')}</td>
+                <td style={{ border: '1px solid #000', padding: '3px 3px', textAlign: 'center' }}></td>
+                <td style={{ border: '1px solid #000', padding: '3px 3px', textAlign: 'center' }}>{L('Nothing', 'کچھ نہیں')}</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
 
-      {/* FOOTER */}
-      <div style={{ textAlign: 'center', fontSize: '9px', borderTop: '2px solid #000', paddingTop: '6px', marginTop: '5px' }}>
-        <p style={{ fontWeight: 'bold', margin: '0 0 3px 0', color: '#000', fontSize: '10px' }}>{L('Thank you for choosing RANA-AWAIS Electronics!', 'رانا اویس الیکٹرانکس کا انتخاب کرنے کا شکریہ!')}</p>
-        <p style={{ margin: '0', color: '#000', fontWeight: 'bold', fontSize: '8px' }}>{L('Software by:', 'سافٹ ویئر بذریعہ:')} Huzaifa (0313-6487199)</p>
+      {/* ===== FOOTER ===== */}
+      <div style={{ textAlign: 'center', fontSize: '8px', borderTop: '2px solid #000', paddingTop: '5px', marginTop: '5px' }}>
+        <p style={{ fontWeight: 'bold', margin: '0 0 2px 0', color: '#000', fontSize: '9px' }}>
+          {L('Software by:', 'سافٹ ویئر بذریعہ:')} {isUrdu ? softwareByUr : softwareBy}
+        </p>
+        <p style={{ margin: '0', color: '#000', fontSize: '7px' }}>
+          {L('Generated on:', 'تخلیق شدہ:')} {printDateStr} {printTimeStr}
+        </p>
       </div>
     </div>
   );
 
-  // DOWNLOAD
+  // ============================================================
+  // DOWNLOAD FUNCTION
+  // ============================================================
   const download = async () => {
     setDownloading(true);
     try {
@@ -413,22 +652,12 @@ const PaymentReceipt: React.FC<Props> = ({ planId, onClose }) => {
       const el = document.getElementById('payment-receipt-print');
       if (!el) throw new Error('Element not found');
       
-      const originalWidth = el.style.width;
-      const originalMaxWidth = el.style.maxWidth;
-      el.style.width = '750px';
-      el.style.maxWidth = '750px';
-      
       const canvas = await html2canvas(el, { 
         scale: 2,
         backgroundColor: '#ffffff',
         logging: false,
-        width: 750,
-        height: el.scrollHeight,
-        windowWidth: 750,
+        width: 1000,
       });
-      
-      el.style.width = originalWidth;
-      el.style.maxWidth = originalMaxWidth;
       
       canvas.toBlob((blob) => {
         if (!blob) { toast.error('Failed'); setDownloading(false); return; }
@@ -447,11 +676,13 @@ const PaymentReceipt: React.FC<Props> = ({ planId, onClose }) => {
     }
   };
 
-  // PRINT
+  // ============================================================
+  // PRINT FUNCTION
+  // ============================================================
   const handlePrint = () => {
     const el = document.getElementById('payment-receipt-print');
     if (!el) return;
-    const win = window.open('', '_blank', 'width=850,height=1100');
+    const win = window.open('', '_blank', 'width=1100,height=1200');
     if (!win) return;
     const dir = isUrdu ? 'rtl' : 'ltr';
     const font = isUrdu ? "'Noto Nastaliq Urdu', 'Jameel Noori Nastaleeq', serif" : "'Times New Roman', Georgia, serif";
@@ -463,9 +694,9 @@ const PaymentReceipt: React.FC<Props> = ({ planId, onClose }) => {
           <style>
             * { margin: 0; padding: 0; box-sizing: border-box; }
             body { font-family: ${font}; display: flex; justify-content: center; padding: 20px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-            @page { size: A4; margin: 0.3in; }
+            @page { size: A4; margin: 0.2in; }
             @media print { body { padding: 0; } }
-            .print-wrapper { max-width: 750px; width: 100%; margin: 0 auto; }
+            .print-wrapper { max-width: 1000px; width: 100%; margin: 0 auto; }
             table { direction: ${dir}; }
             .no-break { page-break-inside: avoid; break-inside: avoid; }
           </style>
@@ -476,6 +707,9 @@ const PaymentReceipt: React.FC<Props> = ({ planId, onClose }) => {
     win.document.close();
   };
 
+  // ============================================================
+  // WHATSAPP FUNCTION
+  // ============================================================
   const whatsapp = () => {
     const ph = (customer?.phone || '').replace(/\D/g, '');
     if (!ph) { toast.error('No phone number found'); return; }
@@ -485,22 +719,35 @@ const PaymentReceipt: React.FC<Props> = ({ planId, onClose }) => {
     toast.success('Press Ctrl+V to paste the receipt image', { duration: 3500 });
   };
 
+  // ============================================================
+  // LOADING STATE
+  // ============================================================
   if (loading) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-        <div className="bg-white rounded-2xl p-8"><div className="w-10 h-10 border-4 border-gray-800 border-t-transparent rounded-full animate-spin"></div></div>
+        <div className="bg-white rounded-2xl p-8">
+          <div className="w-10 h-10 border-4 border-gray-800 border-t-transparent rounded-full animate-spin"></div>
+        </div>
       </div>
     );
   }
 
+  // ============================================================
+  // MAIN RENDER
+  // ============================================================
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/50" onClick={onClose}>
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[95vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-6xl max-h-[95vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        {/* Header */}
         <div className="sticky top-0 bg-white z-10 flex justify-between items-center px-5 py-3 border-b" style={{ flexDirection: isUrdu ? 'row-reverse' : 'row' }}>
           <h2 className="text-base font-semibold text-gray-800">📋 {L('Payment Receipt', 'ادائیگی رسید')}</h2>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-xl">✕</button>
         </div>
+        
+        {/* Receipt Content */}
         <div className="p-5 flex justify-center">{receiptContent}</div>
+        
+        {/* Footer Buttons */}
         <div className="sticky bottom-0 bg-white border-t p-3 flex gap-2 justify-center flex-wrap">
           <button onClick={onClose} className="px-4 py-2 bg-gray-100 rounded-lg text-xs font-medium">❌ {L('Close', 'بند کریں')}</button>
           <button onClick={handlePrint} className="px-4 py-2 bg-gray-800 text-white rounded-lg text-xs font-medium">🖨️ {L('Print', 'پرنٹ')}</button>

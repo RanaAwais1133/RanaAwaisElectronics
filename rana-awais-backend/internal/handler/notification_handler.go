@@ -24,6 +24,7 @@ func (h *NotificationHandler) TriggerReminders(w http.ResponseWriter, r *http.Re
 	}
 	respondJSON(w, http.StatusOK, map[string]string{"status": "reminders sent"})
 }
+
 func (h *NotificationHandler) SendSingle(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		CustomerID        string `json:"customerId"`

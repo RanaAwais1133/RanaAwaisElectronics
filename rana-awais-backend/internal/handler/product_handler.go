@@ -27,7 +27,6 @@ func (h *ProductHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ✅ Allow either English or Urdu name
 	if p.Name == "" && p.NameUrdu == "" {
 		respondError(w, r, http.StatusBadRequest, "Name is required", "نام ضروری ہے")
 		return
@@ -39,7 +38,6 @@ func (h *ProductHandler) Create(w http.ResponseWriter, r *http.Request) {
 		p.NameUrdu = p.Name
 	}
 
-	// ✅ Auto-fill company
 	if p.Company == "" && p.CompanyUrdu != "" {
 		p.Company = p.CompanyUrdu
 	}
@@ -86,7 +84,6 @@ func (h *ProductHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ✅ Auto-fill Name/NameUrdu
 	if input.Name != "" || input.NameUrdu != "" {
 		if input.Name != "" {
 			existing.Name = input.Name
@@ -94,7 +91,6 @@ func (h *ProductHandler) Update(w http.ResponseWriter, r *http.Request) {
 		if input.NameUrdu != "" {
 			existing.NameUrdu = input.NameUrdu
 		}
-		// Auto-fill if one is empty
 		if existing.Name == "" {
 			existing.Name = existing.NameUrdu
 		}
@@ -102,7 +98,6 @@ func (h *ProductHandler) Update(w http.ResponseWriter, r *http.Request) {
 			existing.NameUrdu = existing.Name
 		}
 	}
-	// ✅ Auto-fill Company/CompanyUrdu
 	if input.Company != "" || input.CompanyUrdu != "" {
 		if input.Company != "" {
 			existing.Company = input.Company
@@ -129,9 +124,9 @@ func (h *ProductHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if input.Description != "" {
 		existing.Description = input.Description
 	}
-	// ✅ InStock auto-calculate based on stock count (frontend no longer sends this)
-	// Only update if explicitly provided in the request body
-	// We'll keep existing.InStock as-is since frontend doesn't send it anymore
+	if input.SKU != "" {
+		existing.SKU = input.SKU
+	}
 
 	if err := h.svc.Update(r.Context(), id, existing); err != nil {
 		respondError(w, r, http.StatusInternalServerError, "Update failed", "اپڈیٹ ناکام")

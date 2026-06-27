@@ -57,3 +57,14 @@ func (s *ProductService) Count(ctx context.Context) (int64, error) {
 func (s *ProductService) ListByCategory(ctx context.Context, cat string) ([]domain.Product, error) {
 	return s.repo.ListByCategory(ctx, cat)
 }
+
+// ✅ NEW: Update stock count
+func (s *ProductService) UpdateStock(ctx context.Context, productID primitive.ObjectID, quantity int) error {
+	product, err := s.repo.GetByID(ctx, productID)
+	if err != nil || product == nil {
+		return errors.New("product not found")
+	}
+	product.StockCount = quantity
+	product.InStock = quantity > 0
+	return s.repo.Update(ctx, productID, product)
+}

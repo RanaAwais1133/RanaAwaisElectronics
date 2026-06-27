@@ -16,6 +16,19 @@ type Customer struct {
 	CNICImage    string               `bson:"cnic_image,omitempty" json:"cnicImage,omitempty"`
 	Address      string               `bson:"address" json:"address"`
 	AddressUrdu  string               `bson:"address_urdu" json:"addressUrdu"`
+	
+	// ✅ NEW: Fields for receipt matching image
+	Residential     string `bson:"residential,omitempty" json:"residential,omitempty"`         // "Personal"
+	Occupant        string `bson:"occupant,omitempty" json:"occupant,omitempty"`               // "Own"
+	ResidentialAddress string `bson:"residential_address,omitempty" json:"residentialAddress,omitempty"`
+	OfficeAddress   string `bson:"office_address,omitempty" json:"officeAddress,omitempty"`
+	AccountNo       string `bson:"account_no,omitempty" json:"accountNo,omitempty"`
+	CostNo          string `bson:"cost_no,omitempty" json:"costNo,omitempty"`
+	ProcessNo       string `bson:"process_no,omitempty" json:"processNo,omitempty"`
+	ReprAsCost      string `bson:"repr_as_cost,omitempty" json:"reprAsCost,omitempty"`
+	ReprAsGar       string `bson:"repr_as_gar,omitempty" json:"reprAsGar,omitempty"`
+	PrepAC          string `bson:"prep_ac,omitempty" json:"prepAC,omitempty"`
+	
 	GuarantorIDs []primitive.ObjectID `bson:"guarantor_ids,omitempty" json:"guarantorIds"`
 	CreatedAt    time.Time            `bson:"created_at" json:"createdAt"`
 	UpdatedAt    time.Time            `bson:"updated_at" json:"updatedAt"`

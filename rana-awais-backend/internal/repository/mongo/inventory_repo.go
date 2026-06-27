@@ -83,7 +83,7 @@ func (r *InventoryRepository) GetBySerial(ctx context.Context, serial string) (*
 func (r *InventoryRepository) GetAgeingReport(ctx context.Context, olderThanDays int) ([]domain.InventoryItem, error) {
 	cutoff := time.Now().AddDate(0, 0, -olderThanDays)
 	filter := bson.M{
-		"status":        "in_stock",
+		"status": "in_stock",
 		"purchase_date": bson.M{"$lt": cutoff},
 	}
 	cursor, err := r.coll.Find(ctx, filter)
@@ -97,6 +97,7 @@ func (r *InventoryRepository) GetAgeingReport(ctx context.Context, olderThanDays
 	}
 	return items, nil
 }
+
 func (r *InventoryRepository) Count(ctx context.Context) (int64, error) {
 	return r.coll.CountDocuments(ctx, bson.M{})
 }

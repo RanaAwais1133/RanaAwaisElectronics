@@ -109,18 +109,19 @@ func (r *InstallmentRepository) AddPaymentDetail(ctx context.Context, planID pri
 	filter := bson.M{"_id": planID, "installments.installment_no": installmentNo}
 	update := bson.M{
 		"$set": bson.M{
-			"installments.$.paid":         payment.Paid,
-			"installments.$.paid_date":    payment.PaidDate,
-			"installments.$.fine":         payment.Fine,
-			"installments.$.partial_paid": payment.PartialPaid,
-			"installments.$.remaining":    payment.Remaining,
-			"installments.$.collected_by": payment.CollectedBy,
+			"installments.$.paid":            payment.Paid,
+			"installments.$.paid_date":       payment.PaidDate,
+			"installments.$.fine":            payment.Fine,
+			"installments.$.partial_paid":    payment.PartialPaid,
+			"installments.$.remaining":       payment.Remaining,
+			"installments.$.collected_by":    payment.CollectedBy,
+			"installments.$.collected_by_id": payment.CollectedById,
+			"installments.$.remarks":         payment.Remarks,
 		},
 	}
 	_, err := r.coll.UpdateOne(ctx, filter, update)
 	return err
 }
-
 
 func (r *InstallmentRepository) UpdateInstallmentStatus(ctx context.Context, planID primitive.ObjectID, installmentNo int, paid bool, paidDate *time.Time) error {
 	filter := bson.M{"_id": planID, "installments.installment_no": installmentNo}
@@ -132,4 +133,65 @@ func (r *InstallmentRepository) UpdateInstallmentStatus(ctx context.Context, pla
 	}
 	_, err := r.coll.UpdateOne(ctx, filter, update)
 	return err
+}
+
+// ✅ NEW: Get plans with due date in range
+func (r *InstallmentRepository) GetPlansWithDueDateRange(ctx context.Context, start, end time.Time) ([]domain.InstallmentPlan, error) {
+	filter := bson.M{
+		"installments": bson.M{
+			"$elemMatch": bson.M{
+				"due_date": bson.M{
+					"$gte": start,
+					"$lte": end,
+				},
+				"paid": false,
+			},
+		},
+	}
+	cursor, err := r.coll.Find(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	var plans []domain.InstallmentPlan
+	if err = cursor.All(ctx, &plans); err != nil {
+		return nil, err
+	}
+	return plans, nil
+}
+
+// ✅ NEW: Get installments by date range
+func (r *InstallmentRepository) GetInstallmentsByDateRange(ctx context.Context, start, end time.Time) ([]domain.InstallmentDetail, error) {
+	// This requires aggregation to unwind installments
+	pipeline := mongo.Pipeline{
+		{{Key: "$match", Value: bson.M{"status": "active"}}},
+		{{Key: "$unwind", Value: "$installments"}},
+		{{Key: "$match", Value: bson.M{
+			"installments.due_date": bson.M{
+				"$gte": start,
+				"$lte": end,
+			},
+		}}},
+		{{Key: "$project", Value: bson.M{
+			"installment_no": "$installments.installment_no",
+			"due_date":       "$installments.due_date",
+			"amount":         "$installments.amount",
+			"paid":           "$installments.paid",
+			"paid_date":      "$installments.paid_date",
+			"fine":           "$installments.fine",
+			"partial_paid":   "$installments.partial_paid",
+			"remaining":      "$installments.remaining",
+			"collected_by":   "$installments.collected_by",
+		}}},
+	}
+	cursor, err := r.coll.Aggregate(ctx, pipeline)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	var installments []domain.InstallmentDetail
+	if err = cursor.All(ctx, &installments); err != nil {
+		return nil, err
+	}
+	return installments, nil
 }

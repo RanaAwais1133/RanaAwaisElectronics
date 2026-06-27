@@ -20,25 +20,26 @@ func main() {
 	userSvc := service.NewUserService(userRepo)
 
 	// Check if admin exists
-	existing, _ := userRepo.GetByUsername(context.Background(), "admin")
+	existing, _ := userRepo.GetByUsername(context.Background(), cfg.AdminUsername)
 	if existing != nil {
 		fmt.Println("Admin user already exists")
 		return
 	}
 
 	admin := &domain.User{
-		Username:    "admin",
+		Username:    cfg.AdminUsername,
 		Role:        "admin",
-		DisplayName: "Admin",
+		DisplayName: cfg.AdminDisplayName,
 	}
 
-	if err := userSvc.Create(context.Background(), admin, "admin123"); err != nil {
+	// Use config password instead of hardcoded
+	if err := userSvc.Create(context.Background(), admin, cfg.AdminPassword); err != nil {
 		log.Fatalf("Failed to create admin: %v", err)
 	}
 
 	fmt.Println("✅ Admin user created successfully!")
-	fmt.Println("   Username: admin")
-	fmt.Println("   Password: admin123")
+	fmt.Printf("   Username: %s\n", cfg.AdminUsername)
+	fmt.Printf("   Password: %s\n", cfg.AdminPassword)
 
 	time.Sleep(500 * time.Millisecond)
 }

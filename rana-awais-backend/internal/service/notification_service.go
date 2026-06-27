@@ -142,3 +142,58 @@ func (s *NotificationService) SendSingleReminder(ctx context.Context, customerID
 	}
 	return s.notifRepo.Create(ctx, notif)
 }
+
+// ✅ NEW: SendOverdueReminder for late payments with fine
+func (s *NotificationService) SendOverdueReminder(ctx context.Context, customerID, planID primitive.ObjectID, installmentNo int, fineAmount float64) error {
+	cust, err := s.custRepo.GetByID(ctx, customerID)
+	if err != nil || cust == nil {
+		return errors.New("customer not found")
+	}
+	plan, err := s.planRepo.GetByID(ctx, planID)
+	if err != nil || plan == nil {
+		return errors.New("plan not found")
+	}
+	var target *domain.InstallmentDetail
+	for i := range plan.Installments {
+		if plan.Installments[i].InstallmentNo == installmentNo {
+			target = &plan.Installments[i]
+			break
+		}
+	}
+	if target == nil {
+		return errors.New("installment not found")
+	}
+
+	totalPayable := target.Amount + fineAmount
+
+	msgEn := fmt.Sprintf("Dear %s, your installment #%d of Rs.%.2f is overdue. Fine of Rs.%.2f has been added. Total payable: Rs.%.2f. Please pay immediately to avoid additional charges.", 
+		cust.Name, target.InstallmentNo, target.Amount, fineAmount, totalPayable)
+	msgUr := fmt.Sprintf("محترم %s، آپ کی قسط نمبر %d بمبلغ %.2f روپے واجب الادا ہو چکی ہے۔ %.2f روپے جرمانہ شامل کر دیا گیا ہے۔ کل قابل ادائیگی: %.2f روپے۔ برائے مہربانی فوری ادائیگی کریں۔", 
+		cust.NameUrdu, target.InstallmentNo, target.Amount, fineAmount, totalPayable)
+
+	var channel string
+	if s.waSender != nil {
+		if err := s.waSender.Send(cust.Phone, msgUr); err == nil {
+			channel = "whatsapp"
+		}
+	}
+	if channel == "" && s.smsSender != nil {
+		if err := s.smsSender.Send(cust.Phone, msgUr); err == nil {
+			channel = "sms"
+		}
+	}
+	notif := &domain.Notification{
+		CustomerID:        cust.ID,
+		InstallmentPlanID: plan.ID,
+		Channel:           channel,
+		MessageEn:         msgEn,
+		MessageUr:         msgUr,
+		SentAt:            time.Now(),
+		Status:            "sent",
+		FineAmount:        fineAmount,
+	}
+	if channel == "" {
+		notif.Status = "failed"
+	}
+	return s.notifRepo.Create(ctx, notif)
+}

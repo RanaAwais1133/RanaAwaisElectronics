@@ -51,12 +51,80 @@ func AuthMiddleware(cfg *config.Config) func(http.Handler) http.Handler {
 func AdminOnly(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		claims, ok := r.Context().Value(UserContextKey).(jwt.MapClaims)
-		if !ok || claims["role"] != "admin" {
+		if !ok {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusForbidden)
-			json.NewEncoder(w).Encode(map[string]string{"error": "forbidden", "error_ur": "غیر مجاز رسائی"})
+			json.NewEncoder(w).Encode(map[string]string{
+				"error":    "forbidden",
+				"error_ur": "غیر مجاز رسائی",
+			})
+			return
+		}
+		
+		role, ok := claims["role"].(string)
+		if !ok || (role != "admin" && role != "manager") {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error":    "forbidden",
+				"error_ur": "غیر مجاز رسائی",
+			})
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// ManagerOnly ensures the authenticated user has "manager" or "admin" role.
+func ManagerOnly(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		claims, ok := r.Context().Value(UserContextKey).(jwt.MapClaims)
+		if !ok {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error":    "forbidden",
+				"error_ur": "غیر مجاز رسائی",
+			})
+			return
+		}
+		
+		role, ok := claims["role"].(string)
+		if !ok || (role != "admin" && role != "manager") {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error":    "forbidden",
+				"error_ur": "غیر مجاز رسائی",
+			})
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// GetUserIDFromContext extracts user ID from context
+func GetUserIDFromContext(ctx context.Context) string {
+	claims, ok := ctx.Value(UserContextKey).(jwt.MapClaims)
+	if !ok {
+		return ""
+	}
+	sub, ok := claims["sub"].(string)
+	if !ok {
+		return ""
+	}
+	return sub
+}
+
+// GetUserRoleFromContext extracts user role from context
+func GetUserRoleFromContext(ctx context.Context) string {
+	claims, ok := ctx.Value(UserContextKey).(jwt.MapClaims)
+	if !ok {
+		return ""
+	}
+	role, ok := claims["role"].(string)
+	if !ok {
+		return ""
+	}
+	return role
 }

@@ -45,3 +45,37 @@ func (s *RescheduleService) CheckAndReschedule(ctx context.Context, planID primi
 	}
 	return nil
 }
+
+// ✅ NEW: Get reschedule options for a plan
+func (s *RescheduleService) GetRescheduleOptions(ctx context.Context, planID primitive.ObjectID) (map[string]interface{}, error) {
+	plan, err := s.planRepo.GetByID(ctx, planID)
+	if err != nil || plan == nil {
+		return nil, errors.New("plan not found")
+	}
+	
+	// Calculate remaining balance
+	remainingBalance := 0.0
+	paidCount := 0
+	totalCount := len(plan.Installments)
+	
+	for _, inst := range plan.Installments {
+		if !inst.Paid {
+			remainingBalance += inst.Amount - inst.PartialPaid
+		} else {
+			paidCount++
+		}
+	}
+	
+	return map[string]interface{}{
+		"planId":           planID.Hex(),
+		"remainingBalance": remainingBalance,
+		"paidCount":        paidCount,
+		"totalCount":       totalCount,
+		"remainingCount":   totalCount - paidCount,
+		"currentStatus":    plan.Status,
+		"options": []string{
+			"continue", // Continue with same schedule
+			"new",      // New schedule with remaining balance
+		},
+	}, nil
+}

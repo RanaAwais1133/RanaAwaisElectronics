@@ -34,7 +34,6 @@ func NewReceiptHandler(
 	}
 }
 
-// DownloadReceipt generates and downloads a JPG receipt for an installment plan.
 func (h *ReceiptHandler) DownloadReceipt(w http.ResponseWriter, r *http.Request) {
 	planID, err := primitive.ObjectIDFromHex(mux.Vars(r)["plan_id"])
 	if err != nil {
@@ -74,7 +73,6 @@ func (h *ReceiptHandler) DownloadReceipt(w http.ResponseWriter, r *http.Request)
 	w.Write(imgBytes)
 }
 
-// PrintReceipt (existing)
 func (h *ReceiptHandler) PrintReceipt(w http.ResponseWriter, r *http.Request) {
 	payID, err := primitive.ObjectIDFromHex(mux.Vars(r)["payment_id"])
 	if err != nil {

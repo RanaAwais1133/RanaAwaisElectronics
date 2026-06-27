@@ -11,12 +11,20 @@ interface PhoneFieldProps {
   required?: boolean;
   disabled?: boolean;
   className?: string;
+  onBlur?: (e: React.FocusEvent<HTMLInputElement>) => void; // ✅ NEW
+  autoFocus?: boolean; // ✅ NEW
 }
 
 const formatPhone = (raw: string): string => {
   const digits = raw.replace(/\D/g, '').slice(0, 11);
   if (digits.length <= 4) return digits;
   return digits.slice(0, 4) + '-' + digits.slice(4);
+};
+
+// ✅ NEW: Validate phone
+export const validatePhone = (phone: string): boolean => {
+  const cleaned = phone.replace(/-/g, '');
+  return cleaned.length === 11 && cleaned.startsWith('03');
 };
 
 const PhoneField: React.FC<PhoneFieldProps> = ({
@@ -29,6 +37,8 @@ const PhoneField: React.FC<PhoneFieldProps> = ({
   required = false,
   disabled = false,
   className = '',
+  onBlur,
+  autoFocus = false,
 }) => {
   const { i18n } = useTranslation();
   const isUrdu = i18n.language === 'ur';
@@ -54,9 +64,11 @@ const PhoneField: React.FC<PhoneFieldProps> = ({
         type="tel"
         value={value}
         onChange={handleChange}
+        onBlur={onBlur}
         placeholder={placeholder}
         required={required}
         disabled={disabled}
+        autoFocus={autoFocus}
         autoComplete="off"
         inputMode="tel"
         maxLength={12}

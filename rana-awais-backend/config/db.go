@@ -44,7 +44,7 @@ func ConnectDB(cfg *Config) {
 
 	Client = client
 	DB = client.Database(cfg.DBName)
-	log.Println("✅ MongoDB connected successfully")
+	log.Printf("✅ MongoDB connected successfully to database: %s", cfg.DBName)
 
 	// Create indexes for performance
 	go createIndexes()
@@ -73,6 +73,14 @@ func createIndexes() {
 			Keys:    bson.D{{Key: "installments.due_date", Value: 1}},
 			Options: options.Index().SetBackground(true),
 		},
+		// Index for fine calculation - find overdue installments
+		{
+			Keys: bson.D{
+				{Key: "installments.due_date", Value: 1},
+				{Key: "installments.paid", Value: 1},
+			},
+			Options: options.Index().SetBackground(true),
+		},
 	}
 	if _, err := installmentsColl.Indexes().CreateMany(ctx, installmentIndexes); err != nil {
 		log.Printf("Warning: Failed to create installment indexes: %v", err)
@@ -89,6 +97,10 @@ func createIndexes() {
 		},
 		{
 			Keys:    bson.D{{Key: "name", Value: 1}},
+			Options: options.Index().SetBackground(true),
+		},
+		{
+			Keys:    bson.D{{Key: "account_no", Value: 1}},
 			Options: options.Index().SetBackground(true),
 		},
 	}
@@ -108,6 +120,10 @@ func createIndexes() {
 		{
 			Keys:    bson.D{{Key: "category", Value: 1}},
 			Options: options.Index().SetBackground(true),
+		},
+		{
+			Keys:    bson.D{{Key: "sku", Value: 1}},
+			Options: options.Index().SetUnique(true).SetBackground(true),
 		},
 	}
 	if _, err := productsColl.Indexes().CreateMany(ctx, productIndexes); err != nil {
@@ -145,6 +161,14 @@ func createIndexes() {
 			Keys:    bson.D{{Key: "timestamp", Value: -1}},
 			Options: options.Index().SetBackground(true),
 		},
+		{
+			Keys:    bson.D{{Key: "user_id", Value: 1}},
+			Options: options.Index().SetBackground(true),
+		},
+		{
+			Keys:    bson.D{{Key: "action", Value: 1}},
+			Options: options.Index().SetBackground(true),
+		},
 	}
 	if _, err := auditColl.Indexes().CreateMany(ctx, auditIndexes); err != nil {
 		log.Printf("Warning: Failed to create audit log indexes: %v", err)
@@ -152,5 +176,71 @@ func createIndexes() {
 		log.Println("Audit log indexes created successfully")
 	}
 
+	// Payments collection indexes
+	paymentsColl := DB.Collection("payments")
+	paymentIndexes := []mongo.IndexModel{
+		{
+			Keys:    bson.D{{Key: "plan_id", Value: 1}},
+			Options: options.Index().SetBackground(true),
+		},
+		{
+			Keys:    bson.D{{Key: "transaction_date", Value: -1}},
+			Options: options.Index().SetBackground(true),
+		},
+		{
+			Keys:    bson.D{{Key: "payment_date", Value: -1}},
+			Options: options.Index().SetBackground(true),
+		},
+	}
+	if _, err := paymentsColl.Indexes().CreateMany(ctx, paymentIndexes); err != nil {
+		log.Printf("Warning: Failed to create payment indexes: %v", err)
+	} else {
+		log.Println("Payment indexes created successfully")
+	}
+
+	// Guarantors collection indexes
+	guarantorsColl := DB.Collection("guarantors")
+	guarantorIndexes := []mongo.IndexModel{
+		{
+			Keys:    bson.D{{Key: "customer_id", Value: 1}},
+			Options: options.Index().SetBackground(true),
+		},
+		{
+			Keys:    bson.D{{Key: "phone", Value: 1}},
+			Options: options.Index().SetBackground(true),
+		},
+	}
+	if _, err := guarantorsColl.Indexes().CreateMany(ctx, guarantorIndexes); err != nil {
+		log.Printf("Warning: Failed to create guarantor indexes: %v", err)
+	} else {
+		log.Println("Guarantor indexes created successfully")
+	}
+
+	// Users collection indexes
+	usersColl := DB.Collection("users")
+	userIndexes := []mongo.IndexModel{
+		{
+			Keys:    bson.D{{Key: "username", Value: 1}},
+			Options: options.Index().SetUnique(true).SetBackground(true),
+		},
+	}
+	if _, err := usersColl.Indexes().CreateMany(ctx, userIndexes); err != nil {
+		log.Printf("Warning: Failed to create user indexes: %v", err)
+	} else {
+		log.Println("User indexes created successfully")
+	}
+
 	log.Println("All MongoDB indexes created/verified")
+}
+
+// GetCollection returns a collection from the database
+func GetCollection(name string) *mongo.Collection {
+	return DB.Collection(name)
+}
+
+// HealthCheck checks if the database is reachable
+func HealthCheck() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	return Client.Ping(ctx, readpref.Primary())
 }

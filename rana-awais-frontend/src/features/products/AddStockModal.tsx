@@ -1,124 +1,258 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 import api from '../../utils/api';
+import { useAuthStore } from '../../store/useAuthStore';
+import { APP_CONFIG } from '../../config/app';
 
 interface Props {
   productId: string;
+  productName?: string;
   currentPrice?: number;
+  currentPurchasePrice?: number;
   onClose: () => void;
   onSuccess: () => void;
 }
 
-const AddStockModal: React.FC<Props> = ({ productId, currentPrice, onClose, onSuccess }) => {
-  const { t } = useTranslation();
+const AddStockModal: React.FC<Props> = ({
+  productId,
+  productName,
+  currentPrice,
+  currentPurchasePrice,
+  onClose,
+  onSuccess,
+}) => {
+  const { t, i18n } = useTranslation();
+  const isUrdu = i18n.language === 'ur';
+  const currentUser = useAuthStore((state) => state.user);
+  
+  // ✅ State
   const [quantity, setQuantity] = useState(1);
-  const [purchasePrice, setPurchasePrice] = useState('');
-  const [sellingPrice, setSellingPrice] = useState('');
+  const [purchasePrice, setPurchasePrice] = useState(currentPurchasePrice ? String(currentPurchasePrice) : '');
+  const [sellingPrice, setSellingPrice] = useState(currentPrice ? String(currentPrice) : '');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [isBulk, setIsBulk] = useState(false);
+  const [bulkItems, setBulkItems] = useState<Array<{ serialNumber: string; imei: string }>>([]);
 
-  const handleAdd = async () => {
-    if (quantity <= 0) {
-      toast.error(t('invalid_quantity'));
-      return;
+  // ✅ Page title
+  useEffect(() => {
+    document.title = `${isUrdu ? 'اسٹاک شامل کریں' : 'Add Stock'} | ${APP_CONFIG.companyName}`;
+  }, [isUrdu]);
+
+  // ✅ Auto-fill prices from product
+  useEffect(() => {
+    if (currentPurchasePrice && !purchasePrice) {
+      setPurchasePrice(String(currentPurchasePrice));
     }
+    if (currentPrice && !sellingPrice) {
+      setSellingPrice(String(currentPrice));
+    }
+  }, [currentPurchasePrice, currentPrice, purchasePrice, sellingPrice]);
+
+  // ✅ Validation
+  const validateForm = useCallback(() => {
+    if (quantity <= 0) {
+      setError(isUrdu ? 'مقدار صفر سے زیادہ ہونی چاہیے' : 'Quantity must be greater than 0');
+      return false;
+    }
+    if (quantity > 1000) {
+      setError(isUrdu ? 'ایک بار میں 1000 سے زیادہ اسٹاک شامل نہیں کر سکتے' : 'Cannot add more than 1000 items at once');
+      return false;
+    }
+    const price = parseFloat(purchasePrice);
+    if (purchasePrice && (isNaN(price) || price < 0)) {
+      setError(isUrdu ? 'خریداری کی قیمت درست نہیں' : 'Invalid purchase price');
+      return false;
+    }
+    return true;
+  }, [quantity, purchasePrice, isUrdu]);
+
+  // ✅ Handle add stock
+  const handleAdd = useCallback(async () => {
+    if (!validateForm()) return;
+    
     setLoading(true);
+    setError('');
+
     try {
       // Add stock to inventory
       await api.post('/inventory/add-stock', {
         product_id: productId,
         quantity,
         purchase_price: Number(purchasePrice) || 0,
+        selling_price: Number(sellingPrice) || 0,
+        created_by: currentUser?.displayName || currentUser?.username || '',
       });
 
       // Update product prices if provided
       const updateData: Record<string, any> = {};
-      if (Number(purchasePrice) > 0) {
+      if (Number(purchasePrice) > 0 && Number(purchasePrice) !== currentPurchasePrice) {
         updateData.purchase_price = Number(purchasePrice);
       }
-      if (Number(sellingPrice) > 0) {
+      if (Number(sellingPrice) > 0 && Number(sellingPrice) !== currentPrice) {
         updateData.price = Number(sellingPrice);
       }
       if (Object.keys(updateData).length > 0) {
         await api.put(`/products/${productId}`, updateData)
-          .catch(() => toast.error(t('price_update_failed')));
+          .catch(() => {
+            toast.error(isUrdu ? 'قیمت اپ ڈیٹ نہیں ہو سکی' : t('price_update_failed'));
+          });
       }
 
-      toast.success(t('stock_added'));
+      toast.success(
+        isUrdu 
+          ? `${quantity} آئٹمز اسٹاک میں شامل ہو گئے` 
+          : `${quantity} item(s) added to stock`
+      );
       onSuccess();
       onClose();
     } catch (err: any) {
-      toast.error(err.response?.data?.error || t('error_adding_stock'));
+      const errorMsg = err.response?.data?.error || err.response?.data?.message || 
+                       (isUrdu ? 'اسٹاک شامل کرنے میں ناکامی' : t('error_adding_stock'));
+      setError(errorMsg);
+      toast.error(errorMsg);
     } finally {
       setLoading(false);
     }
-  };
+  }, [
+    quantity,
+    purchasePrice,
+    sellingPrice,
+    productId,
+    currentPurchasePrice,
+    currentPrice,
+    currentUser,
+    onSuccess,
+    onClose,
+    t,
+    isUrdu,
+    validateForm,
+  ]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md p-6">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-bold text-gray-800 dark:text-white">{t('add_stock')}</h2>
-          <button onClick={onClose} className="p-2 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-2xl leading-none">&times;</button>
+    <div 
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/50 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div 
+        className="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl w-full max-w-md max-h-[95vh] overflow-y-auto mx-2"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* ✅ Header */}
+        <div className="sticky top-0 bg-white dark:bg-gray-800 flex justify-between items-center px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-200 dark:border-gray-700 rounded-t-3xl z-10">
+          <h2 className="text-lg sm:text-xl font-bold text-gray-800 dark:text-white">
+            {isUrdu ? 'اسٹاک شامل کریں' : t('add_stock')}
+          </h2>
+          <button
+            onClick={onClose}
+            className="p-1.5 sm:p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-all text-xl sm:text-2xl"
+          >
+            &times;
+          </button>
         </div>
 
-        <div className="space-y-4">
+        {/* ✅ Form */}
+        <div className="p-4 sm:p-6 space-y-3 sm:space-y-4">
+          {/* Product Name */}
+          {productName && (
+            <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-xl">
+              <p className="text-sm text-gray-600 dark:text-gray-300">
+                <span className="font-semibold">{isUrdu ? 'پروڈکٹ' : 'Product'}:</span>
+                <span className="ml-2 font-medium text-gray-800 dark:text-white">{productName}</span>
+              </p>
+            </div>
+          )}
+
           {/* Quantity */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              {t('quantity')} *
+            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
+              {isUrdu ? 'مقدار' : t('quantity')} *
             </label>
             <input
               type="number"
               min={1}
+              max={1000}
               value={quantity}
-              onChange={e => setQuantity(Number(e.target.value))}
-              className="w-full border border-gray-300 dark:border-gray-600 rounded-xl px-4 py-2.5 bg-white dark:bg-gray-700 text-sm focus:ring-2 focus:ring-blue-400 focus:border-transparent"
+              onChange={e => setQuantity(Math.max(1, Number(e.target.value) || 1))}
+              className="w-full border border-gray-300 dark:border-gray-600 rounded-xl px-4 py-2.5 bg-white dark:bg-gray-700 text-sm focus:ring-2 focus:ring-blue-400 focus:border-transparent outline-none transition-colors"
             />
+            <p className="text-xs text-gray-400 mt-1">
+              {isUrdu ? 'زیادہ سے زیادہ 1000' : 'Maximum 1000'}
+            </p>
           </div>
 
           {/* Purchase Price */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              {t('purchase_price')} ({t('optional')})
+            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
+              {isUrdu ? 'خریداری قیمت' : t('purchase_price')} ({isUrdu ? 'اختیاری' : t('optional')})
             </label>
             <input
               type="number"
+              min={0}
+              step="0.01"
               value={purchasePrice}
               onChange={e => setPurchasePrice(e.target.value)}
-              className="w-full border border-gray-300 dark:border-gray-600 rounded-xl px-4 py-2.5 bg-white dark:bg-gray-700 text-sm focus:ring-2 focus:ring-blue-400 focus:border-transparent"
-              placeholder="0"
+              className="w-full border border-gray-300 dark:border-gray-600 rounded-xl px-4 py-2.5 bg-white dark:bg-gray-700 text-sm focus:ring-2 focus:ring-blue-400 focus:border-transparent outline-none transition-colors"
+              placeholder={isUrdu ? '0' : '0'}
             />
+            {currentPurchasePrice && (
+              <p className="text-xs text-gray-400 mt-1">
+                {isUrdu ? 'موجودہ' : 'Current'}: Rs. {currentPurchasePrice}
+              </p>
+            )}
           </div>
 
           {/* Selling Price */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              {t('selling_price')} ({t('optional')})
+            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
+              {isUrdu ? 'فروخت قیمت' : t('selling_price')} ({isUrdu ? 'اختیاری' : t('optional')})
             </label>
             <input
               type="number"
+              min={0}
+              step="0.01"
               value={sellingPrice}
               onChange={e => setSellingPrice(e.target.value)}
-              className="w-full border border-gray-300 dark:border-gray-600 rounded-xl px-4 py-2.5 bg-white dark:bg-gray-700 text-sm focus:ring-2 focus:ring-blue-400 focus:border-transparent"
-              placeholder={currentPrice ? `Current: Rs. ${currentPrice}` : 'Enter new selling price'}
+              className="w-full border border-gray-300 dark:border-gray-600 rounded-xl px-4 py-2.5 bg-white dark:bg-gray-700 text-sm focus:ring-2 focus:ring-blue-400 focus:border-transparent outline-none transition-colors"
+              placeholder={isUrdu ? '0' : '0'}
             />
+            {currentPrice && (
+              <p className="text-xs text-gray-400 mt-1">
+                {isUrdu ? 'موجودہ' : 'Current'}: Rs. {currentPrice}
+              </p>
+            )}
           </div>
 
-          {/* Buttons */}
-          <div className="flex justify-end gap-3 pt-2">
+          {/* ✅ Error */}
+          {error && (
+            <div className="text-red-500 text-sm bg-red-50 dark:bg-red-900/30 p-3 rounded-xl border border-red-200 dark:border-red-800">
+              {error}
+            </div>
+          )}
+
+          {/* ✅ Actions */}
+          <div className="flex flex-col sm:flex-row justify-end gap-2 sm:gap-3 pt-2 border-t border-gray-200 dark:border-gray-700">
             <button
+              type="button"
               onClick={onClose}
-              className="px-5 py-2.5 bg-gray-200 dark:bg-gray-600 hover:bg-gray-300 dark:hover:bg-gray-500 rounded-lg text-sm font-medium transition-colors"
+              className="px-4 sm:px-5 py-2.5 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-200 transition-all"
             >
-              {t('cancel')}
+              {isUrdu ? 'منسوخ کریں' : t('cancel')}
             </button>
             <button
               onClick={handleAdd}
               disabled={loading}
-              className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium disabled:opacity-50 transition-colors"
+              className="px-4 sm:px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white rounded-xl text-sm font-semibold shadow-lg shadow-emerald-500/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {loading ? t('adding') : t('add')}
+              {loading ? (
+                <span className="flex items-center gap-2">
+                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                  {isUrdu ? 'شامل ہو رہا...' : t('adding')}
+                </span>
+              ) : (
+                isUrdu ? 'اسٹاک شامل کریں' : t('add')
+              )}
             </button>
           </div>
         </div>

@@ -11,6 +11,8 @@ interface CNICFieldProps {
   required?: boolean;
   disabled?: boolean;
   className?: string;
+  onBlur?: (e: React.FocusEvent<HTMLInputElement>) => void; // ✅ NEW
+  autoFocus?: boolean; // ✅ NEW
 }
 
 const formatCNIC = (raw: string): string => {
@@ -18,6 +20,12 @@ const formatCNIC = (raw: string): string => {
   if (digits.length <= 5) return digits;
   if (digits.length <= 12) return digits.slice(0, 5) + '-' + digits.slice(5);
   return digits.slice(0, 5) + '-' + digits.slice(5, 12) + '-' + digits.slice(12);
+};
+
+// ✅ NEW: Validate CNIC
+export const validateCNIC = (cnic: string): boolean => {
+  const cleaned = cnic.replace(/-/g, '');
+  return cleaned.length === 13 && /^\d+$/.test(cleaned);
 };
 
 const CNICField: React.FC<CNICFieldProps> = ({
@@ -30,6 +38,8 @@ const CNICField: React.FC<CNICFieldProps> = ({
   required = false,
   disabled = false,
   className = '',
+  onBlur,
+  autoFocus = false,
 }) => {
   const { i18n } = useTranslation();
   const isUrdu = i18n.language === 'ur';
@@ -55,9 +65,11 @@ const CNICField: React.FC<CNICFieldProps> = ({
         type="text"
         value={value}
         onChange={handleChange}
+        onBlur={onBlur}
         placeholder={placeholder}
         required={required}
         disabled={disabled}
+        autoFocus={autoFocus}
         autoComplete="off"
         inputMode="numeric"
         maxLength={15}

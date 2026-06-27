@@ -61,3 +61,33 @@ func (s *UserService) Delete(ctx context.Context, id primitive.ObjectID) error {
 func (s *UserService) Count(ctx context.Context) (int64, error) {
     return s.repo.Count(ctx)
 }
+
+// ✅ NEW: Update user password
+func (s *UserService) UpdatePassword(ctx context.Context, id primitive.ObjectID, newPassword string) error {
+    user, err := s.repo.GetByID(ctx, id)
+    if err != nil || user == nil {
+        return errors.New("user not found")
+    }
+    hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+    if err != nil {
+        return err
+    }
+    user.PasswordHash = string(hash)
+    return s.repo.Update(ctx, id, user)
+}
+
+// ✅ NEW: Get users by role
+func (s *UserService) GetUsersByRole(ctx context.Context, role string) ([]domain.User, error) {
+    // We'll list all and filter (could be optimized with a repository method)
+    users, err := s.repo.List(ctx, 0, 999999)
+    if err != nil {
+        return nil, err
+    }
+    var filtered []domain.User
+    for _, u := range users {
+        if u.Role == role {
+            filtered = append(filtered, u)
+        }
+    }
+    return filtered, nil
+}

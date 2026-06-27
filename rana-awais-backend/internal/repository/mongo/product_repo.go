@@ -41,7 +41,6 @@ func (r *ProductRepository) GetByID(ctx context.Context, id primitive.ObjectID) 
 	return &p, nil
 }
 
-// GetByIDWithStock returns a product with stock count from inventory.
 func (r *ProductRepository) GetByIDWithStock(ctx context.Context, id primitive.ObjectID) (*domain.Product, error) {
 	pipeline := mongo.Pipeline{
 		{{Key: "$match", Value: bson.M{"_id": id}}},
@@ -61,6 +60,7 @@ func (r *ProductRepository) GetByIDWithStock(ctx context.Context, id primitive.O
 				},
 			},
 		}}},
+		{{Key: "$project", Value: bson.M{"inventory_items": 0}}},
 	}
 	cursor, err := r.coll.Aggregate(ctx, pipeline)
 	if err != nil {
@@ -88,15 +88,12 @@ func (r *ProductRepository) Delete(ctx context.Context, id primitive.ObjectID) e
 	return err
 }
 
-// List returns all products with stock count using a simpler approach.
-// Uses a separate query for stock counts to avoid slow $lookup aggregation on large datasets.
 func (r *ProductRepository) List(ctx context.Context, skip, limit int64) ([]domain.Product, error) {
-	// First get products with a simple find query (fast)
 	opts := &options.FindOptions{}
 	opts.SetSort(bson.M{"name": 1})
 	opts.SetSkip(skip)
 	opts.SetLimit(limit)
-	
+
 	cursor, err := r.coll.Find(ctx, bson.M{}, opts)
 	if err != nil {
 		return nil, err
@@ -107,19 +104,16 @@ func (r *ProductRepository) List(ctx context.Context, skip, limit int64) ([]doma
 		return nil, err
 	}
 
-	// If no products, return early
 	if len(prods) == 0 {
 		return prods, nil
 	}
 
-	// Get stock counts in a single batch query instead of per-product $lookup
 	invColl := config.DB.Collection("inventory")
 	productIDs := make([]primitive.ObjectID, len(prods))
 	for i, p := range prods {
 		productIDs[i] = p.ID
 	}
 
-	// Count in_stock items per product_id using aggregation
 	stockPipeline := mongo.Pipeline{
 		{{Key: "$match", Value: bson.M{
 			"product_id": bson.M{"$in": productIDs},
@@ -133,7 +127,6 @@ func (r *ProductRepository) List(ctx context.Context, skip, limit int64) ([]doma
 
 	stockCursor, err := invColl.Aggregate(ctx, stockPipeline)
 	if err != nil {
-		// If inventory aggregation fails, return products without stock count
 		return prods, nil
 	}
 	defer stockCursor.Close(ctx)
@@ -146,15 +139,15 @@ func (r *ProductRepository) List(ctx context.Context, skip, limit int64) ([]doma
 		return prods, nil
 	}
 
-	// Map product_id -> stock count
 	stockMap := make(map[primitive.ObjectID]int)
 	for _, sr := range stockResults {
 		stockMap[sr.ID] = sr.Count
 	}
 
-	// Assign stock counts
 	for i := range prods {
 		prods[i].StockCount = stockMap[prods[i].ID]
+		// Auto-update InStock based on StockCount
+		prods[i].InStock = prods[i].StockCount > 0
 	}
 
 	return prods, nil

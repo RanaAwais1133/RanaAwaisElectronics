@@ -24,7 +24,7 @@ func (s *GuarantorService) Create(ctx context.Context, g *domain.Guarantor) erro
 		return errors.New("customer id is required")
 	}
 	if g.VerificationStatus == "" {
-		g.VerificationStatus = "pending" // default status
+		g.VerificationStatus = "pending"
 	}
 
 	cust, err := s.custRepo.GetByID(ctx, g.CustomerID)
@@ -36,7 +36,6 @@ func (s *GuarantorService) Create(ctx context.Context, g *domain.Guarantor) erro
 		return err
 	}
 
-	// Add guarantor ID to customer's GuarantorIDs
 	cust.GuarantorIDs = append(cust.GuarantorIDs, g.ID)
 	if err := s.custRepo.Update(ctx, cust.ID, cust); err != nil {
 		return err
@@ -66,13 +65,11 @@ func (s *GuarantorService) Update(ctx context.Context, id primitive.ObjectID, g 
 }
 
 func (s *GuarantorService) Delete(ctx context.Context, id primitive.ObjectID) error {
-	// First get the guarantor to find which customer it belongs to
 	g, err := s.guarRepo.GetByID(ctx, id)
 	if err != nil || g == nil {
 		return errors.New("guarantor not found")
 	}
 
-	// Remove guarantor ID from customer's GuarantorIDs
 	if !g.CustomerID.IsZero() {
 		cust, err := s.custRepo.GetByID(ctx, g.CustomerID)
 		if err == nil && cust != nil {
@@ -98,4 +95,19 @@ func (s *GuarantorService) Verify(ctx context.Context, id primitive.ObjectID, st
 	}
 	g.VerificationStatus = status
 	return s.guarRepo.Update(ctx, id, g)
+}
+
+// ✅ NEW: Get verified guarantors count for a customer
+func (s *GuarantorService) GetVerifiedCount(ctx context.Context, customerID primitive.ObjectID) (int, error) {
+	guarantors, err := s.guarRepo.ListByCustomer(ctx, customerID)
+	if err != nil {
+		return 0, err
+	}
+	verified := 0
+	for _, g := range guarantors {
+		if g.VerificationStatus == "verified" {
+			verified++
+		}
+	}
+	return verified, nil
 }

@@ -31,7 +31,11 @@ func (h *GuarantorHandler) Create(w http.ResponseWriter, r *http.Request) {
 		FatherName         string `json:"fatherName"`
 		FatherNameUrdu     string `json:"fatherNameUrdu"`
 		Phone              string `json:"phone"`
+		OfficePhone        string `json:"officePhone"`
 		CNIC               string `json:"cnic"`
+		Address            string `json:"address"`
+		OfficeAddress      string `json:"officeAddress"`
+		Occupation         string `json:"occupation"`
 		Relation           string `json:"relation"`
 		CustomerID         string `json:"customerId"`
 		VerificationStatus string `json:"verificationStatus"`
@@ -53,14 +57,12 @@ func (h *GuarantorHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ✅ Auto-fill name fields (same as customer_handler.go)
 	if payload.Name == "" && payload.NameUrdu != "" {
 		payload.Name = payload.NameUrdu
 	}
 	if payload.NameUrdu == "" && payload.Name != "" {
 		payload.NameUrdu = payload.Name
 	}
-	// ✅ Auto-fill father name fields
 	if payload.FatherName == "" && payload.FatherNameUrdu != "" {
 		payload.FatherName = payload.FatherNameUrdu
 	}
@@ -74,7 +76,12 @@ func (h *GuarantorHandler) Create(w http.ResponseWriter, r *http.Request) {
 		FatherName:         payload.FatherName,
 		FatherNameUrdu:     payload.FatherNameUrdu,
 		Phone:              phone,
+		OfficePhone:        payload.OfficePhone,
 		CNIC:               cnic,
+		Address:            payload.Address,
+		OfficeAddress:      payload.OfficeAddress,
+		Occupation:         payload.Occupation,
+		Relation:           payload.Relation,
 		RelationToCustomer: payload.Relation,
 		CustomerID:         custID,
 		VerificationStatus: payload.VerificationStatus,
@@ -120,7 +127,11 @@ func (h *GuarantorHandler) Update(w http.ResponseWriter, r *http.Request) {
 		FatherName         string `json:"fatherName"`
 		FatherNameUrdu     string `json:"fatherNameUrdu"`
 		Phone              string `json:"phone"`
+		OfficePhone        string `json:"officePhone"`
 		CNIC               string `json:"cnic"`
+		Address            string `json:"address"`
+		OfficeAddress      string `json:"officeAddress"`
+		Occupation         string `json:"occupation"`
 		Relation           string `json:"relation"`
 		CustomerID         string `json:"customerId"`
 		VerificationStatus string `json:"verificationStatus"`
@@ -136,7 +147,6 @@ func (h *GuarantorHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if payload.NameUrdu != "" {
 		existing.NameUrdu = payload.NameUrdu
 	}
-	// ✅ Auto-fill name fields
 	if existing.Name == "" && existing.NameUrdu != "" {
 		existing.Name = existing.NameUrdu
 	}
@@ -149,14 +159,12 @@ func (h *GuarantorHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if payload.FatherNameUrdu != "" {
 		existing.FatherNameUrdu = payload.FatherNameUrdu
 	}
-	// ✅ Auto-fill father name fields
 	if existing.FatherName == "" && existing.FatherNameUrdu != "" {
 		existing.FatherName = existing.FatherNameUrdu
 	}
 	if existing.FatherNameUrdu == "" && existing.FatherName != "" {
 		existing.FatherNameUrdu = existing.FatherName
 	}
-	// ✅ PHONE FIX — handle already formatted or raw numbers
 	if payload.Phone != "" && payload.Phone != existing.Phone {
 		rawPhone := strings.ReplaceAll(payload.Phone, "-", "")
 		if len(rawPhone) == 11 && strings.HasPrefix(rawPhone, "03") {
@@ -171,6 +179,9 @@ func (h *GuarantorHandler) Update(w http.ResponseWriter, r *http.Request) {
 			}
 			existing.Phone = phone
 		}
+	}
+	if payload.OfficePhone != "" {
+		existing.OfficePhone = payload.OfficePhone
 	}
 	if payload.CNIC != "" && payload.CNIC != existing.CNIC {
 		rawCNIC := strings.ReplaceAll(payload.CNIC, "-", "")
@@ -187,10 +198,19 @@ func (h *GuarantorHandler) Update(w http.ResponseWriter, r *http.Request) {
 			existing.CNIC = cnic
 		}
 	}
+	if payload.Address != "" {
+		existing.Address = payload.Address
+	}
+	if payload.OfficeAddress != "" {
+		existing.OfficeAddress = payload.OfficeAddress
+	}
+	if payload.Occupation != "" {
+		existing.Occupation = payload.Occupation
+	}
 	if payload.Relation != "" {
+		existing.Relation = payload.Relation
 		existing.RelationToCustomer = payload.Relation
 	}
-	// ✅ Handle customer change - remove from old customer, add to new customer
 	if payload.CustomerID != "" {
 		newCustID, err := primitive.ObjectIDFromHex(payload.CustomerID)
 		if err != nil {
@@ -198,7 +218,6 @@ func (h *GuarantorHandler) Update(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if newCustID != existing.CustomerID {
-			// Remove from old customer
 			oldCust, _ := h.custSvc.GetByID(r.Context(), existing.CustomerID)
 			if oldCust != nil {
 				newGuarantorIDs := make([]primitive.ObjectID, 0)
@@ -210,7 +229,6 @@ func (h *GuarantorHandler) Update(w http.ResponseWriter, r *http.Request) {
 				oldCust.GuarantorIDs = newGuarantorIDs
 				h.custSvc.Update(r.Context(), oldCust.ID, oldCust)
 			}
-			// Add to new customer
 			newCust, _ := h.custSvc.GetByID(r.Context(), newCustID)
 			if newCust != nil {
 				alreadyExists := false
@@ -278,8 +296,12 @@ func (h *GuarantorHandler) List(w http.ResponseWriter, r *http.Request) {
 			"fatherNameUrdu":     g.FatherNameUrdu,
 			"father_name_urdu":   g.FatherNameUrdu,
 			"phone":              g.Phone,
+			"officePhone":        g.OfficePhone,
 			"cnic":               g.CNIC,
-			"relation":           g.RelationToCustomer,
+			"address":            g.Address,
+			"officeAddress":      g.OfficeAddress,
+			"occupation":         g.Occupation,
+			"relation":           g.Relation,
 			"verificationStatus": g.VerificationStatus,
 			"customerId":         g.CustomerID.Hex(),
 			"customerName":       "",
@@ -340,8 +362,12 @@ func (h *GuarantorHandler) ListByCustomer(w http.ResponseWriter, r *http.Request
 			"fatherNameUrdu":     g.FatherNameUrdu,
 			"father_name_urdu":   g.FatherNameUrdu,
 			"phone":              g.Phone,
+			"officePhone":        g.OfficePhone,
 			"cnic":               g.CNIC,
-			"relation":           g.RelationToCustomer,
+			"address":            g.Address,
+			"officeAddress":      g.OfficeAddress,
+			"occupation":         g.Occupation,
+			"relation":           g.Relation,
 			"verificationStatus": g.VerificationStatus,
 			"customerId":         g.CustomerID.Hex(),
 			"customerName":       "",

@@ -28,7 +28,7 @@ func (h *CustomerHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ✅ Allow either English or Urdu name
+	// Allow either English or Urdu name
 	if c.Name == "" && c.NameUrdu == "" {
 		respondError(w, r, http.StatusBadRequest, "Name is required", "نام ضروری ہے")
 		return
@@ -40,7 +40,6 @@ func (h *CustomerHandler) Create(w http.ResponseWriter, r *http.Request) {
 		c.NameUrdu = c.Name
 	}
 
-	// ✅ Allow either English or Urdu father name
 	if c.FatherName == "" && c.FatherNameUrdu != "" {
 		c.FatherName = c.FatherNameUrdu
 	}
@@ -48,7 +47,6 @@ func (h *CustomerHandler) Create(w http.ResponseWriter, r *http.Request) {
 		c.FatherNameUrdu = c.FatherName
 	}
 
-	// ✅ Allow either English or Urdu address
 	if c.Address == "" && c.AddressUrdu != "" {
 		c.Address = c.AddressUrdu
 	}
@@ -110,7 +108,6 @@ func (h *CustomerHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if input.NameUrdu != "" {
 		existing.NameUrdu = input.NameUrdu
 	}
-	// ✅ Auto-fill if only one language provided
 	if existing.Name == "" && existing.NameUrdu != "" {
 		existing.Name = existing.NameUrdu
 	}
@@ -124,7 +121,6 @@ func (h *CustomerHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if input.FatherNameUrdu != "" {
 		existing.FatherNameUrdu = input.FatherNameUrdu
 	}
-	// ✅ Auto-fill father name
 	if existing.FatherName == "" && existing.FatherNameUrdu != "" {
 		existing.FatherName = existing.FatherNameUrdu
 	}
@@ -138,7 +134,6 @@ func (h *CustomerHandler) Update(w http.ResponseWriter, r *http.Request) {
 			respondError(w, r, http.StatusBadRequest, err.Error(), "فون نمبر غلط ہے")
 			return
 		}
-		// Only update if the phone actually changed (compare normalized versions)
 		if phone != existing.Phone {
 			dup, _ := h.svc.GetByPhone(r.Context(), phone)
 			if dup != nil && dup.ID != existing.ID {
@@ -158,12 +153,43 @@ func (h *CustomerHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if input.AddressUrdu != "" {
 		existing.AddressUrdu = input.AddressUrdu
 	}
-	// ✅ Auto-fill address
 	if existing.Address == "" && existing.AddressUrdu != "" {
 		existing.Address = existing.AddressUrdu
 	}
 	if existing.AddressUrdu == "" && existing.Address != "" {
 		existing.AddressUrdu = existing.Address
+	}
+
+	// New fields for receipt
+	if input.Residential != "" {
+		existing.Residential = input.Residential
+	}
+	if input.Occupant != "" {
+		existing.Occupant = input.Occupant
+	}
+	if input.ResidentialAddress != "" {
+		existing.ResidentialAddress = input.ResidentialAddress
+	}
+	if input.OfficeAddress != "" {
+		existing.OfficeAddress = input.OfficeAddress
+	}
+	if input.AccountNo != "" {
+		existing.AccountNo = input.AccountNo
+	}
+	if input.CostNo != "" {
+		existing.CostNo = input.CostNo
+	}
+	if input.ProcessNo != "" {
+		existing.ProcessNo = input.ProcessNo
+	}
+	if input.ReprAsCost != "" {
+		existing.ReprAsCost = input.ReprAsCost
+	}
+	if input.ReprAsGar != "" {
+		existing.ReprAsGar = input.ReprAsGar
+	}
+	if input.PrepAC != "" {
+		existing.PrepAC = input.PrepAC
 	}
 
 	if err := h.svc.Update(r.Context(), id, existing); err != nil {

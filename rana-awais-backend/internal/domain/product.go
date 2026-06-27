@@ -17,6 +17,7 @@ type Product struct {
 	Description   string             `bson:"description,omitempty" json:"description,omitempty"`
 	InStock       bool               `bson:"in_stock" json:"in_stock"`
 	StockCount    int                `bson:"stock_count" json:"stockCount"`
+	SKU           string             `bson:"sku,omitempty" json:"sku,omitempty"`     // ✅ NEW
 	CreatedAt     time.Time          `bson:"created_at" json:"createdAt"`
 	UpdatedAt     time.Time          `bson:"updated_at" json:"updatedAt"`
 }

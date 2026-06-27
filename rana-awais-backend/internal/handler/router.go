@@ -44,6 +44,7 @@ func SetupRouter(
 	userH := NewUserHandler(userSvc)
 	authH := NewAuthHandler(userSvc, cfg)
 	adminH := NewAdminHandler(userSvc)
+	reportH := NewReportHandler()
 
 	api := r.PathPrefix("/api").Subrouter()
 
@@ -55,19 +56,18 @@ func SetupRouter(
 	protected := api.NewRoute().Subrouter()
 	protected.Use(middleware.AuthMiddleware(cfg))
 
-	// Admin routes (auth + admin role)
+	// Admin routes
 	admin := protected.PathPrefix("/admin").Subrouter()
 	admin.Use(middleware.AdminOnly)
 	admin.HandleFunc("/backup", adminH.Backup).Methods("GET")
 	admin.HandleFunc("/users", userH.List).Methods("GET")
 	admin.HandleFunc("/users", userH.Create).Methods("POST")
 
-	// ✅ Audit logs — accessible by Admin AND Manager (protected route, not admin only)
+	// Audit logs
 	protected.HandleFunc("/audit-logs", func(w http.ResponseWriter, r *http.Request) {
 		db := config.DB
 		coll := db.Collection("audit_logs")
 
-		// Pagination
 		pageStr := r.URL.Query().Get("page")
 		limitStr := r.URL.Query().Get("limit")
 		page, _ := strconv.Atoi(pageStr)
@@ -79,7 +79,6 @@ func SetupRouter(
 			limit = 50
 		}
 
-		// Total count for pagination
 		totalCount, _ := coll.CountDocuments(r.Context(), bson.M{})
 
 		skip := int64((page - 1) * limit)
@@ -97,7 +96,6 @@ func SetupRouter(
 		userColl := db.Collection("users")
 		var enriched []map[string]interface{}
 		for _, log := range rawLogs {
-			// Try user_id as string first, then as ObjectId, then as primitive.ObjectID
 			userId := ""
 			switch v := log["user_id"].(type) {
 			case string:
@@ -137,7 +135,7 @@ func SetupRouter(
 		})
 	}).Methods("GET")
 
-	// Customers (auth required)
+	// Customers
 	protected.HandleFunc("/customers", customerH.List).Methods("GET")
 	protected.HandleFunc("/customers", customerH.Create).Methods("POST")
 	protected.HandleFunc("/customers/search", customerH.Search).Methods("GET")
@@ -145,7 +143,7 @@ func SetupRouter(
 	protected.HandleFunc("/customers/{id}", customerH.Update).Methods("PUT")
 	protected.HandleFunc("/customers/{id}", customerH.Delete).Methods("DELETE")
 
-	// Guarantors (auth required)
+	// Guarantors
 	protected.HandleFunc("/guarantors", guarantorH.List).Methods("GET")
 	protected.HandleFunc("/guarantors", guarantorH.Create).Methods("POST")
 	protected.HandleFunc("/guarantors/{id}", guarantorH.GetByID).Methods("GET")
@@ -153,14 +151,14 @@ func SetupRouter(
 	protected.HandleFunc("/guarantors/{id}", guarantorH.Delete).Methods("DELETE")
 	protected.HandleFunc("/guarantors/customer", guarantorH.ListByCustomer).Methods("GET")
 
-	// Products (auth required)
+	// Products
 	protected.HandleFunc("/products", productH.List).Methods("GET")
 	protected.HandleFunc("/products", productH.Create).Methods("POST")
 	protected.HandleFunc("/products/{id}", productH.GetByID).Methods("GET")
 	protected.HandleFunc("/products/{id}", productH.Update).Methods("PUT")
 	protected.HandleFunc("/products/{id}", productH.Delete).Methods("DELETE")
 
-	// Inventory (auth required)
+	// Inventory
 	protected.HandleFunc("/inventory", inventoryH.List).Methods("GET")
 	protected.HandleFunc("/inventory", inventoryH.Create).Methods("POST")
 	protected.HandleFunc("/inventory/{id}", inventoryH.GetByID).Methods("GET")
@@ -171,14 +169,14 @@ func SetupRouter(
 	protected.HandleFunc("/inventory/remove-stock", inventoryH.RemoveStock).Methods("POST")
 	protected.HandleFunc("/inventory/{id}/return", inventoryH.ReturnItem).Methods("PUT")
 
-	// Installments (auth required)
+	// Installments
 	protected.HandleFunc("/installments", installmentH.Create).Methods("POST")
 	protected.HandleFunc("/installments/payment", installmentH.RecordPayment).Methods("POST")
 	protected.HandleFunc("/installments/bulk-payment", installmentH.BulkPayment).Methods("POST")
 	protected.HandleFunc("/installments/advance", installmentH.AdvancePayment).Methods("POST")
 	protected.HandleFunc("/installments/customer", installmentH.ListByCustomer).Methods("GET")
 
-	// UPCOMING - Dashboard ke liye: daily (aaj + missed), weekly (Sun-Sat), monthly (1-30/31)
+	// Upcoming installments
 	protected.HandleFunc("/installments/upcoming", func(w http.ResponseWriter, r *http.Request) {
 		daysStr := r.URL.Query().Get("days")
 		days, err := strconv.Atoi(daysStr)
@@ -192,21 +190,15 @@ func SetupRouter(
 
 		switch days {
 		case 1:
-			// Daily: sirf aaj (today) ya aaj se pehle ki (past/missed) due dates
-			// due_date <= end of today (midnight tonight)
 			start = time.Date(2020, 1, 1, 0, 0, 0, 0, now.Location())
 			end = today.AddDate(0, 0, 1)
 		case 7:
-			// Weekly: is week (current week) ya pehle kabhi ki (past)
-			// due_date <= end of this week (Sunday midnight)
 			weekday := now.Weekday()
-			daysUntilSunday := 6 - int(weekday) // days remaining till Sunday
-			currentWeekEnd := today.AddDate(0, 0, daysUntilSunday+1) // Monday next week = end boundary
+			daysUntilSunday := 6 - int(weekday)
+			currentWeekEnd := today.AddDate(0, 0, daysUntilSunday+1)
 			start = time.Date(2020, 1, 1, 0, 0, 0, 0, now.Location())
 			end = currentWeekEnd
 		case 30:
-			// Monthly: Show ALL past due + current month + next month
-			// Sirf purany record bhi aayein (4th maheeny sy pehle waly bhi)
 			year, month, _ := now.Date()
 			currentMonthStart := time.Date(year, month, 1, 0, 0, 0, 0, now.Location())
 			start = time.Date(2020, 1, 1, 0, 0, 0, 0, now.Location())
@@ -216,8 +208,6 @@ func SetupRouter(
 			end = today.AddDate(0, 0, days)
 		}
 
-
-		// Use aggregation pipeline - sirf UNPAID installments filter by due_date range
 		db := config.DB
 		installmentsColl := db.Collection("installments")
 
@@ -285,7 +275,7 @@ func SetupRouter(
 		respondJSON(w, http.StatusOK, result)
 	}).Methods("GET")
 
-	// DETAILED REPORT - Dashboard Full Detail Print ke liye
+	// Detailed report
 	protected.HandleFunc("/installments/detailed-report", func(w http.ResponseWriter, r *http.Request) {
 		daysStr := r.URL.Query().Get("days")
 		days, err := strconv.Atoi(daysStr)
@@ -299,19 +289,15 @@ func SetupRouter(
 
 		switch days {
 		case 1:
-			// Daily: sirf aaj (today) ya aaj se pehle ki (past/missed)
 			start = time.Date(2020, 1, 1, 0, 0, 0, 0, now.Location())
 			end = today.AddDate(0, 0, 1)
 		case 7:
-			// Weekly: is week (current week) ya pehle kabhi ki (past)
 			weekday := now.Weekday()
 			daysUntilSunday := 6 - int(weekday)
 			currentWeekEnd := today.AddDate(0, 0, daysUntilSunday+1)
 			start = time.Date(2020, 1, 1, 0, 0, 0, 0, now.Location())
 			end = currentWeekEnd
 		case 30:
-			// Monthly: Show ALL past due + current month + next month
-			// Sirf 4th maheeny sy pehle waly record bhi aayein
 			year, month, _ := now.Date()
 			currentMonthStart := time.Date(year, month, 1, 0, 0, 0, 0, now.Location())
 			start = time.Date(2020, 1, 1, 0, 0, 0, 0, now.Location())
@@ -321,17 +307,13 @@ func SetupRouter(
 			end = today.AddDate(0, 0, days)
 		}
 
-
 		db := config.DB
 		installmentsColl := db.Collection("installments")
 		paymentsColl := db.Collection("payments")
 		guarColl := db.Collection("guarantors")
 
-		// Pehle woh plans fetch karo jin ki koi UNPAID installment is range mein due hai
-		// Phir sirf wohi installments return karo jo range mein hain (future wali na aayein)
 		pipeline := mongo.Pipeline{
 			{{Key: "$match", Value: bson.M{"status": "active"}}},
-			// Step 1: Check if ANY UNPAID installment is due in this range
 			{{Key: "$addFields", Value: bson.M{
 				"has_due_in_range": bson.M{
 					"$anyElementTrue": bson.A{
@@ -350,7 +332,6 @@ func SetupRouter(
 				},
 			}}},
 			{{Key: "$match", Value: bson.M{"has_due_in_range": true}}},
-			// Remove the temporary field
 			{{Key: "$project", Value: bson.M{"has_due_in_range": 0}}},
 			{{Key: "$lookup", Value: bson.M{
 				"from":         "customers",
@@ -366,7 +347,6 @@ func SetupRouter(
 				"as":           "product",
 			}}},
 			{{Key: "$unwind", Value: bson.M{"path": "$product", "preserveNullAndEmptyArrays": true}}},
-			// Filter installments array to only include those within the date range (or paid ones within range)
 			{{Key: "$addFields", Value: bson.M{
 				"installments": bson.M{
 					"$filter": bson.M{
@@ -374,7 +354,6 @@ func SetupRouter(
 						"as":    "inst",
 						"cond": bson.M{
 							"$or": bson.A{
-								// Unpaid installments within the date range
 								bson.M{
 									"$and": bson.A{
 										bson.M{"$eq": bson.A{"$$inst.paid", false}},
@@ -382,7 +361,6 @@ func SetupRouter(
 										bson.M{"$lt": bson.A{"$$inst.due_date", end}},
 									},
 								},
-								// Paid installments within the date range
 								bson.M{
 									"$and": bson.A{
 										bson.M{"$eq": bson.A{"$$inst.paid", true}},
@@ -396,7 +374,6 @@ func SetupRouter(
 				},
 			}}},
 		}
-
 
 		cursor, err := installmentsColl.Aggregate(r.Context(), pipeline)
 		if err != nil {
@@ -435,14 +412,12 @@ func SetupRouter(
 
 		var result []enrichedPlan
 		for _, plan := range plans {
-			// Plan ID nikalna
 			planOID, ok := plan["_id"].(primitive.ObjectID)
 			if !ok {
 				continue
 			}
 			planIdStr := planOID.Hex()
 
-			// Payments fetch karo using installment_plan_id (ObjectID)
 			var payments []bson.M
 			payCursor, err := paymentsColl.Find(r.Context(), bson.M{"installment_plan_id": planOID}, options.Find().SetSort(bson.M{"transaction_date": 1}))
 			if err == nil {
@@ -453,11 +428,9 @@ func SetupRouter(
 				payments = []bson.M{}
 			}
 
-			// Guarantors fetch karo
 			var guarantors []bson.M
 			if customer, ok := plan["customer"].(bson.M); ok {
 				if guarIdsRaw, ok := customer["guarantor_ids"]; ok {
-					// guarantor_ids array of ObjectIDs hai
 					var guarOIDs []primitive.ObjectID
 					if arr, ok := guarIdsRaw.(bson.A); ok {
 						for _, item := range arr {
@@ -484,7 +457,6 @@ func SetupRouter(
 				guarantors = []bson.M{}
 			}
 
-			// Customer fields
 			var customerName, customerUrdu, fatherName, phone, cnic, address, addressUrdu string
 			var createdAt, createdBy string
 			if customer, ok := plan["customer"].(bson.M); ok {
@@ -521,7 +493,6 @@ func SetupRouter(
 				}
 			}
 
-			// Product fields
 			var productName, productNameUrdu string
 			if product, ok := plan["product"].(bson.M); ok {
 				if v, ok := product["name"].(string); ok {
@@ -591,7 +562,6 @@ func SetupRouter(
 	protected.HandleFunc("/accounting/profit-loss/cash", accountingH.ProfitLossCashFlow).Methods("GET")
 	protected.HandleFunc("/accounting/profit-loss/accrual", accountingH.ProfitLossAccrual).Methods("GET")
 	protected.HandleFunc("/accounting/pending-total", func(w http.ResponseWriter, r *http.Request) {
-		// Use MongoDB aggregation to calculate pending total directly in the database
 		db := config.DB
 		installmentsColl := db.Collection("installments")
 
@@ -649,7 +619,6 @@ func SetupRouter(
 		}
 		coll := config.DB.Collection("accounting")
 
-		// Use aggregation to calculate totals directly in MongoDB
 		pipeline := mongo.Pipeline{
 			{{Key: "$match", Value: bson.M{
 				"basis": basis,
@@ -719,6 +688,13 @@ func SetupRouter(
 	// Receipts
 	protected.HandleFunc("/receipts/print/{payment_id}", receiptH.PrintReceipt).Methods("POST")
 	protected.HandleFunc("/receipts/download/{plan_id}", receiptH.DownloadReceipt).Methods("GET")
+
+	// Reports
+	protected.HandleFunc("/reports/customers", reportH.CustomerReport).Methods("GET")
+	protected.HandleFunc("/reports/daily", reportH.DailyReport).Methods("GET")
+	protected.HandleFunc("/reports/weekly", reportH.WeeklyReport).Methods("GET")
+	protected.HandleFunc("/reports/monthly", reportH.MonthlyReport).Methods("GET")
+	protected.HandleFunc("/reports/date-range", reportH.DateRangeReport).Methods("GET")
 
 	return r
 }

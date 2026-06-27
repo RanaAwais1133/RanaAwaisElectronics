@@ -21,7 +21,6 @@ func NewInventoryHandler(svc *service.InventoryService, prodSvc *service.Product
 	return &InventoryHandler{svc: svc, prodSvc: prodSvc}
 }
 
-// Create adds a single inventory item.
 func (h *InventoryHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var item domain.InventoryItem
 	if err := json.NewDecoder(r.Body).Decode(&item); err != nil {
@@ -39,7 +38,6 @@ func (h *InventoryHandler) Create(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusCreated, item)
 }
 
-// GetByID returns a single inventory item by its ID.
 func (h *InventoryHandler) GetByID(w http.ResponseWriter, r *http.Request) {
 	id, err := primitive.ObjectIDFromHex(mux.Vars(r)["id"])
 	if err != nil {
@@ -54,7 +52,6 @@ func (h *InventoryHandler) GetByID(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, item)
 }
 
-// Update modifies an existing inventory item.
 func (h *InventoryHandler) Update(w http.ResponseWriter, r *http.Request) {
 	id, err := primitive.ObjectIDFromHex(mux.Vars(r)["id"])
 	if err != nil {
@@ -106,6 +103,9 @@ func (h *InventoryHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if input.PurchasePrice != 0 {
 		existing.PurchasePrice = input.PurchasePrice
 	}
+	if input.SellingPrice != 0 {
+		existing.SellingPrice = input.SellingPrice
+	}
 
 	if err := h.svc.Update(r.Context(), id, existing); err != nil {
 		respondError(w, r, http.StatusInternalServerError, "Update failed", "اپڈیٹ ناکام")
@@ -114,7 +114,6 @@ func (h *InventoryHandler) Update(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, existing)
 }
 
-// Delete removes an inventory item.
 func (h *InventoryHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	id, err := primitive.ObjectIDFromHex(mux.Vars(r)["id"])
 	if err != nil {
@@ -128,7 +127,6 @@ func (h *InventoryHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]string{"message": "Item deleted"})
 }
 
-// List returns all inventory items with product names resolved.
 func (h *InventoryHandler) List(w http.ResponseWriter, r *http.Request) {
 	skip, _ := strconv.ParseInt(r.URL.Query().Get("skip"), 10, 64)
 	limit, _ := strconv.ParseInt(r.URL.Query().Get("limit"), 10, 64)
@@ -193,12 +191,12 @@ func (h *InventoryHandler) AgeingReport(w http.ResponseWriter, r *http.Request) 
 	respondJSON(w, http.StatusOK, items)
 }
 
-// AddStock adds multiple inventory items and updates the product's purchase price if provided.
 func (h *InventoryHandler) AddStock(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		ProductID     string  `json:"product_id"`
 		Quantity      int     `json:"quantity"`
 		PurchasePrice float64 `json:"purchase_price"`
+		SellingPrice  float64 `json:"selling_price"`
 		Color         string  `json:"color,omitempty"`
 		Model         string  `json:"model,omitempty"`
 		EngineNo      string  `json:"engineNo,omitempty"`
@@ -223,13 +221,13 @@ func (h *InventoryHandler) AddStock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 1. Create inventory items
 	for i := 0; i < payload.Quantity; i++ {
 		item := &domain.InventoryItem{
 			ProductID:     productID,
 			Status:        "in_stock",
 			PurchaseDate:  time.Now(),
 			PurchasePrice: payload.PurchasePrice,
+			SellingPrice:  payload.SellingPrice,
 			Color:         payload.Color,
 			Model:         payload.Model,
 			EngineNo:      payload.EngineNo,
@@ -243,7 +241,6 @@ func (h *InventoryHandler) AddStock(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 2. Update product's purchase price if a purchase price was provided
 	if payload.PurchasePrice > 0 {
 		prod, err := h.prodSvc.GetByID(r.Context(), productID)
 		if err == nil && prod != nil {
@@ -255,7 +252,6 @@ func (h *InventoryHandler) AddStock(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusCreated, map[string]interface{}{"message": "Stock added successfully"})
 }
 
-// RemoveStock deletes multiple inventory items by their IDs.
 func (h *InventoryHandler) RemoveStock(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		IDs []string `json:"ids"`
@@ -282,7 +278,6 @@ func (h *InventoryHandler) RemoveStock(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]string{"message": "Items removed successfully"})
 }
 
-// ReturnItem marks an inventory item as returned and optionally adjusts the associated installment plan.
 func (h *InventoryHandler) ReturnItem(w http.ResponseWriter, r *http.Request) {
 	id, err := primitive.ObjectIDFromHex(mux.Vars(r)["id"])
 	if err != nil {
@@ -296,12 +291,10 @@ func (h *InventoryHandler) ReturnItem(w http.ResponseWriter, r *http.Request) {
 	}
 
 	item.Status = "returned"
-	item.SoldDate = nil // clear sold date
+	item.SoldDate = nil
 	if err := h.svc.Update(r.Context(), id, item); err != nil {
 		respondError(w, r, http.StatusInternalServerError, "Failed to mark as returned", "واپسی کا نشان نہیں لگا")
 		return
 	}
-	// Future: if item was linked to an active plan, we could cancel that plan or mark it as returned.
-	// For now, just change inventory status.
 	respondJSON(w, http.StatusOK, map[string]string{"message": "Item marked as returned"})
 }

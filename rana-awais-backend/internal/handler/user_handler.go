@@ -19,10 +19,12 @@ func NewUserHandler(svc *service.UserService) *UserHandler {
 }
 
 type createUserRequest struct {
-	Username    string `json:"username"`
-	Password    string `json:"password"`
-	Role        string `json:"role"`
-	DisplayName string `json:"displayName"`
+	Username     string `json:"username"`
+	Password     string `json:"password"`
+	Role         string `json:"role"`
+	DisplayName  string `json:"displayName"`
+	DisplayNameUr string `json:"displayNameUr"`
+	Phone        string `json:"phone"`
 }
 
 func (h *UserHandler) Create(w http.ResponseWriter, r *http.Request) {
@@ -40,9 +42,11 @@ func (h *UserHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user := &domain.User{
-		Username:    req.Username,
-		Role:        req.Role,
-		DisplayName: req.DisplayName,
+		Username:     req.Username,
+		Role:         req.Role,
+		DisplayName:  req.DisplayName,
+		DisplayNameUr: req.DisplayNameUr,
+		Phone:        req.Phone,
 	}
 	if err := h.svc.Create(r.Context(), user, req.Password); err != nil {
 		respondError(w, r, http.StatusConflict, err.Error(), "صارف نہیں بنایا جا سکا")

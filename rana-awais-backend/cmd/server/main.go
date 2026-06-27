@@ -31,7 +31,7 @@ func main() {
 	payRepo := mongo.NewPaymentRepository()
 	accRepo := mongo.NewAccountingRepository()
 	notifRepo := mongo.NewNotificationRepository()
-	userRepo := mongo.NewUserRepository() // NEW
+	userRepo := mongo.NewUserRepository()
 
 	// --- Services ---
 	custSvc := service.NewCustomerService(custRepo)
@@ -41,7 +41,7 @@ func main() {
 	planSvc := service.NewInstallmentService(planRepo, payRepo, accRepo, notifRepo, custRepo, invRepo, guarRepo, prodRepo)
 	paySvc := service.NewPaymentService(payRepo)
 	accSvc := service.NewAccountingService(accRepo, prodRepo)
-	userSvc := service.NewUserService(userRepo) // NEW
+	userSvc := service.NewUserService(userRepo)
 
 	smsSender := sms.NewSender(cfg.SMSEndpoint)
 	waSender := whatsapp.NewSender(cfg.WhatsAppAPI)
@@ -67,17 +67,23 @@ func main() {
 		})
 	})
 
+	// CORS - Use config for allowed origins
+	allowedOrigins := []string{cfg.FrontendURL}
+	if cfg.Environment == "development" {
+		allowedOrigins = append(allowedOrigins, "http://localhost:3000", "http://localhost:3001")
+	}
+
 	corsObj := handlers.CORS(
-    handlers.AllowedOrigins([]string{"https://rana-awais-electronics-orcin.vercel.app"}),
-    handlers.AllowedMethods([]string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}),
-    handlers.AllowedHeaders([]string{"Content-Type", "Authorization", "Accept-Language"}),
-    handlers.AllowCredentials(),
-)
+		handlers.AllowedOrigins(allowedOrigins),
+		handlers.AllowedMethods([]string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}),
+		handlers.AllowedHeaders([]string{"Content-Type", "Authorization", "Accept-Language"}),
+		handlers.AllowCredentials(),
+	)
 
 	go scheduleReminders(notifSvc)
 
 	addr := fmt.Sprintf(":%s", cfg.ServerPort)
-	fmt.Printf("Rana Awais ERP running on %s\n", addr)
+	fmt.Printf("%s running on %s\n", cfg.AppName, addr)
 	log.Fatal(http.ListenAndServe(addr, corsObj(r)))
 }
 

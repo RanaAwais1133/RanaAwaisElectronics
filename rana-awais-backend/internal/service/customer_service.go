@@ -32,14 +32,17 @@ func (s *CustomerService) GetByID(ctx context.Context, id primitive.ObjectID) (*
 func (s *CustomerService) List(ctx context.Context, skip, limit int64) ([]domain.Customer, error) {
 	return s.custRepo.List(ctx, skip, limit)
 }
+
 func (s *CustomerService) Update(ctx context.Context, id primitive.ObjectID, c *domain.Customer) error {
 	return s.custRepo.Update(ctx, id, c)
 }
+
 func (s *CustomerService) Delete(ctx context.Context, id primitive.ObjectID) error {
 	return s.custRepo.Delete(ctx, id)
 }
+
 func (s *CustomerService) GetByPhone(ctx context.Context, phone string) (*domain.Customer, error) {
-    return s.custRepo.GetByPhone(ctx, phone)
+	return s.custRepo.GetByPhone(ctx, phone)
 }
 
 func (s *CustomerService) Count(ctx context.Context) (int64, error) {
@@ -48,4 +51,9 @@ func (s *CustomerService) Count(ctx context.Context) (int64, error) {
 
 func (s *CustomerService) Search(ctx context.Context, query string, skip, limit int64) ([]domain.Customer, error) {
 	return s.custRepo.Search(ctx, query, skip, limit)
+}
+
+// ✅ NEW: Get customer with full details including guarantors
+func (s *CustomerService) GetByIDWithDetails(ctx context.Context, id primitive.ObjectID) (*domain.Customer, error) {
+	return s.custRepo.GetByID(ctx, id)
 }

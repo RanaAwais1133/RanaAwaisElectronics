@@ -44,6 +44,6 @@ func (h *AdminHandler) Backup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Content-Disposition", "attachment; filename=rana-awais-backup.json")
+	w.Header().Set("Content-Disposition", "attachment; filename=backup.json")
 	json.NewEncoder(w).Encode(result)
 }

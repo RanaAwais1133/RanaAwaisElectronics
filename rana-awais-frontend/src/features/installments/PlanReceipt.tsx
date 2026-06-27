@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import api from '../../utils/api';
 import { useAuthStore } from '../../store/useAuthStore';
 import { formatPhone, formatCNIC } from '../../utils/helpers';
+import { APP_CONFIG } from '../../config/app';
 
 interface Props {
   planId: string;
@@ -19,6 +20,9 @@ const PlanReceipt: React.FC<Props> = ({ planId, onClose }) => {
   const isUrdu = i18n.language === 'ur';
   const currentUser = useAuthStore((s) => s.user);
 
+  // ============================================================
+  // FETCH ALL DATA
+  // ============================================================
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -88,6 +92,9 @@ const PlanReceipt: React.FC<Props> = ({ planId, onClose }) => {
     imei: plan?.imei || product?.imei || '',
   };
   
+  // ============================================================
+  // HELPER FUNCTIONS
+  // ============================================================
   const formatDate = (d: string) => {
     if (!d) return '';
     const dt = new Date(d);
@@ -106,6 +113,24 @@ const PlanReceipt: React.FC<Props> = ({ planId, onClose }) => {
     return `${hours}:${minutes}:${seconds}`;
   };
 
+  const L = (en: string, ur: string) => isUrdu ? ur : en;
+
+  const planCreatorName = plan?.createdBy || currentUser?.displayName || currentUser?.username || '—';
+
+  // ============================================================
+  // ✅ COMPANY INFO FROM CONFIG
+  // ============================================================
+  const companyName = APP_CONFIG.companyName || 'RANA-AWAIS ELECTRONICS';
+  const companyNameUr = APP_CONFIG.companyNameUr || 'رانا اویس الیکٹرانکس';
+  const address = APP_CONFIG.address || '';
+  const addressUr = APP_CONFIG.addressUr || '';
+  const phones = APP_CONFIG.phones || ['0324-9959800', '0319-6429407', '0318-7311277'];
+  const softwareBy = APP_CONFIG.softwareBy || 'Huzaifa (0313-6487199)';
+  const softwareByUr = APP_CONFIG.softwareByUr || 'حذیفہ (0313-6487199)';
+
+  // ============================================================
+  // STYLES
+  // ============================================================
   const receiptStyle: React.CSSProperties = {
     fontFamily: isUrdu ? "'Noto Nastaliq Urdu', 'Jameel Noori Nastaleeq', 'Mehr Nastaliq', serif" : "'Times New Roman', Georgia, serif",
     maxWidth: '750px',
@@ -121,44 +146,65 @@ const PlanReceipt: React.FC<Props> = ({ planId, onClose }) => {
     direction: isUrdu ? 'rtl' : 'ltr',
   };
 
-  const L = (en: string, ur: string) => isUrdu ? ur : en;
-
-  const planCreatorName = plan?.createdBy || currentUser?.displayName || currentUser?.username || '—';
-
+  // ============================================================
+  // RECEIPT CONTENT
+  // ============================================================
   const receiptContent = (
     <div id="plan-receipt-print" style={receiptStyle}>
       
-      {/* HEADER */}
+      {/* ===== HEADER ===== */}
       <div style={{ textAlign: 'center', borderBottom: '2px solid #000', paddingBottom: '8px', marginBottom: '12px' }}>
-        <h1 style={{ fontSize: '18px', fontWeight: 'bold', margin: '0 0 3px 0', letterSpacing: '1px' }}>RANA-AWAIS ELECTRONICS</h1>
-        <p style={{ fontSize: '8px', margin: '0', color: '#000', fontWeight: 'bold' }}>{L('Behari Colony, Disposal Chowk, Bismillah Service Station, Opposite Noor Super Store, Kacha Aiemanabad Road, Gujranwala', 'بہاری کالونی، ڈسپوزل چوک، بسم اللہ سروس اسٹیشن، نور سپر اسٹور کے سامنے، کچّہ ایمن آباد روڈ، گوجرانوالہ')}</p>
+        <h1 style={{ fontSize: '18px', fontWeight: 'bold', margin: '0 0 3px 0', letterSpacing: '1px' }}>
+          {isUrdu ? companyNameUr : companyName}
+        </h1>
+        <p style={{ fontSize: '8px', margin: '0', color: '#000', fontWeight: 'bold' }}>
+          {isUrdu ? addressUr : address}
+        </p>
         <div style={{ display: 'flex', justifyContent: 'center', gap: '12px', marginTop: '4px', fontSize: '8px', fontWeight: 'bold' }}>
-          <span>📞 {L('Qadeem: 0324-9959800', 'قدیم: 0324-9959800')}</span>
-          <span>📞 {L('Hizbullah: 0319-6429407', 'حزب اللہ: 0319-6429407')}</span>
-          <span>📞 {L('Shahid: 0318-7311277', 'شاہد: 0318-7311277')}</span>
+          {phones.map((phone, idx) => (
+            <span key={idx}>📞 {phone}</span>
+          ))}
         </div>
       </div>
 
-      {/* TITLE */}
+      {/* ===== TITLE ===== */}
       <div style={{ textAlign: 'center', marginBottom: '12px' }}>
         <div style={{ fontSize: '13px', fontWeight: 'bold', border: '2px solid #000', display: 'inline-block', padding: '5px 24px', color: '#000', letterSpacing: '1px' }}>
           {L('INSTALLMENT PLAN RECEIPT', 'قسطوں کا منصوبہ رسید')}
         </div>
       </div>
 
-      {/* 4-COLUMN LAYOUT: Customer + Guarantor1 + Guarantor2 + Product Details */}
+      {/* ===== 4-COLUMN LAYOUT ===== */}
       <div style={{ display: 'flex', gap: '6px', marginBottom: '12px' }}>
         
-        {/* Column 1: Customer/Bill To */}
+        {/* Column 1: Customer */}
         <div style={{ flex: 1, border: '1px solid #000', padding: '7px 9px', fontSize: '9px' }}>
-          <p style={{ fontWeight: 'bold', fontSize: '8px', margin: '0 0 4px 0', color: '#000', textTransform: 'uppercase', borderBottom: '1px solid #000', paddingBottom: '2px' }}>{L('BILL TO', 'بل وصول')}</p>
+          <p style={{ fontWeight: 'bold', fontSize: '8px', margin: '0 0 4px 0', color: '#000', textTransform: 'uppercase', borderBottom: '1px solid #000', paddingBottom: '2px' }}>
+            {L('BILL TO', 'بل وصول')}
+          </p>
           {customer ? (
             <>
-              <p style={{ fontWeight: 'bold', fontSize: '13px', margin: '0 0 3px 0', color: '#000' }}>{isUrdu ? (customer.nameUrdu || customer.name) : (customer.name || customer.nameUrdu)}</p>
-              {customer.fatherName && <p style={{ fontSize: '12px', margin: '0 0 2px 0', color: '#000', fontWeight: 'bold' }}>{L('S/O:', 'والد:')} {isUrdu ? (customer.fatherNameUrdu || customer.father_name_urdu || customer.fatherName || customer.father_name) : (customer.fatherName || customer.father_name)}</p>}
-              <p style={{ fontSize: '12px', margin: '0 0 2px 0', color: '#000', fontWeight: 'bold' }}>{L('Contact:', 'رابطہ:')} <span dir="ltr">{formatPhone(customer.phone)}</span></p>
-              {customer.cnic && <p style={{ fontSize: '12px', margin: '0 0 1px 0', color: '#000', fontWeight: 'bold' }}>{L('CNIC:', 'شناختی نمبر:')} <span dir="ltr">{formatCNIC(customer.cnic)}</span></p>}
-              {customer.address && <p style={{ fontSize: '12px', margin: '0', color: '#000', fontWeight: 'bold' }} dir={isUrdu ? 'rtl' : 'ltr'}>{customer.address}</p>}
+              <p style={{ fontWeight: 'bold', fontSize: '13px', margin: '0 0 3px 0', color: '#000' }}>
+                {isUrdu ? (customer.nameUrdu || customer.name) : (customer.name || customer.nameUrdu)}
+              </p>
+              {customer.fatherName && (
+                <p style={{ fontSize: '12px', margin: '0 0 2px 0', color: '#000', fontWeight: 'bold' }}>
+                  {L('S/O:', 'والد:')} {isUrdu ? (customer.fatherNameUrdu || customer.father_name_urdu || customer.fatherName || customer.father_name) : (customer.fatherName || customer.father_name)}
+                </p>
+              )}
+              <p style={{ fontSize: '12px', margin: '0 0 2px 0', color: '#000', fontWeight: 'bold' }}>
+                {L('Contact:', 'رابطہ:')} <span dir="ltr">{formatPhone(customer.phone)}</span>
+              </p>
+              {customer.cnic && (
+                <p style={{ fontSize: '12px', margin: '0 0 1px 0', color: '#000', fontWeight: 'bold' }}>
+                  {L('CNIC:', 'شناختی نمبر:')} <span dir="ltr">{formatCNIC(customer.cnic)}</span>
+                </p>
+              )}
+              {customer.address && (
+                <p style={{ fontSize: '12px', margin: '0', color: '#000', fontWeight: 'bold' }} dir={isUrdu ? 'rtl' : 'ltr'}>
+                  {customer.address}
+                </p>
+              )}
             </>
           ) : <p style={{ fontSize: '9px', margin: '0' }}>—</p>}
         </div>
@@ -166,51 +212,133 @@ const PlanReceipt: React.FC<Props> = ({ planId, onClose }) => {
         {/* Column 2: Guarantor 1 */}
         {guarantors.length >= 1 && (
           <div style={{ flex: 1, border: '1px solid #000', padding: '7px 9px', fontSize: '9px' }}>
-            <p style={{ fontWeight: 'bold', fontSize: '8px', margin: '0 0 4px 0', color: '#000', textTransform: 'uppercase', borderBottom: '1px solid #000', paddingBottom: '2px' }}>{L('GUARANTOR 1', 'ضامن 1')}</p>
-            <p style={{ fontWeight: 'bold', fontSize: '11px', margin: '0 0 3px 0', color: '#000' }}>{isUrdu ? (guarantors[0].nameUrdu || guarantors[0].name) : (guarantors[0].name || guarantors[0].nameUrdu)}</p>
-            {guarantors[0].fatherName && <p style={{ fontSize: '9px', margin: '0 0 2px 0', color: '#000', fontWeight: 'bold' }}>{L('S/O:', 'والد:')} {isUrdu ? (guarantors[0].fatherNameUrdu || guarantors[0].father_name_urdu || guarantors[0].fatherName || guarantors[0].father_name) : (guarantors[0].fatherName || guarantors[0].father_name)}</p>}
-            <p style={{ fontSize: '9px', margin: '0 0 2px 0', color: '#000', fontWeight: 'bold' }}>{L('Contact:', 'رابطہ:')} <span dir="ltr">{formatPhone(guarantors[0].phone)}</span></p>
-            {guarantors[0].cnic && <p style={{ fontSize: '8px', margin: '0 0 1px 0', color: '#000', fontWeight: 'bold' }}>{L('CNIC:', 'شناختی نمبر:')} <span dir="ltr">{formatCNIC(guarantors[0].cnic)}</span></p>}
-            {guarantors[0].relation && <p style={{ fontSize: '8px', margin: '0 0 1px 0', color: '#000', fontWeight: 'bold' }}>{L('Relation:', 'رشتہ:')} {guarantors[0].relation}</p>}
-            {guarantors[0].address && <p style={{ fontSize: '12px', margin: '0', color: '#000', fontWeight: 'bold' }} dir={isUrdu ? 'rtl' : 'ltr'}>{guarantors[0].address}</p>}
+            <p style={{ fontWeight: 'bold', fontSize: '8px', margin: '0 0 4px 0', color: '#000', textTransform: 'uppercase', borderBottom: '1px solid #000', paddingBottom: '2px' }}>
+              {L('GUARANTOR 1', 'ضامن 1')}
+            </p>
+            <p style={{ fontWeight: 'bold', fontSize: '11px', margin: '0 0 3px 0', color: '#000' }}>
+              {isUrdu ? (guarantors[0].nameUrdu || guarantors[0].name) : (guarantors[0].name || guarantors[0].nameUrdu)}
+            </p>
+            {guarantors[0].fatherName && (
+              <p style={{ fontSize: '9px', margin: '0 0 2px 0', color: '#000', fontWeight: 'bold' }}>
+                {L('S/O:', 'والد:')} {isUrdu ? (guarantors[0].fatherNameUrdu || guarantors[0].father_name_urdu || guarantors[0].fatherName || guarantors[0].father_name) : (guarantors[0].fatherName || guarantors[0].father_name)}
+              </p>
+            )}
+            <p style={{ fontSize: '9px', margin: '0 0 2px 0', color: '#000', fontWeight: 'bold' }}>
+              {L('Contact:', 'رابطہ:')} <span dir="ltr">{formatPhone(guarantors[0].phone)}</span>
+            </p>
+            {guarantors[0].cnic && (
+              <p style={{ fontSize: '8px', margin: '0 0 1px 0', color: '#000', fontWeight: 'bold' }}>
+                {L('CNIC:', 'شناختی نمبر:')} <span dir="ltr">{formatCNIC(guarantors[0].cnic)}</span>
+              </p>
+            )}
+            {guarantors[0].relation && (
+              <p style={{ fontSize: '8px', margin: '0 0 1px 0', color: '#000', fontWeight: 'bold' }}>
+                {L('Relation:', 'رشتہ:')} {guarantors[0].relation}
+              </p>
+            )}
+            {guarantors[0].address && (
+              <p style={{ fontSize: '12px', margin: '0', color: '#000', fontWeight: 'bold' }} dir={isUrdu ? 'rtl' : 'ltr'}>
+                {guarantors[0].address}
+              </p>
+            )}
           </div>
         )}
         
         {/* Column 3: Guarantor 2 */}
         {guarantors.length >= 2 && (
           <div style={{ flex: 1, border: '1px solid #000', padding: '7px 9px', fontSize: '9px' }}>
-            <p style={{ fontWeight: 'bold', fontSize: '8px', margin: '0 0 4px 0', color: '#000', textTransform: 'uppercase', borderBottom: '1px solid #000', paddingBottom: '2px' }}>{L('GUARANTOR 2', 'ضامن 2')}</p>
-            <p style={{ fontWeight: 'bold', fontSize: '11px', margin: '0 0 3px 0', color: '#000' }}>{isUrdu ? (guarantors[1].nameUrdu || guarantors[1].name) : (guarantors[1].name || guarantors[1].nameUrdu)}</p>
-            {guarantors[1].fatherName && <p style={{ fontSize: '9px', margin: '0 0 2px 0', color: '#000', fontWeight: 'bold' }}>{L('S/O:', 'والد:')} {isUrdu ? (guarantors[1].fatherNameUrdu || guarantors[1].father_name_urdu || guarantors[1].fatherName || guarantors[1].father_name) : (guarantors[1].fatherName || guarantors[1].father_name)}</p>}
-            <p style={{ fontSize: '9px', margin: '0 0 2px 0', color: '#000', fontWeight: 'bold' }}>{L('Contact:', 'رابطہ:')} <span dir="ltr">{formatPhone(guarantors[1].phone)}</span></p>
-            {guarantors[1].cnic && <p style={{ fontSize: '8px', margin: '0 0 1px 0', color: '#000', fontWeight: 'bold' }}>{L('CNIC:', 'شناختی نمبر:')} <span dir="ltr">{formatCNIC(guarantors[1].cnic)}</span></p>}
-            {guarantors[1].relation && <p style={{ fontSize: '8px', margin: '0 0 1px 0', color: '#000', fontWeight: 'bold' }}>{L('Relation:', 'رشتہ:')} {guarantors[1].relation}</p>}
-            {guarantors[1].address && <p style={{ fontSize: '12px', margin: '0', color: '#000', fontWeight: 'bold' }} dir={isUrdu ? 'rtl' : 'ltr'}>{guarantors[1].address}</p>}
+            <p style={{ fontWeight: 'bold', fontSize: '8px', margin: '0 0 4px 0', color: '#000', textTransform: 'uppercase', borderBottom: '1px solid #000', paddingBottom: '2px' }}>
+              {L('GUARANTOR 2', 'ضامن 2')}
+            </p>
+            <p style={{ fontWeight: 'bold', fontSize: '11px', margin: '0 0 3px 0', color: '#000' }}>
+              {isUrdu ? (guarantors[1].nameUrdu || guarantors[1].name) : (guarantors[1].name || guarantors[1].nameUrdu)}
+            </p>
+            {guarantors[1].fatherName && (
+              <p style={{ fontSize: '9px', margin: '0 0 2px 0', color: '#000', fontWeight: 'bold' }}>
+                {L('S/O:', 'والد:')} {isUrdu ? (guarantors[1].fatherNameUrdu || guarantors[1].father_name_urdu || guarantors[1].fatherName || guarantors[1].father_name) : (guarantors[1].fatherName || guarantors[1].father_name)}
+              </p>
+            )}
+            <p style={{ fontSize: '9px', margin: '0 0 2px 0', color: '#000', fontWeight: 'bold' }}>
+              {L('Contact:', 'رابطہ:')} <span dir="ltr">{formatPhone(guarantors[1].phone)}</span>
+            </p>
+            {guarantors[1].cnic && (
+              <p style={{ fontSize: '8px', margin: '0 0 1px 0', color: '#000', fontWeight: 'bold' }}>
+                {L('CNIC:', 'شناختی نمبر:')} <span dir="ltr">{formatCNIC(guarantors[1].cnic)}</span>
+              </p>
+            )}
+            {guarantors[1].relation && (
+              <p style={{ fontSize: '8px', margin: '0 0 1px 0', color: '#000', fontWeight: 'bold' }}>
+                {L('Relation:', 'رشتہ:')} {guarantors[1].relation}
+              </p>
+            )}
+            {guarantors[1].address && (
+              <p style={{ fontSize: '12px', margin: '0', color: '#000', fontWeight: 'bold' }} dir={isUrdu ? 'rtl' : 'ltr'}>
+                {guarantors[1].address}
+              </p>
+            )}
           </div>
         )}
         
-        {/* Column 4: Product Details + Plan Created By */}
+        {/* Column 4: Product Details */}
         <div style={{ flex: 1, border: '1px solid #000', padding: '7px 9px', textAlign: 'center', fontSize: '9px' }}>
-          <p style={{ fontWeight: 'bold', fontSize: '8px', margin: '0 0 4px 0', color: '#000', textTransform: 'uppercase', borderBottom: '1px solid #000', paddingBottom: '2px' }}>{L('PRODUCT DETAILS', 'مصنوعات کی تفصیلات')}</p>
-          {productDetails.company && <p style={{ fontSize: '9px', margin: '0 0 2px 0', color: '#000', fontWeight: 'bold' }}>{L('Company:', 'کمپنی:')} {isUrdu ? (productDetails.companyUrdu || productDetails.company) : (productDetails.company || productDetails.companyUrdu)}</p>}
-          {productDetails.model && <p style={{ fontSize: '9px', margin: '0 0 2px 0', color: '#000', fontWeight: 'bold' }}>{L('Model:', 'ماڈل:')} {productDetails.model}</p>}
-          {productDetails.serial && <p style={{ fontSize: '9px', margin: '0 0 2px 0', color: '#000', fontWeight: 'bold' }}>{L('Serial No.:', 'سیریل نمبر:')} {productDetails.serial}</p>}
-          {productDetails.imei && <p style={{ fontSize: '9px', margin: '0 0 2px 0', color: '#000', fontWeight: 'bold' }}>{L('IMEI:', 'آئی ایم ای آئی:')} {productDetails.imei}</p>}
-          {productDetails.engine && <p style={{ fontSize: '9px', margin: '0 0 2px 0', color: '#000', fontWeight: 'bold' }}>{L('Engine No.:', 'انجن نمبر:')} {productDetails.engine}</p>}
-          {productDetails.chassis && <p style={{ fontSize: '9px', margin: '0 0 2px 0', color: '#000', fontWeight: 'bold' }}>{L('Chassis No.:', 'شاسی نمبر:')} {productDetails.chassis}</p>}
-          {productDetails.color && <p style={{ fontSize: '9px', margin: '0 0 2px 0', color: '#000', fontWeight: 'bold' }}>{L('Color:', 'رنگ:')} {productDetails.color}</p>}
+          <p style={{ fontWeight: 'bold', fontSize: '8px', margin: '0 0 4px 0', color: '#000', textTransform: 'uppercase', borderBottom: '1px solid #000', paddingBottom: '2px' }}>
+            {L('PRODUCT DETAILS', 'مصنوعات کی تفصیلات')}
+          </p>
+          {productDetails.company && (
+            <p style={{ fontSize: '9px', margin: '0 0 2px 0', color: '#000', fontWeight: 'bold' }}>
+              {L('Company:', 'کمپنی:')} {isUrdu ? (productDetails.companyUrdu || productDetails.company) : (productDetails.company || productDetails.companyUrdu)}
+            </p>
+          )}
+          {productDetails.model && (
+            <p style={{ fontSize: '9px', margin: '0 0 2px 0', color: '#000', fontWeight: 'bold' }}>
+              {L('Model:', 'ماڈل:')} {productDetails.model}
+            </p>
+          )}
+          {productDetails.serial && (
+            <p style={{ fontSize: '9px', margin: '0 0 2px 0', color: '#000', fontWeight: 'bold' }}>
+              {L('Serial No.:', 'سیریل نمبر:')} {productDetails.serial}
+            </p>
+          )}
+          {productDetails.imei && (
+            <p style={{ fontSize: '9px', margin: '0 0 2px 0', color: '#000', fontWeight: 'bold' }}>
+              {L('IMEI:', 'آئی ایم ای آئی:')} {productDetails.imei}
+            </p>
+          )}
+          {productDetails.engine && (
+            <p style={{ fontSize: '9px', margin: '0 0 2px 0', color: '#000', fontWeight: 'bold' }}>
+              {L('Engine No.:', 'انجن نمبر:')} {productDetails.engine}
+            </p>
+          )}
+          {productDetails.chassis && (
+            <p style={{ fontSize: '9px', margin: '0 0 2px 0', color: '#000', fontWeight: 'bold' }}>
+              {L('Chassis No.:', 'شاسی نمبر:')} {productDetails.chassis}
+            </p>
+          )}
+          {productDetails.color && (
+            <p style={{ fontSize: '9px', margin: '0 0 2px 0', color: '#000', fontWeight: 'bold' }}>
+              {L('Color:', 'رنگ:')} {productDetails.color}
+            </p>
+          )}
           <div style={{ borderTop: '1px solid #000', marginTop: '4px', paddingTop: '4px' }}>
-            <p style={{ fontSize: '11px', margin: '0', color: '#000', fontWeight: 'bold' }}>{L('Total:', 'کل:')} <span style={{ fontSize: '12px' }}>Rs {total.toFixed(0)}</span></p>
+            <p style={{ fontSize: '11px', margin: '0', color: '#000', fontWeight: 'bold' }}>
+              {L('Total:', 'کل:')} <span style={{ fontSize: '12px' }}>Rs {total.toFixed(0)}</span>
+            </p>
           </div>
           <div style={{ borderTop: '1px solid #000', marginTop: '4px', paddingTop: '4px' }}>
-            <p style={{ fontSize: '10px', margin: '0 0 2px 0', color: '#000', fontWeight: 'bold' }}>{L('Plan Created By:', 'پلان بنانے والا:')} {planCreatorName}</p>
-            <p style={{ fontSize: '10px', margin: '0 0 2px 0', color: '#000', fontWeight: 'bold' }}>{L('Date:', 'تاریخ:')} {formatDate(new Date().toISOString())}</p>
-            <p style={{ fontSize: '10px', margin: '0', color: '#000', fontWeight: 'bold' }}>{L('Time:', 'وقت:')} {formatTime(new Date().toISOString())}</p>
+            <p style={{ fontSize: '10px', margin: '0 0 2px 0', color: '#000', fontWeight: 'bold' }}>
+              {L('Plan Created By:', 'پلان بنانے والا:')} {planCreatorName}
+            </p>
+            <p style={{ fontSize: '10px', margin: '0 0 2px 0', color: '#000', fontWeight: 'bold' }}>
+              {L('Date:', 'تاریخ:')} {formatDate(new Date().toISOString())}
+            </p>
+            <p style={{ fontSize: '10px', margin: '0', color: '#000', fontWeight: 'bold' }}>
+              {L('Time:', 'وقت:')} {formatTime(new Date().toISOString())}
+            </p>
           </div>
         </div>
       </div>
 
-      {/* ITEMS TABLE */}
+      {/* ===== ITEMS TABLE ===== */}
       <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '10px', fontSize: '9px' }}>
         <thead>
           <tr style={{ backgroundColor: '#000', color: 'white' }}>
@@ -225,8 +353,12 @@ const PlanReceipt: React.FC<Props> = ({ planId, onClose }) => {
         <tbody>
           <tr>
             <td style={{ border: '1px solid #000', padding: '5px 4px', textAlign: 'center', fontWeight: 'bold' }}>1</td>
-            <td style={{ border: '1px solid #000', padding: '5px 4px', fontWeight: 'bold', color: '#000' }}>{isUrdu ? (productDetails.nameUrdu || productDetails.name || '—') : (productDetails.name || productDetails.nameUrdu || '—')}</td>
-            <td style={{ border: '1px solid #000', padding: '5px 4px', color: '#000', fontWeight: 'bold' }}>{productName} ({instCount} {L('Months', 'ماہ')})</td>
+            <td style={{ border: '1px solid #000', padding: '5px 4px', fontWeight: 'bold', color: '#000' }}>
+              {isUrdu ? (productDetails.nameUrdu || productDetails.name || '—') : (productDetails.name || productDetails.nameUrdu || '—')}
+            </td>
+            <td style={{ border: '1px solid #000', padding: '5px 4px', color: '#000', fontWeight: 'bold' }}>
+              {productName} ({instCount} {L('Months', 'ماہ')})
+            </td>
             <td style={{ border: '1px solid #000', padding: '5px 4px', textAlign: 'center', fontWeight: 'bold' }}>1</td>
             <td style={{ border: '1px solid #000', padding: '5px 4px', textAlign: 'right', fontWeight: 'bold', color: '#000' }}>Rs {total.toFixed(2)}</td>
             <td style={{ border: '1px solid #000', padding: '5px 4px', textAlign: 'right', fontWeight: 'bold', color: '#000' }}>Rs {total.toFixed(2)}</td>
@@ -239,12 +371,12 @@ const PlanReceipt: React.FC<Props> = ({ planId, onClose }) => {
         </tbody>
       </table>
 
-      {/* AMOUNT IN WORDS */}
+      {/* ===== AMOUNT IN WORDS ===== */}
       <div style={{ border: '1px solid #000', display: 'inline-block', padding: '4px 12px', fontSize: '9px', fontWeight: 'bold', marginBottom: '10px', color: '#000' }}>
         {L('Invoice Amount: Rupees', 'انوائس کی رقم: روپے')} {Math.floor(total).toLocaleString()} {L('only', 'صرف')}
       </div>
 
-      {/* PAYMENT DETAILS */}
+      {/* ===== PAYMENT DETAILS ===== */}
       <div style={{ border: '1px solid #000', padding: '8px', marginBottom: '10px', background: '#fafafa' }}>
         <div style={{ display: 'flex', gap: '8px' }}>
           <div style={{ flex: 1 }}>
@@ -272,7 +404,7 @@ const PlanReceipt: React.FC<Props> = ({ planId, onClose }) => {
         </div>
       </div>
 
-      {/* INSTALLMENT SCHEDULE TABLE with Collected By column */}
+      {/* ===== INSTALLMENT SCHEDULE ===== */}
       {plan?.installments && plan.installments.length > 0 && (
         <div style={{ marginBottom: '10px' }}>
           <p style={{ fontWeight: 'bold', fontSize: '9px', margin: '0 0 5px 0', color: '#000', borderBottom: '2px solid #000', display: 'inline-block', paddingBottom: '2px' }}>
@@ -313,15 +445,21 @@ const PlanReceipt: React.FC<Props> = ({ planId, onClose }) => {
         </div>
       )}
 
-      {/* FOOTER */}
+      {/* ===== FOOTER ===== */}
       <div style={{ textAlign: 'center', fontSize: '9px', borderTop: '2px solid #000', paddingTop: '6px', marginTop: '5px' }}>
-        <p style={{ fontWeight: 'bold', margin: '0 0 3px 0', color: '#000', fontSize: '10px' }}>{L('Thank you for choosing RANA-AWAIS Electronics!', 'رانا اویس الیکٹرانکس کا انتخاب کرنے کا شکریہ!')}</p>
-        <p style={{ margin: '0', color: '#000', fontWeight: 'bold', fontSize: '8px' }}>{L('Software by:', 'سافٹ ویئر بذریعہ:')} Huzaifa (0313-6487199)</p>
+        <p style={{ fontWeight: 'bold', margin: '0 0 3px 0', color: '#000', fontSize: '10px' }}>
+          {L('Thank you for choosing', 'کا انتخاب کرنے کا شکریہ!')} {isUrdu ? companyNameUr : companyName}!
+        </p>
+        <p style={{ margin: '0', color: '#000', fontWeight: 'bold', fontSize: '8px' }}>
+          {L('Software by:', 'سافٹ ویئر بذریعہ:')} {isUrdu ? softwareByUr : softwareBy}
+        </p>
       </div>
     </div>
   );
 
-  // DOWNLOAD
+  // ============================================================
+  // DOWNLOAD FUNCTION
+  // ============================================================
   const download = async () => {
     setDownloading(true);
     try {
@@ -363,7 +501,9 @@ const PlanReceipt: React.FC<Props> = ({ planId, onClose }) => {
     }
   };
 
-  // PRINT
+  // ============================================================
+  // PRINT FUNCTION
+  // ============================================================
   const handlePrint = () => {
     const el = document.getElementById('plan-receipt-print');
     if (!el) return;
@@ -393,6 +533,9 @@ const PlanReceipt: React.FC<Props> = ({ planId, onClose }) => {
     win.document.close();
   };
 
+  // ============================================================
+  // WHATSAPP FUNCTION
+  // ============================================================
   const whatsapp = () => {
     const ph = (customer?.phone || '').replace(/\D/g, '');
     if (!ph) { toast.error('No phone number found'); return; }
@@ -402,22 +545,35 @@ const PlanReceipt: React.FC<Props> = ({ planId, onClose }) => {
     toast.success('Press Ctrl+V to paste the receipt image', { duration: 3500 });
   };
 
+  // ============================================================
+  // LOADING STATE
+  // ============================================================
   if (loading) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-        <div className="bg-white rounded-2xl p-8"><div className="w-10 h-10 border-4 border-gray-800 border-t-transparent rounded-full animate-spin"></div></div>
+        <div className="bg-white rounded-2xl p-8">
+          <div className="w-10 h-10 border-4 border-gray-800 border-t-transparent rounded-full animate-spin"></div>
+        </div>
       </div>
     );
   }
 
+  // ============================================================
+  // MAIN RENDER
+  // ============================================================
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/50" onClick={onClose}>
       <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[95vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        {/* Header */}
         <div className="sticky top-0 bg-white z-10 flex justify-between items-center px-5 py-3 border-b" style={{ flexDirection: isUrdu ? 'row-reverse' : 'row' }}>
           <h2 className="text-base font-semibold text-gray-800">📋 {L('Plan Receipt', 'پلان رسید')}</h2>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-xl">✕</button>
         </div>
+        
+        {/* Receipt Content */}
         <div className="p-5 flex justify-center">{receiptContent}</div>
+        
+        {/* Footer Buttons */}
         <div className="sticky bottom-0 bg-white border-t p-3 flex gap-2 justify-center flex-wrap">
           <button onClick={onClose} className="px-4 py-2 bg-gray-100 rounded-lg text-xs font-medium">❌ {L('Close', 'بند کریں')}</button>
           <button onClick={handlePrint} className="px-4 py-2 bg-gray-800 text-white rounded-lg text-xs font-medium">🖨️ {L('Print', 'پرنٹ')}</button>

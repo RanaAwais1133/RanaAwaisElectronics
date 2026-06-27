@@ -18,21 +18,21 @@ type CustomerRepository interface {
 	Search(ctx context.Context, query string, skip, limit int64) ([]domain.Customer, error)
 	Count(ctx context.Context) (int64, error)
 }
+
 type GuarantorRepository interface {
 	Create(ctx context.Context, g *domain.Guarantor) error
 	GetByID(ctx context.Context, id primitive.ObjectID) (*domain.Guarantor, error)
 	Update(ctx context.Context, id primitive.ObjectID, g *domain.Guarantor) error
 	Delete(ctx context.Context, id primitive.ObjectID) error
 	List(ctx context.Context, skip, limit int64) ([]domain.Guarantor, error)
-	ListByCustomer(ctx context.Context, customerID primitive.ObjectID) ([]domain.Guarantor, error) // NEW
+	ListByCustomer(ctx context.Context, customerID primitive.ObjectID) ([]domain.Guarantor, error)
 	Count(ctx context.Context) (int64, error)
 }
-// ProductRepository defines database operations for products.
-// inside ProductRepository interface
+
 type ProductRepository interface {
 	Create(ctx context.Context, p *domain.Product) error
 	GetByID(ctx context.Context, id primitive.ObjectID) (*domain.Product, error)
-	GetByIDWithStock(ctx context.Context, id primitive.ObjectID) (*domain.Product, error) // new
+	GetByIDWithStock(ctx context.Context, id primitive.ObjectID) (*domain.Product, error)
 	Update(ctx context.Context, id primitive.ObjectID, p *domain.Product) error
 	Delete(ctx context.Context, id primitive.ObjectID) error
 	List(ctx context.Context, skip, limit int64) ([]domain.Product, error)
@@ -40,7 +40,6 @@ type ProductRepository interface {
 	Count(ctx context.Context) (int64, error)
 }
 
-// InventoryRepository defines database operations for inventory items (IMEI/serial tracking).
 type InventoryRepository interface {
 	Create(ctx context.Context, item *domain.InventoryItem) error
 	GetByID(ctx context.Context, id primitive.ObjectID) (*domain.InventoryItem, error)
@@ -53,7 +52,6 @@ type InventoryRepository interface {
 	Count(ctx context.Context) (int64, error)
 }
 
-// InstallmentRepository defines database operations for installment plans.
 type InstallmentRepository interface {
 	Create(ctx context.Context, plan *domain.InstallmentPlan) error
 	GetByID(ctx context.Context, id primitive.ObjectID) (*domain.InstallmentPlan, error)
@@ -61,38 +59,45 @@ type InstallmentRepository interface {
 	Delete(ctx context.Context, id primitive.ObjectID) error
 	ListByCustomer(ctx context.Context, customerID primitive.ObjectID) ([]domain.InstallmentPlan, error)
 	GetActivePlans(ctx context.Context) ([]domain.InstallmentPlan, error)
-	GetPlansWithDueDate(ctx context.Context, dueDate time.Time) ([]domain.InstallmentPlan, error) // for reminders
+	GetPlansWithDueDate(ctx context.Context, dueDate time.Time) ([]domain.InstallmentPlan, error)
 	AddPaymentDetail(ctx context.Context, planID primitive.ObjectID, installmentNo int, payment domain.InstallmentDetail) error
 	UpdateInstallmentStatus(ctx context.Context, planID primitive.ObjectID, installmentNo int, paid bool, paidDate *time.Time) error
+	// ✅ NEW: For dashboard reports
+	GetPlansWithDueDateRange(ctx context.Context, start, end time.Time) ([]domain.InstallmentPlan, error)
+	GetInstallmentsByDateRange(ctx context.Context, start, end time.Time) ([]domain.InstallmentDetail, error)
 }
 
-// PaymentRepository defines database operations for individual payments.
 type PaymentRepository interface {
 	Create(ctx context.Context, p *domain.Payment) error
 	GetByID(ctx context.Context, id primitive.ObjectID) (*domain.Payment, error)
 	ListByPlan(ctx context.Context, planID primitive.ObjectID) ([]domain.Payment, error)
+	// ✅ NEW: For reports
+	GetPaymentsByDateRange(ctx context.Context, start, end time.Time) ([]domain.Payment, error)
+	GetTodayPayments(ctx context.Context) ([]domain.Payment, error)
+	GetMonthlyPayments(ctx context.Context, year int, month time.Month) ([]domain.Payment, error)
 }
 
-// AccountingRepository defines database operations for accounting entries (cash-flow & accrual).
 type AccountingRepository interface {
 	Create(ctx context.Context, e *domain.AccountingEntry) error
 	GetCashFlowReport(ctx context.Context, start, end time.Time) ([]domain.AccountingEntry, error)
 	GetAccrualReport(ctx context.Context, start, end time.Time) ([]domain.AccountingEntry, error)
 	GetSoldItems(ctx context.Context, start, end time.Time) ([]domain.InventoryItem, error)
+	// ✅ NEW: For dashboard
+	GetRevenueAndProfit(ctx context.Context, start, end time.Time) (revenue float64, profit float64, err error)
 }
 
-// NotificationRepository defines database operations for reminders (WhatsApp/SMS).
 type NotificationRepository interface {
 	Create(ctx context.Context, n *domain.Notification) error
 	GetByCustomer(ctx context.Context, customerID primitive.ObjectID) ([]domain.Notification, error)
 	UpdateStatus(ctx context.Context, id primitive.ObjectID, status string) error
 }
+
 type UserRepository interface {
-    Create(ctx context.Context, user *domain.User) error
-    GetByUsername(ctx context.Context, username string) (*domain.User, error)
-    GetByID(ctx context.Context, id primitive.ObjectID) (*domain.User, error)
-    List(ctx context.Context, skip, limit int64) ([]domain.User, error)
-    Update(ctx context.Context, id primitive.ObjectID, user *domain.User) error
-    Delete(ctx context.Context, id primitive.ObjectID) error
-    Count(ctx context.Context) (int64, error)
+	Create(ctx context.Context, user *domain.User) error
+	GetByUsername(ctx context.Context, username string) (*domain.User, error)
+	GetByID(ctx context.Context, id primitive.ObjectID) (*domain.User, error)
+	List(ctx context.Context, skip, limit int64) ([]domain.User, error)
+	Update(ctx context.Context, id primitive.ObjectID, user *domain.User) error
+	Delete(ctx context.Context, id primitive.ObjectID) error
+	Count(ctx context.Context) (int64, error)
 }

@@ -12,14 +12,16 @@ import (
 )
 
 type AccountingRepository struct {
-	coll     *mongo.Collection
-	invColl  *mongo.Collection
+	coll    *mongo.Collection
+	invColl *mongo.Collection
+	payColl *mongo.Collection
 }
 
 func NewAccountingRepository() *AccountingRepository {
 	return &AccountingRepository{
 		coll:    config.DB.Collection("accounting"),
 		invColl: config.DB.Collection("inventory"),
+		payColl: config.DB.Collection("payments"),
 	}
 }
 
@@ -76,7 +78,6 @@ func (r *AccountingRepository) GetAccrualReport(ctx context.Context, start, end 
 	return entries, nil
 }
 
-// GetSoldItems returns inventory items sold within the date range
 func (r *AccountingRepository) GetSoldItems(ctx context.Context, start, end time.Time) ([]domain.InventoryItem, error) {
 	filter := bson.M{
 		"status": "sold",
@@ -98,4 +99,38 @@ func (r *AccountingRepository) GetSoldItems(ctx context.Context, start, end time
 		items = []domain.InventoryItem{}
 	}
 	return items, nil
+}
+
+// ✅ NEW: GetRevenueAndProfit for dashboard
+func (r *AccountingRepository) GetRevenueAndProfit(ctx context.Context, start, end time.Time) (revenue float64, profit float64, err error) {
+	// Get all payments in date range
+	filter := bson.M{
+		"transaction_date": bson.M{
+			"$gte": start,
+			"$lte": end,
+		},
+	}
+	cursor, err := r.payColl.Find(ctx, filter)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer cursor.Close(ctx)
+
+	var payments []domain.Payment
+	if err = cursor.All(ctx, &payments); err != nil {
+		return 0, 0, err
+	}
+
+	// Calculate revenue (sum of all payments)
+	for _, p := range payments {
+		revenue += p.Amount
+	}
+
+	// For profit, we need to calculate cost of goods sold
+	// This is simplified - in production, get from inventory purchase prices
+	// For now, assume 70% of revenue is cost (30% profit margin)
+	// In real implementation, get actual purchase prices from inventory
+	profit = revenue * 0.30 // 30% profit margin (adjust as needed)
+
+	return revenue, profit, nil
 }

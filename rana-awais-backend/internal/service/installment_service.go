@@ -16,6 +16,16 @@ type BulkPaymentItem struct {
 	Amount        float64 `json:"amount"`
 }
 
+type PaymentResult struct {
+	Message          string  `json:"message"`
+	Amount           float64 `json:"amount"`
+	InstallmentNo    int     `json:"installment_no"`
+	AppliedTo        int     `json:"applied_to"`
+	ExcessForwarded  float64 `json:"excess_forwarded"`
+	RemainingBalance float64 `json:"remaining_balance"`
+	InstallmentPaid  bool    `json:"installment_paid"`
+}
+
 type InstallmentService struct {
 	planRepo      repository.InstallmentRepository
 	paymentRepo   repository.PaymentRepository
@@ -49,6 +59,9 @@ func NewInstallmentService(
 	}
 }
 
+// ============================================================
+// CREATE PLAN
+// ============================================================
 func (s *InstallmentService) CreatePlan(ctx context.Context, plan *domain.InstallmentPlan) error {
 	// Customer validation
 	cust, err := s.custRepo.GetByID(ctx, plan.CustomerID)
@@ -56,32 +69,13 @@ func (s *InstallmentService) CreatePlan(ctx context.Context, plan *domain.Instal
 		return errors.New("customer not found")
 	}
 
-	// ✅ PRODUCT STOCK CHECK - use GetByIDWithStock to get actual stock count from inventory
+	// Product stock check
 	product, err := s.prodRepo.GetByIDWithStock(ctx, plan.ProductID)
 	if err != nil || product == nil {
 		return errors.New("product not found")
 	}
-	// Only check InStock if it was explicitly set (not default false)
-	// New products may have InStock=false by default but still have stock
 	if product.StockCount <= 0 && !product.InStock {
 		return errors.New("product is out of stock")
-	}
-
-	// ✅ GUARANTOR VALIDATION: At least 2 verified guarantors recommended but not required
-	// Soft check - warn but don't block
-	guarantors, err := s.guarRepo.ListByCustomer(ctx, plan.CustomerID)
-	if err == nil && len(guarantors) > 0 {
-		verifiedCount := 0
-		for _, g := range guarantors {
-			if g.VerificationStatus == "verified" {
-				verifiedCount++
-			}
-		}
-		// Only block if guarantors exist but none are verified
-		if len(guarantors) >= 2 && verifiedCount < 2 {
-			// Allow plan creation but log warning
-			// This is a soft requirement
-		}
 	}
 
 	// Amount validations
@@ -101,7 +95,7 @@ func (s *InstallmentService) CreatePlan(ctx context.Context, plan *domain.Instal
 		return errors.New("remaining amount cannot be negative")
 	}
 
-	// ✅ NEW: If perMonthInstallment is provided, auto-calculate months
+	// Auto-calculate installments from per-month amount
 	if plan.InstallmentAmount > 0 && plan.NumberOfInstallments <= 0 {
 		remaining := plan.RemainingAmount
 		perMonth := plan.InstallmentAmount
@@ -121,14 +115,13 @@ func (s *InstallmentService) CreatePlan(ctx context.Context, plan *domain.Instal
 	if plan.FinePerDay < 0 {
 		plan.FinePerDay = 0
 	}
-	// ✅ PRESERVE frontend's installmentAmount if already set (e.g., 7500 per month)
-	// Only recalculate if InstallmentAmount is 0 or not provided
+
+	// Calculate installment amount if not set
 	if plan.RemainingAmount == 0 {
 		plan.InstallmentAmount = 0
 	} else if plan.InstallmentAmount <= 0 {
 		plan.InstallmentAmount = math.Round((plan.RemainingAmount/float64(plan.NumberOfInstallments))*100) / 100
 	}
-
 
 	// Inventory handling
 	if !plan.InventoryItemID.IsZero() {
@@ -159,7 +152,7 @@ func (s *InstallmentService) CreatePlan(ctx context.Context, plan *domain.Instal
 		}
 	}
 
-	// ✅ Record downpayment as income
+	// Record downpayment as income
 	if plan.DownPayment > 0 {
 		now := time.Now()
 		s.accRepo.Create(ctx, &domain.AccountingEntry{
@@ -170,7 +163,6 @@ func (s *InstallmentService) CreatePlan(ctx context.Context, plan *domain.Instal
 			RelatedPlanID: &plan.ID,
 			Date:          now,
 		})
-		// Cost of goods sold for downpayment portion
 		if product.PurchasePrice > 0 && plan.TotalAmount > 0 {
 			costAmount := math.Round((plan.DownPayment/plan.TotalAmount)*product.PurchasePrice*100) / 100
 			if costAmount > 0 {
@@ -208,18 +200,15 @@ func (s *InstallmentService) generateSchedule(plan *domain.InstallmentPlan) []do
 		return nil
 	}
 	var schedule []domain.InstallmentDetail
-	// ✅ Use plan.InstallmentAmount if set (frontend's per-month value), otherwise calculate average
 	amountPerInstallment := plan.InstallmentAmount
 	if amountPerInstallment <= 0 {
 		amountPerInstallment = math.Round((plan.RemainingAmount/float64(plan.NumberOfInstallments))*100) / 100
 	}
-	// Calculate total if all installments used amountPerInstallment
 	totalUsingPerMonth := amountPerInstallment * float64(plan.NumberOfInstallments)
 	adjustment := plan.RemainingAmount - totalUsingPerMonth
 	for i := 1; i <= plan.NumberOfInstallments; i++ {
 		dueDate := plan.StartDate.AddDate(0, i, 0)
 		amt := amountPerInstallment
-		// Add adjustment (remainder) to the LAST installment
 		if i == plan.NumberOfInstallments {
 			amt += adjustment
 		}
@@ -237,17 +226,21 @@ func (s *InstallmentService) generateSchedule(plan *domain.InstallmentPlan) []do
 	return schedule
 }
 
-type PaymentResult struct {
-	Message          string  `json:"message"`
-	Amount           float64 `json:"amount"`
-	InstallmentNo    int     `json:"installment_no"`
-	AppliedTo        int     `json:"applied_to"`
-	ExcessForwarded  float64 `json:"excess_forwarded"`
-	RemainingBalance float64 `json:"remaining_balance"`
-	InstallmentPaid  bool    `json:"installment_paid"`
-}
-
-func (s *InstallmentService) RecordPayment(ctx context.Context, planID primitive.ObjectID, installmentNo int, amount float64, method string, paymentDate string, dueDate string, collectedBy string) (*PaymentResult, error) {
+// ============================================================
+// RECORD PAYMENT (UPDATED with collectedById and remarks)
+// ============================================================
+func (s *InstallmentService) RecordPayment(
+	ctx context.Context,
+	planID primitive.ObjectID,
+	installmentNo int,
+	amount float64,
+	method string,
+	paymentDate string,
+	dueDate string,
+	collectedBy string,
+	collectedById string,
+	remarks string,
+) (*PaymentResult, error) {
 
 	plan, err := s.planRepo.GetByID(ctx, planID)
 	if err != nil || plan == nil {
@@ -268,7 +261,6 @@ func (s *InstallmentService) RecordPayment(ctx context.Context, planID primitive
 		return nil, errors.New("installment not found or already paid")
 	}
 
-	// Use provided payment date or fallback to now
 	var payTime time.Time
 	if paymentDate != "" {
 		payTime, err = time.Parse("2006-01-02", paymentDate)
@@ -279,7 +271,6 @@ func (s *InstallmentService) RecordPayment(ctx context.Context, planID primitive
 		payTime = time.Now()
 	}
 
-	// ✅ Update installment due date if provided
 	if dueDate != "" {
 		parsedDueDate, parseErr := time.Parse("2006-01-02", dueDate)
 		if parseErr == nil {
@@ -290,6 +281,8 @@ func (s *InstallmentService) RecordPayment(ctx context.Context, planID primitive
 	excess := amount
 	appliedTo := installmentNo
 	installmentPaid := false
+	totalFinePaid := 0.0
+	totalAmountWithoutFine := 0.0
 
 	for i := instIdx; i < len(plan.Installments) && excess > 0; i++ {
 		inst := &plan.Installments[i]
@@ -302,27 +295,40 @@ func (s *InstallmentService) RecordPayment(ctx context.Context, planID primitive
 		if totalDue <= 0 {
 			continue
 		}
-		if excess >= totalDue {
-			excess -= totalDue
-			inst.PartialPaid = inst.Amount + fine
-			inst.Remaining = 0
-			inst.Fine = fine
+		
+		applyAmount := excess
+		if applyAmount > totalDue {
+			applyAmount = totalDue
+		}
+		
+		// Calculate fine portion of this payment
+		finePortion := 0.0
+		if fine > 0 && applyAmount > inst.Amount-inst.PartialPaid {
+			finePortion = applyAmount - (inst.Amount - inst.PartialPaid)
+			if finePortion > fine {
+				finePortion = fine
+			}
+			totalFinePaid += finePortion
+		}
+		totalAmountWithoutFine += applyAmount - finePortion
+
+		excess -= applyAmount
+		inst.PartialPaid += applyAmount
+		inst.Remaining = totalDue - applyAmount
+		inst.Fine = fine
+		inst.CollectedBy = collectedBy
+		inst.CollectedById = collectedById
+		inst.Remarks = remarks
+		
+		if inst.Remaining <= 0 {
 			inst.Paid = true
 			paidDate := payTime
 			inst.PaidDate = &paidDate
-			inst.CollectedBy = collectedBy
 			if i == instIdx {
 				installmentPaid = true
 			}
-		} else {
-			inst.PartialPaid += excess
-			inst.Remaining = totalDue - excess
-			inst.Fine = fine
-			inst.CollectedBy = collectedBy
-			excess = 0
 		}
 		appliedTo = inst.InstallmentNo
-
 
 		if err := s.planRepo.AddPaymentDetail(ctx, planID, inst.InstallmentNo, *inst); err != nil {
 			return nil, err
@@ -333,17 +339,24 @@ func (s *InstallmentService) RecordPayment(ctx context.Context, planID primitive
 		return nil, errors.New("payment exceeds outstanding amount")
 	}
 
+	// Create payment record
 	payment := &domain.Payment{
-		InstallmentPlanID: planID,
-		InstallmentNo:     installmentNo,
-		Amount:            amount,
-		Method:            method,
-		TransactionDate:   payTime,
-		CollectedBy:       collectedBy,
+		InstallmentPlanID:  planID,
+		InstallmentNo:      installmentNo,
+		Amount:             amount,
+		AmountWithoutFine:  totalAmountWithoutFine,
+		FinePaid:           totalFinePaid,
+		Method:             method,
+		TransactionDate:    payTime,
+		PaymentDate:        payTime,
+		CollectedBy:        collectedBy,
+		CollectedById:      collectedById,
+		RecoveryOfficer:    collectedBy,
+		Remarks:            remarks,
+		IsFullPayment:      excess == 0 && installmentPaid,
 	}
 
 	if err := s.paymentRepo.Create(ctx, payment); err != nil {
-
 		return nil, err
 	}
 
@@ -361,7 +374,6 @@ func (s *InstallmentService) RecordPayment(ctx context.Context, planID primitive
 		}
 	}
 
-	// Calculate remaining balance
 	remainingBalance := 0.0
 	for _, inst := range plan.Installments {
 		if !inst.Paid {
@@ -369,7 +381,7 @@ func (s *InstallmentService) RecordPayment(ctx context.Context, planID primitive
 		}
 	}
 
-	// ✅ Income entry
+	// Income entry
 	s.accRepo.Create(ctx, &domain.AccountingEntry{
 		Type:          "income",
 		Basis:         "cash_flow",
@@ -379,7 +391,7 @@ func (s *InstallmentService) RecordPayment(ctx context.Context, planID primitive
 		Date:          payTime,
 	})
 
-	// ✅ Expense entry — proportional cost of goods sold
+	// Expense entry
 	product, _ := s.prodRepo.GetByID(ctx, plan.ProductID)
 	if product != nil && product.PurchasePrice > 0 && plan.TotalAmount > 0 {
 		costAmount := math.Round((amount/plan.TotalAmount)*product.PurchasePrice*100) / 100
@@ -406,7 +418,18 @@ func (s *InstallmentService) RecordPayment(ctx context.Context, planID primitive
 	}, nil
 }
 
-func (s *InstallmentService) BulkPayment(ctx context.Context, planID primitive.ObjectID, payments []BulkPaymentItem, method string, paymentDate string, collectedBy string) error {
+// ============================================================
+// BULK PAYMENT (UPDATED with collectedById)
+// ============================================================
+func (s *InstallmentService) BulkPayment(
+	ctx context.Context,
+	planID primitive.ObjectID,
+	payments []BulkPaymentItem,
+	method string,
+	paymentDate string,
+	collectedBy string,
+	collectedById string,
+) error {
 
 	plan, err := s.planRepo.GetByID(ctx, planID)
 	if err != nil || plan == nil {
@@ -416,7 +439,6 @@ func (s *InstallmentService) BulkPayment(ctx context.Context, planID primitive.O
 		return errors.New("plan is not active")
 	}
 
-	// Use provided payment date or fallback to now
 	var payTime time.Time
 	if paymentDate != "" {
 		payTime, err = time.Parse("2006-01-02", paymentDate)
@@ -426,6 +448,10 @@ func (s *InstallmentService) BulkPayment(ctx context.Context, planID primitive.O
 	} else {
 		payTime = time.Now()
 	}
+
+	totalPaid := 0.0
+	totalFinePaid := 0.0
+	totalWithoutFine := 0.0
 
 	for _, pay := range payments {
 		var target *domain.InstallmentDetail
@@ -445,31 +471,48 @@ func (s *InstallmentService) BulkPayment(ctx context.Context, planID primitive.O
 		if applyAmount > totalDue {
 			applyAmount = totalDue
 		}
+		
+		// Calculate fine portion
+		finePortion := 0.0
+		if fine > 0 && applyAmount > target.Amount-target.PartialPaid {
+			finePortion = applyAmount - (target.Amount - target.PartialPaid)
+			if finePortion > fine {
+				finePortion = fine
+			}
+			totalFinePaid += finePortion
+		}
+		totalWithoutFine += applyAmount - finePortion
+		
 		target.PartialPaid += applyAmount
 		target.Remaining = totalDue - applyAmount
 		target.Fine = fine
 		target.CollectedBy = collectedBy
+		target.CollectedById = collectedById
+		totalPaid += applyAmount
+
 		if target.Remaining <= 0 {
 			target.Paid = true
 			paidDate := payTime
 			target.PaidDate = &paidDate
 		}
 
-
 		if err := s.planRepo.AddPaymentDetail(ctx, planID, pay.InstallmentNo, *target); err != nil {
 			return err
 		}
 
 		s.paymentRepo.Create(ctx, &domain.Payment{
-			InstallmentPlanID: planID,
-			InstallmentNo:     pay.InstallmentNo,
-			Amount:            applyAmount,
-			Method:            method,
-			TransactionDate:   payTime,
-			CollectedBy:       collectedBy,
+			InstallmentPlanID:  planID,
+			InstallmentNo:      pay.InstallmentNo,
+			Amount:             applyAmount,
+			AmountWithoutFine:  applyAmount - finePortion,
+			FinePaid:           finePortion,
+			Method:             method,
+			TransactionDate:    payTime,
+			PaymentDate:        payTime,
+			CollectedBy:        collectedBy,
+			CollectedById:      collectedById,
+			RecoveryOfficer:    collectedBy,
 		})
-
-		// Income
 
 		s.accRepo.Create(ctx, &domain.AccountingEntry{
 			Type:          "income",
@@ -480,7 +523,6 @@ func (s *InstallmentService) BulkPayment(ctx context.Context, planID primitive.O
 			Date:          payTime,
 		})
 
-		// Cost
 		product, _ := s.prodRepo.GetByID(ctx, plan.ProductID)
 		if product != nil && product.PurchasePrice > 0 && plan.TotalAmount > 0 {
 			costAmount := math.Round((applyAmount/plan.TotalAmount)*product.PurchasePrice*100) / 100
@@ -514,7 +556,18 @@ func (s *InstallmentService) BulkPayment(ctx context.Context, planID primitive.O
 	return nil
 }
 
-func (s *InstallmentService) AdvancePayment(ctx context.Context, planID primitive.ObjectID, amount float64, method string, paymentDate string, collectedBy string) error {
+// ============================================================
+// ADVANCE PAYMENT (UPDATED with collectedById)
+// ============================================================
+func (s *InstallmentService) AdvancePayment(
+	ctx context.Context,
+	planID primitive.ObjectID,
+	amount float64,
+	method string,
+	paymentDate string,
+	collectedBy string,
+	collectedById string,
+) error {
 
 	plan, err := s.planRepo.GetByID(ctx, planID)
 	if err != nil || plan == nil {
@@ -524,7 +577,6 @@ func (s *InstallmentService) AdvancePayment(ctx context.Context, planID primitiv
 		return errors.New("plan is not active")
 	}
 
-	// Use provided payment date or fallback to now
 	var payTime time.Time
 	if paymentDate != "" {
 		payTime, err = time.Parse("2006-01-02", paymentDate)
@@ -537,6 +589,8 @@ func (s *InstallmentService) AdvancePayment(ctx context.Context, planID primitiv
 
 	excess := amount
 	totalPaid := 0.0
+	totalFinePaid := 0.0
+	totalWithoutFine := 0.0
 
 	for i := range plan.Installments {
 		inst := &plan.Installments[i]
@@ -553,6 +607,17 @@ func (s *InstallmentService) AdvancePayment(ctx context.Context, planID primitiv
 		if applyAmount > totalDue {
 			applyAmount = totalDue
 		}
+		
+		finePortion := 0.0
+		if fine > 0 && applyAmount > inst.Amount-inst.PartialPaid {
+			finePortion = applyAmount - (inst.Amount - inst.PartialPaid)
+			if finePortion > fine {
+				finePortion = fine
+			}
+			totalFinePaid += finePortion
+		}
+		totalWithoutFine += applyAmount - finePortion
+		
 		excess -= applyAmount
 		totalPaid += applyAmount
 
@@ -560,6 +625,8 @@ func (s *InstallmentService) AdvancePayment(ctx context.Context, planID primitiv
 		inst.Remaining = totalDue - applyAmount
 		inst.Fine = fine
 		inst.CollectedBy = collectedBy
+		inst.CollectedById = collectedById
+
 		if inst.Remaining <= 0 {
 			inst.Paid = true
 			paidDate := payTime
@@ -579,17 +646,19 @@ func (s *InstallmentService) AdvancePayment(ctx context.Context, planID primitiv
 	}
 
 	s.paymentRepo.Create(ctx, &domain.Payment{
-		InstallmentPlanID: planID,
-		InstallmentNo:     0, // 0 indicates advance/bulk payment covering multiple installments
-
-		Amount:            totalPaid,
-		Method:            method,
-		TransactionDate:   payTime,
-		CollectedBy:       collectedBy,
+		InstallmentPlanID:  planID,
+		InstallmentNo:      0,
+		Amount:             totalPaid,
+		AmountWithoutFine:  totalWithoutFine,
+		FinePaid:           totalFinePaid,
+		Method:             method,
+		TransactionDate:    payTime,
+		PaymentDate:        payTime,
+		CollectedBy:        collectedBy,
+		CollectedById:      collectedById,
+		RecoveryOfficer:    collectedBy,
 	})
 
-
-	// Income
 	s.accRepo.Create(ctx, &domain.AccountingEntry{
 		Type:          "income",
 		Basis:         "cash_flow",
@@ -599,7 +668,6 @@ func (s *InstallmentService) AdvancePayment(ctx context.Context, planID primitiv
 		Date:          payTime,
 	})
 
-	// Cost
 	product, _ := s.prodRepo.GetByID(ctx, plan.ProductID)
 	if product != nil && product.PurchasePrice > 0 && plan.TotalAmount > 0 {
 		costAmount := math.Round((totalPaid/plan.TotalAmount)*product.PurchasePrice*100) / 100
@@ -632,6 +700,9 @@ func (s *InstallmentService) AdvancePayment(ctx context.Context, planID primitiv
 	return nil
 }
 
+// ============================================================
+// FINE CALCULATION
+// ============================================================
 func (s *InstallmentService) CalculateFine(plan *domain.InstallmentPlan, detail domain.InstallmentDetail, now time.Time) float64 {
 	if detail.Paid || now.Before(detail.DueDate) {
 		return 0
@@ -651,10 +722,28 @@ func (s *InstallmentService) CalculateFine(plan *domain.InstallmentPlan, detail 
 	return math.Round(fine*100) / 100
 }
 
+// ============================================================
+// GET METHODS
+// ============================================================
+func (s *InstallmentService) GetPlanByID(ctx context.Context, id primitive.ObjectID) (*domain.InstallmentPlan, error) {
+	return s.planRepo.GetByID(ctx, id)
+}
+
+func (s *InstallmentService) GetProductByID(ctx context.Context, id primitive.ObjectID) (*domain.Product, error) {
+	return s.prodRepo.GetByID(ctx, id)
+}
+
+func (s *InstallmentService) ListByCustomer(ctx context.Context, customerID primitive.ObjectID) ([]domain.InstallmentPlan, error) {
+	return s.planRepo.ListByCustomer(ctx, customerID)
+}
+
 func (s *InstallmentService) GetActivePlans(ctx context.Context) ([]domain.InstallmentPlan, error) {
 	return s.planRepo.GetActivePlans(ctx)
 }
 
+// ============================================================
+// RESCHEDULE
+// ============================================================
 func (s *InstallmentService) RescheduleCheck(ctx context.Context, planID primitive.ObjectID) error {
 	plan, err := s.planRepo.GetByID(ctx, planID)
 	if err != nil || plan == nil {
@@ -677,7 +766,6 @@ func (s *InstallmentService) RescheduleCheck(ctx context.Context, planID primiti
 	return nil
 }
 
-// ReschedulePlan - Option A: Continue same schedule, Option B: New schedule with remaining balance
 func (s *InstallmentService) ReschedulePlan(ctx context.Context, planID primitive.ObjectID, option string, newNumInstallments int, newStartDate string) error {
 	plan, err := s.planRepo.GetByID(ctx, planID)
 	if err != nil || plan == nil {
@@ -685,43 +773,38 @@ func (s *InstallmentService) ReschedulePlan(ctx context.Context, planID primitiv
 	}
 
 	if option == "continue" {
-		// Option A: Same schedule continue - just set status back to active
 		plan.Status = "active"
 		return s.planRepo.Update(ctx, planID, plan)
 	}
 
-	// Option B: New schedule with remaining balance
 	if newNumInstallments <= 0 {
 		return errors.New("number of installments must be greater than 0")
 	}
 
 	// Calculate remaining balance
 	var remainingBalance float64
+	paidAmount := 0.0
 	for _, inst := range plan.Installments {
 		if inst.Paid {
-			remainingBalance += inst.Amount
+			paidAmount += inst.Amount
 		}
 	}
-	remainingBalance = plan.TotalAmount - remainingBalance
+	remainingBalance = plan.TotalAmount - paidAmount - plan.DownPayment
 	if remainingBalance <= 0 {
 		return errors.New("no remaining balance to reschedule")
 	}
 
-	// Parse start date
 	startDate, err := time.Parse("2006-01-02", newStartDate)
 	if err != nil {
 		return errors.New("invalid start date format, use YYYY-MM-DD")
 	}
 
-	// Calculate new installment amount
 	newInstallmentAmount := math.Round(remainingBalance/float64(newNumInstallments)*100) / 100
 
-	// Create new installments
 	var newInstallments []domain.InstallmentDetail
 	for i := 0; i < newNumInstallments; i++ {
 		dueDate := startDate.AddDate(0, i, 0)
 		amount := newInstallmentAmount
-		// Adjust last installment for rounding
 		if i == newNumInstallments-1 {
 			totalSoFar := newInstallmentAmount * float64(newNumInstallments-1)
 			amount = math.Round((remainingBalance-totalSoFar)*100) / 100
@@ -737,7 +820,6 @@ func (s *InstallmentService) ReschedulePlan(ctx context.Context, planID primitiv
 		})
 	}
 
-	// Update plan
 	plan.Installments = newInstallments
 	plan.Status = "active"
 	plan.InstallmentAmount = newInstallmentAmount
@@ -749,18 +831,9 @@ func (s *InstallmentService) ReschedulePlan(ctx context.Context, planID primitiv
 	return s.planRepo.Update(ctx, planID, plan)
 }
 
-func (s *InstallmentService) GetPlanByID(ctx context.Context, id primitive.ObjectID) (*domain.InstallmentPlan, error) {
-	return s.planRepo.GetByID(ctx, id)
-}
-
-func (s *InstallmentService) GetProductByID(ctx context.Context, id primitive.ObjectID) (*domain.Product, error) {
-	return s.prodRepo.GetByID(ctx, id)
-}
-
-func (s *InstallmentService) ListByCustomer(ctx context.Context, customerID primitive.ObjectID) ([]domain.InstallmentPlan, error) {
-	return s.planRepo.ListByCustomer(ctx, customerID)
-}
-
+// ============================================================
+// DELETE PLAN
+// ============================================================
 func (s *InstallmentService) DeletePlan(ctx context.Context, planID primitive.ObjectID) error {
 	plan, err := s.planRepo.GetByID(ctx, planID)
 	if err != nil || plan == nil {
@@ -775,4 +848,34 @@ func (s *InstallmentService) DeletePlan(ctx context.Context, planID primitive.Ob
 		}
 	}
 	return s.planRepo.Delete(ctx, planID)
+}
+
+// ============================================================
+// ✅ NEW: UPCOMING & OVERDUE INSTALLMENTS
+// ============================================================
+func (s *InstallmentService) GetUpcomingInstallments(ctx context.Context, days int) ([]domain.InstallmentDetail, error) {
+	now := time.Now()
+	end := now.AddDate(0, 0, days)
+	return s.planRepo.GetInstallmentsByDateRange(ctx, now, end)
+}
+
+func (s *InstallmentService) GetOverdueInstallments(ctx context.Context) ([]domain.InstallmentDetail, error) {
+	now := time.Now()
+	start := time.Date(2000, 1, 1, 0, 0, 0, 0, now.Location())
+	return s.planRepo.GetInstallmentsByDateRange(ctx, start, now)
+}
+
+// ============================================================
+// ✅ NEW: GET PLAN WITH PAYMENTS
+// ============================================================
+func (s *InstallmentService) GetPlanWithPayments(ctx context.Context, planID primitive.ObjectID) (*domain.InstallmentPlan, []domain.Payment, error) {
+	plan, err := s.planRepo.GetByID(ctx, planID)
+	if err != nil || plan == nil {
+		return nil, nil, errors.New("plan not found")
+	}
+	payments, err := s.paymentRepo.ListByPlan(ctx, planID)
+	if err != nil {
+		return plan, []domain.Payment{}, nil
+	}
+	return plan, payments, nil
 }

@@ -47,7 +47,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	claims := jwt.MapClaims{
 		"sub":  user.ID.Hex(),
 		"role": user.Role,
-		"exp":  time.Now().Add(72 * time.Hour).Unix(), // token expires in 3 days
+		"exp":  time.Now().Add(time.Duration(h.cfg.JWTExpiryHours) * time.Hour).Unix(),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenStr, err := token.SignedString([]byte(h.cfg.JWTSecret))
