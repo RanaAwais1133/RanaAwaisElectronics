@@ -9,8 +9,7 @@ import ProductList from '../../features/products/ProductList';
 import InstallmentList from '../../features/installments/InstallmentList';
 import InstallmentCreate from '../../features/installments/InstallmentCreate';
 import GuarantorList from '../../features/guarantors/GuarantorList';
-import CustomerReport from '../../features/reports/CustomerReport';
-import ProfitLossReport from '../../features/reports/ProfitLossReport';
+import ReportsPage from '../../features/reports/ReportsPage';
 import NotificationPage from '../../features/notifications/NotificationPage';
 import ReminderPage from '../../features/reminders/ReminderPage';
 import SettingsPage from '../../features/settings/SettingPage';
@@ -110,12 +109,12 @@ const MainLayout: React.FC = () => {
             } />
             <Route path="/reports" element={
               <RequireRole roles={['admin', 'manager']}>
-                <CustomerReport />
+                <ReportsPage />
               </RequireRole>
             } />
             <Route path="/reports/profit-loss" element={
               <RequireRole roles={['admin', 'manager']}>
-                <ProfitLossReport />
+                <ReportsPage />
               </RequireRole>
             } />
             <Route path="/reminders" element={

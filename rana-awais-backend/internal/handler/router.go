@@ -45,6 +45,7 @@ func SetupRouter(
 	authH := NewAuthHandler(userSvc, cfg)
 	adminH := NewAdminHandler(userSvc)
 	reportH := NewReportHandler()
+	dashboardH := NewDashboardHandler()
 
 	api := r.PathPrefix("/api").Subrouter()
 
@@ -693,6 +694,13 @@ func SetupRouter(
 	// Receipts
 	protected.HandleFunc("/receipts/print/{payment_id}", receiptH.PrintReceipt).Methods("POST")
 	protected.HandleFunc("/receipts/download/{plan_id}", receiptH.DownloadReceipt).Methods("GET")
+
+	// Dashboard
+	protected.HandleFunc("/dashboard/summary", dashboardH.Summary).Methods("GET")
+	protected.HandleFunc("/dashboard/overdue", dashboardH.OverdueDetails).Methods("GET")
+	protected.HandleFunc("/dashboard/today-due", dashboardH.TodayDueDetails).Methods("GET")
+	protected.HandleFunc("/dashboard/low-stock", dashboardH.LowStockDetails).Methods("GET")
+	protected.HandleFunc("/dashboard/activities", dashboardH.RecentActivities).Methods("GET")
 
 	// Reports
 	protected.HandleFunc("/reports/customers", reportH.CustomerReport).Methods("GET")
