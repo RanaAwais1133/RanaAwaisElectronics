@@ -3,8 +3,10 @@ import { useTranslation } from 'react-i18next';
 import { APP_CONFIG } from '../../config/app';
 import CustomerReport from './CustomerReport';
 import ProfitLossReport from './ProfitLossReport';
+import InventoryReport from './InventoryReport';
+import PendingReport from './PendingReport';
 
-type ReportTab = 'daily' | 'profit-loss' | 'customer' | 'inventory' | 'pending';
+type ReportTab = 'daily' | 'profit-loss' | 'inventory' | 'pending';
 
 const ReportsPage: React.FC = () => {
   const { t, i18n } = useTranslation();
@@ -18,7 +20,6 @@ const ReportsPage: React.FC = () => {
   const tabs: { key: ReportTab; label: string; icon: string }[] = [
     { key: 'daily', label: isUrdu ? 'یومیہ رپورٹ' : 'Daily Report', icon: '📅' },
     { key: 'profit-loss', label: isUrdu ? 'منافع اور نقصان' : 'Profit & Loss', icon: '📊' },
-    { key: 'customer', label: isUrdu ? 'گاہک رپورٹ' : 'Customer Report', icon: '👥' },
     { key: 'inventory', label: isUrdu ? 'انوینٹری رپورٹ' : 'Inventory Report', icon: '📦' },
     { key: 'pending', label: isUrdu ? 'زیر التواء رپورٹ' : 'Pending Report', icon: '⏳' },
   ];
@@ -57,29 +58,8 @@ const ReportsPage: React.FC = () => {
       <div>
         {activeTab === 'daily' && <CustomerReport />}
         {activeTab === 'profit-loss' && <ProfitLossReport />}
-        {activeTab === 'customer' && <CustomerReport />}
-        {activeTab === 'inventory' && (
-          <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-sm border border-gray-200/60 dark:border-gray-700/60 p-6 text-center">
-            <div className="text-5xl mb-4">📦</div>
-            <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-2">
-              {isUrdu ? 'انوینٹری رپورٹ' : 'Inventory Report'}
-            </h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              {isUrdu ? 'انوینٹری رپورٹ کے لیے انوینٹری سیکشن پر جائیں' : 'Go to Inventory section for inventory reports'}
-            </p>
-          </div>
-        )}
-        {activeTab === 'pending' && (
-          <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-sm border border-gray-200/60 dark:border-gray-700/60 p-6 text-center">
-            <div className="text-5xl mb-4">⏳</div>
-            <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-2">
-              {isUrdu ? 'زیر التواء رپورٹ' : 'Pending Report'}
-            </h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              {isUrdu ? 'زیر التواء رپورٹ کے لیے ڈیش بورڈ دیکھیں' : 'Check Dashboard for pending details'}
-            </p>
-          </div>
-        )}
+        {activeTab === 'inventory' && <InventoryReport />}
+        {activeTab === 'pending' && <PendingReport />}
       </div>
     </div>
   );

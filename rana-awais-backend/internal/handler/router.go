@@ -163,12 +163,13 @@ func SetupRouter(
 	// Inventory
 	protected.HandleFunc("/inventory", inventoryH.List).Methods("GET")
 	protected.HandleFunc("/inventory", inventoryH.Create).Methods("POST")
-	protected.HandleFunc("/inventory/{id}", inventoryH.GetByID).Methods("GET")
-	protected.HandleFunc("/inventory/{id}", inventoryH.Update).Methods("PUT")
-	protected.HandleFunc("/inventory/{id}", inventoryH.Delete).Methods("DELETE")
+	// Specific routes MUST be before /inventory/{id} to avoid route conflict
 	protected.HandleFunc("/inventory/ageing", inventoryH.AgeingReport).Methods("GET")
 	protected.HandleFunc("/inventory/add-stock", inventoryH.AddStock).Methods("POST")
 	protected.HandleFunc("/inventory/remove-stock", inventoryH.RemoveStock).Methods("POST")
+	protected.HandleFunc("/inventory/{id}", inventoryH.GetByID).Methods("GET")
+	protected.HandleFunc("/inventory/{id}", inventoryH.Update).Methods("PUT")
+	protected.HandleFunc("/inventory/{id}", inventoryH.Delete).Methods("DELETE")
 	protected.HandleFunc("/inventory/{id}/return", inventoryH.ReturnItem).Methods("PUT")
 
 	// Installments

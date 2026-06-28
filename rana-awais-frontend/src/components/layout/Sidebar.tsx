@@ -18,7 +18,6 @@ const baseLinks = [
   { to: '/installments/new', labelKey: 'new_installment', shortcut: 'Alt+N', icon: '➕', roles: ['admin', 'manager'] },
   { to: '/guarantors', labelKey: 'guarantors', shortcut: 'Alt+G', icon: '🤝', roles: ['admin', 'manager'] },
   { to: '/reports', labelKey: 'reports', shortcut: 'Alt+R', icon: '📄', roles: ['admin', 'manager'] },
-  { to: '/reports/profit-loss', labelKey: 'profit_loss', shortcut: 'Alt+P', icon: '📈', roles: ['admin', 'manager'] },
   { to: '/reminders', labelKey: 'reminders', shortcut: 'Alt+M', icon: '🔔', roles: ['admin', 'manager'] },
   { to: '/audit-logs', labelKey: 'audit_logs', shortcut: 'Alt+L', icon: '📜', roles: ['admin', 'manager'] },
   { to: '/settings', labelKey: 'settings', shortcut: 'Alt+S', icon: '⚙️', roles: ['admin'] },

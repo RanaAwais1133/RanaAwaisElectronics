@@ -5,50 +5,70 @@ interface DashboardCardProps {
   value: string | number;
   subtitle?: string;
   icon: React.ReactNode;
-  color: 'blue' | 'emerald' | 'amber' | 'rose' | 'purple' | 'cyan' | 'indigo' | 'orange' | 'teal' | 'pink';
   onClick?: () => void;
   loading?: boolean;
 }
 
-const colorMap = {
-  blue: { bg: 'bg-blue-50 dark:bg-blue-900/20', border: 'border-blue-200 dark:border-blue-800', text: 'text-blue-700 dark:text-blue-300', icon: 'bg-blue-100 dark:bg-blue-900/40' },
-  emerald: { bg: 'bg-emerald-50 dark:bg-emerald-900/20', border: 'border-emerald-200 dark:border-emerald-800', text: 'text-emerald-700 dark:text-emerald-300', icon: 'bg-emerald-100 dark:bg-emerald-900/40' },
-  amber: { bg: 'bg-amber-50 dark:bg-amber-900/20', border: 'border-amber-200 dark:border-amber-800', text: 'text-amber-700 dark:text-amber-300', icon: 'bg-amber-100 dark:bg-amber-900/40' },
-  rose: { bg: 'bg-rose-50 dark:bg-rose-900/20', border: 'border-rose-200 dark:border-rose-800', text: 'text-rose-700 dark:text-rose-300', icon: 'bg-rose-100 dark:bg-rose-900/40' },
-  purple: { bg: 'bg-purple-50 dark:bg-purple-900/20', border: 'border-purple-200 dark:border-purple-800', text: 'text-purple-700 dark:text-purple-300', icon: 'bg-purple-100 dark:bg-purple-900/40' },
-  cyan: { bg: 'bg-cyan-50 dark:bg-cyan-900/20', border: 'border-cyan-200 dark:border-cyan-800', text: 'text-cyan-700 dark:text-cyan-300', icon: 'bg-cyan-100 dark:bg-cyan-900/40' },
-  indigo: { bg: 'bg-indigo-50 dark:bg-indigo-900/20', border: 'border-indigo-200 dark:border-indigo-800', text: 'text-indigo-700 dark:text-indigo-300', icon: 'bg-indigo-100 dark:bg-indigo-900/40' },
-  orange: { bg: 'bg-orange-50 dark:bg-orange-900/20', border: 'border-orange-200 dark:border-orange-800', text: 'text-orange-700 dark:text-orange-300', icon: 'bg-orange-100 dark:bg-orange-900/40' },
-  teal: { bg: 'bg-teal-50 dark:bg-teal-900/20', border: 'border-teal-200 dark:border-teal-800', text: 'text-teal-700 dark:text-teal-300', icon: 'bg-teal-100 dark:bg-teal-900/40' },
-  pink: { bg: 'bg-pink-50 dark:bg-pink-900/20', border: 'border-pink-200 dark:border-pink-800', text: 'text-pink-700 dark:text-pink-300', icon: 'bg-pink-100 dark:bg-pink-900/40' },
-};
-
-const DashboardCard: React.FC<DashboardCardProps> = ({ title, value, subtitle, icon, color, onClick, loading }) => {
-  const c = colorMap[color];
+const DashboardCard: React.FC<DashboardCardProps> = ({ title, value, subtitle, icon, onClick, loading }) => {
+  const isClickable = !!onClick;
 
   return (
     <button
       onClick={onClick}
-      disabled={loading || !onClick}
-      className={`${c.bg} ${c.border} border rounded-2xl p-4 sm:p-5 text-start w-full transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5 active:scale-[0.98] ${onClick ? 'cursor-pointer' : 'cursor-default'} disabled:opacity-60 disabled:cursor-not-allowed`}
+      disabled={loading || !isClickable}
+      className={`
+        relative group
+        bg-white dark:bg-gray-800
+        border border-gray-200 dark:border-gray-700
+        rounded-xl p-4 sm:p-5 text-start w-full
+        transition-all duration-200 ease-out
+        ${isClickable ? 'cursor-pointer hover:border-gray-400 dark:hover:border-gray-500 hover:shadow-lg hover:-translate-y-0.5' : 'cursor-default'}
+        disabled:opacity-60 disabled:cursor-not-allowed
+        active:translate-y-0 active:scale-[0.99]
+      `}
     >
-      <div className="flex items-start justify-between mb-3">
-        <div className={`${c.icon} p-2.5 rounded-xl`}>
-          {icon}
+      {/* Content */}
+      <div className="relative z-10">
+        {/* Top row: Icon + Loading/Arrow indicator */}
+        <div className="flex items-start justify-between mb-3">
+          <div className="p-2.5 bg-gray-100 dark:bg-gray-700 rounded-xl transition-transform duration-200 group-hover:scale-105">
+            <span className="text-gray-600 dark:text-gray-300">{icon}</span>
+          </div>
+          {loading ? (
+            <div className="w-5 h-5 border-2 border-gray-300 dark:border-gray-600 border-t-gray-600 dark:border-t-gray-300 rounded-full animate-spin" />
+          ) : isClickable ? (
+            <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+              <svg className="w-4 h-4 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+              </svg>
+            </div>
+          ) : null}
         </div>
-        {loading && (
-          <div className="w-5 h-5 border-2 border-gray-300 border-t-blue-600 rounded-full animate-spin" />
+
+        {/* Value */}
+        <p className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white mb-1 tracking-tight">
+          {loading ? (
+            <span className="inline-block w-20 h-8 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+          ) : value}
+        </p>
+
+        {/* Title */}
+        <p className="text-xs sm:text-sm font-medium text-gray-500 dark:text-gray-400 leading-tight">
+          {loading ? (
+            <span className="inline-block w-24 h-4 bg-gray-200 dark:bg-gray-700 rounded animate-pulse mt-1" />
+          ) : title}
+        </p>
+
+        {/* Subtitle */}
+        {subtitle && !loading && (
+          <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1.5 flex items-center gap-1">
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+            {subtitle}
+          </p>
         )}
       </div>
-      <p className={`text-2xl sm:text-3xl font-extrabold ${c.text} mb-1`}>
-        {loading ? '—' : value}
-      </p>
-      <p className="text-xs sm:text-sm font-semibold text-gray-600 dark:text-gray-400">
-        {title}
-      </p>
-      {subtitle && (
-        <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1">{subtitle}</p>
-      )}
     </button>
   );
 };

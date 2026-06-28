@@ -59,7 +59,6 @@ const MainLayout: React.FC = () => {
       '/installments/new': t('new_installment'),
       '/guarantors': t('guarantors'),
       '/reports': t('reports'),
-      '/reports/profit-loss': t('profit_loss'),
       '/reminders': t('reminders'),
       '/notifications': t('notifications'),
       '/audit-logs': t('audit_logs'),
@@ -108,11 +107,6 @@ const MainLayout: React.FC = () => {
               </RequireRole>
             } />
             <Route path="/reports" element={
-              <RequireRole roles={['admin', 'manager']}>
-                <ReportsPage />
-              </RequireRole>
-            } />
-            <Route path="/reports/profit-loss" element={
               <RequireRole roles={['admin', 'manager']}>
                 <ReportsPage />
               </RequireRole>
