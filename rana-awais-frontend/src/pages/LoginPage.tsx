@@ -15,21 +15,10 @@ const LoginPage: React.FC = () => {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(false);
   const [isFocused, setIsFocused] = useState<'username' | 'password' | null>(null);
   
   const setAuth = useAuthStore((s) => s.login);
   const navigate = useNavigate();
-
-  // ✅ Check for saved credentials
-  useEffect(() => {
-    const savedUsername = localStorage.getItem('remembered_username');
-    const savedRemember = localStorage.getItem('remember_me') === 'true';
-    if (savedUsername && savedRemember) {
-      setUsername(savedUsername);
-      setRememberMe(true);
-    }
-  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -42,15 +31,6 @@ const LoginPage: React.FC = () => {
     try {
       const data = await login(username, password);
       setAuth(data.token, data.user);
-      
-      // ✅ Remember me
-      if (rememberMe) {
-        localStorage.setItem('remembered_username', username);
-        localStorage.setItem('remember_me', 'true');
-      } else {
-        localStorage.removeItem('remembered_username');
-        localStorage.removeItem('remember_me');
-      }
       
       toast.success(isUrdu ? 'خوش آمدید! لاگ ان کامیاب' : t('login_success'));
       navigate('/');
@@ -194,27 +174,6 @@ const LoginPage: React.FC = () => {
                     )}
                   </button>
                 </div>
-              </div>
-
-              {/* ✅ Remember Me & Forgot Password */}
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <label className="flex items-center gap-2 text-sm cursor-pointer group">
-                  <input
-                    type="checkbox"
-                    checked={rememberMe}
-                    onChange={e => setRememberMe(e.target.checked)}
-                    className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-400 focus:ring-offset-2 dark:focus:ring-offset-gray-800 cursor-pointer"
-                  />
-                  <span className="text-gray-600 dark:text-gray-400 group-hover:text-gray-800 dark:group-hover:text-gray-200 transition-colors">
-                    {isUrdu ? 'یاد رکھیں' : 'Remember me'}
-                  </span>
-                </label>
-                <button
-                  type="button"
-                  className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium transition-colors hover:underline"
-                >
-                  {isUrdu ? 'پاس ورڈ بھول گئے؟' : 'Forgot password?'}
-                </button>
               </div>
 
               {/* ✅ Login Button */}
