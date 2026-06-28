@@ -16,13 +16,6 @@ const SettingsPage: React.FC = () => {
   const [isRestoring, setIsRestoring] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
 
-  // ✅ Password change state
-  const [showPasswordForm, setShowPasswordForm] = useState(false);
-  const [oldPassword, setOldPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [isChangingPassword, setIsChangingPassword] = useState(false);
-
   // ✅ Page title
   useEffect(() => {
     document.title = `${isUrdu ? 'ترتیبات' : 'Settings'} | ${APP_CONFIG.companyName}`;
@@ -101,38 +94,6 @@ const SettingsPage: React.FC = () => {
     input.click();
   }, [isUrdu]);
 
-  // ✅ Handle password change
-  const handleChangePassword = useCallback(async () => {
-    if (!oldPassword || !newPassword || !confirmPassword) {
-      toast.error(isUrdu ? 'تمام فیلڈز پُر کریں' : 'Please fill all fields');
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      toast.error(isUrdu ? 'نیا پاس ورڈ اور تصدیق مماثل نہیں' : 'New password and confirmation do not match');
-      return;
-    }
-    if (newPassword.length < 4) {
-      toast.error(isUrdu ? 'پاس ورڈ کم از کم 4 حروف کا ہو' : 'Password must be at least 4 characters');
-      return;
-    }
-
-    setIsChangingPassword(true);
-    try {
-      await api.post('/auth/change-password', { oldPassword, newPassword });
-      toast.success(isUrdu ? 'پاس ورڈ کامیابی سے تبدیل ہو گیا' : 'Password changed successfully');
-      setOldPassword('');
-      setNewPassword('');
-      setConfirmPassword('');
-      setShowPasswordForm(false);
-    } catch (err: any) {
-      const errorMsg = err.response?.data?.error || 
-                       (isUrdu ? 'پاس ورڈ تبدیل نہیں ہو سکا' : 'Failed to change password');
-      toast.error(errorMsg);
-    } finally {
-      setIsChangingPassword(false);
-    }
-  }, [oldPassword, newPassword, confirmPassword, isUrdu]);
-
   // ✅ Toggle theme
   const toggleTheme = useCallback(() => {
     const isDark = document.documentElement.classList.toggle('dark');
@@ -144,7 +105,7 @@ const SettingsPage: React.FC = () => {
   const isAdmin = currentUser?.role === 'admin';
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6 pb-10 px-3 sm:px-4">
+    <div className="min-h-screen flex flex-col justify-center max-w-4xl mx-auto space-y-6 px-3 sm:px-4 py-6">
       {/* ✅ Header */}
       <div className="flex items-center gap-3">
         <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-xl">
@@ -236,98 +197,6 @@ const SettingsPage: React.FC = () => {
                   )}
                 </button>
               </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ✅ Password Change Card */}
-      <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-sm border border-gray-200/60 dark:border-gray-700/60 overflow-hidden">
-        <div className="p-6">
-          <div className="flex items-start gap-4">
-            <div className="p-3 bg-amber-100 dark:bg-amber-900/30 rounded-xl">
-              <svg className="w-6 h-6 text-amber-600 dark:text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-              </svg>
-            </div>
-            <div className="flex-1">
-              <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
-                <div>
-                  <h2 className="text-lg font-semibold text-gray-800 dark:text-white">
-                    {isUrdu ? 'پاس ورڈ تبدیل کریں' : 'Change Password'}
-                  </h2>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                    {isUrdu ? 'اپنا پاس ورڈ اپ ڈیٹ کریں' : 'Update your account password'}
-                  </p>
-                </div>
-                <button
-                  onClick={() => setShowPasswordForm(!showPasswordForm)}
-                  className="px-5 py-2.5 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white rounded-2xl text-sm font-semibold shadow-lg shadow-amber-500/25 transition-all active:scale-95 whitespace-nowrap"
-                >
-                  {showPasswordForm ? (isUrdu ? 'منسوخ کریں' : 'Cancel') : (isUrdu ? 'پاس ورڈ تبدیل کریں' : 'Change Password')}
-                </button>
-              </div>
-              {showPasswordForm && (
-                <div className="mt-5 border-t border-gray-200 dark:border-gray-700 pt-5">
-                  <div className="grid gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                        {isUrdu ? 'پرانا پاس ورڈ' : 'Old Password'}
-                      </label>
-                      <input
-                        type="password"
-                        value={oldPassword}
-                        onChange={(e) => setOldPassword(e.target.value)}
-                        placeholder={isUrdu ? 'پرانا پاس ورڈ درج کریں' : 'Enter old password'}
-                        className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-2xl bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:ring-2 focus:ring-amber-500 focus:border-transparent outline-none transition-all text-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                        {isUrdu ? 'نیا پاس ورڈ' : 'New Password'}
-                      </label>
-                      <input
-                        type="password"
-                        value={newPassword}
-                        onChange={(e) => setNewPassword(e.target.value)}
-                        placeholder={isUrdu ? 'نیا پاس ورڈ درج کریں' : 'Enter new password'}
-                        className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-2xl bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:ring-2 focus:ring-amber-500 focus:border-transparent outline-none transition-all text-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                        {isUrdu ? 'پاس ورڈ کی تصدیق کریں' : 'Confirm Password'}
-                      </label>
-                      <input
-                        type="password"
-                        value={confirmPassword}
-                        onChange={(e) => setConfirmPassword(e.target.value)}
-                        placeholder={isUrdu ? 'نیا پاس ورڈ دوبارہ درج کریں' : 'Re-enter new password'}
-                        className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-2xl bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:ring-2 focus:ring-amber-500 focus:border-transparent outline-none transition-all text-sm"
-                      />
-                    </div>
-                    <button
-                      onClick={handleChangePassword}
-                      disabled={isChangingPassword}
-                      className="w-full sm:w-auto px-6 py-3 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 disabled:from-amber-400 disabled:to-amber-400 text-white rounded-2xl text-sm font-semibold shadow-lg shadow-amber-500/25 transition-all active:scale-95 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                    >
-                      {isChangingPassword ? (
-                        <span className="flex items-center gap-2">
-                          <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                          {isUrdu ? 'ہو رہا ہے...' : 'Changing...'}
-                        </span>
-                      ) : (
-                        <>
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                          </svg>
-                          {isUrdu ? 'پاس ورڈ تبدیل کریں' : 'Update Password'}
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </div>
-              )}
             </div>
           </div>
         </div>
