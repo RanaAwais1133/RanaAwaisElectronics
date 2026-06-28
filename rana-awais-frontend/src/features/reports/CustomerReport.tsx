@@ -241,64 +241,92 @@ const TransactionTable: React.FC<{
   }
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[900px] text-sm border-collapse">
-        <thead>
-          <tr className="bg-gradient-to-r from-blue-600 to-blue-700 text-white">
-            <th className="px-3 py-2.5 text-start text-xs font-bold uppercase tracking-wider border border-blue-800">
-              {isUrdu ? 'گاہک کا نام' : 'Customer Name'}
-            </th>
-            <th className="px-3 py-2.5 text-start text-xs font-bold uppercase tracking-wider border border-blue-800">
-              {isUrdu ? 'والد کا نام' : 'Father Name'}
-            </th>
-            <th className="px-3 py-2.5 text-start text-xs font-bold uppercase tracking-wider border border-blue-800">
-              {isUrdu ? 'فون' : 'Phone'}
-            </th>
-            <th className="px-3 py-2.5 text-start text-xs font-bold uppercase tracking-wider border border-blue-800">
-              {isUrdu ? 'پروڈکٹ' : 'Product'}
-            </th>
-            <th className="px-3 py-2.5 text-center text-xs font-bold uppercase tracking-wider border border-blue-800">
-              {isUrdu ? 'قسم' : 'Type'}
-            </th>
-            <th className="px-3 py-2.5 text-end text-xs font-bold uppercase tracking-wider border border-blue-800">
-              {isUrdu ? 'رقم' : 'Amount'}
-            </th>
-            <th className="px-3 py-2.5 text-center text-xs font-bold uppercase tracking-wider border border-blue-800">
-              {isUrdu ? 'حالت' : 'Status'}
-            </th>
-            <th className="px-3 py-2.5 text-center text-xs font-bold uppercase tracking-wider border border-blue-800">
-              {isUrdu ? 'تاریخ' : 'Date'}
-            </th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-200">
-          {transactions.map((t, idx) => (
-            <tr key={t.id} className={`${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-blue-50 transition-colors`}>
-              <td className="px-3 py-2 font-semibold text-gray-800 border border-gray-200">
-                {isUrdu ? t.customerUrdu || t.customerName : t.customerName}
-              </td>
-              <td className="px-3 py-2 text-gray-600 border border-gray-200">{t.fatherName || '—'}</td>
-              <td className="px-3 py-2 text-gray-600 font-mono text-xs border border-gray-200" dir="ltr">{t.phone || '—'}</td>
-              <td className="px-3 py-2 text-gray-600 border border-gray-200">
-                {isUrdu ? t.productNameUrdu || t.productName : t.productName}
-              </td>
-              <td className="px-3 py-2 text-center border border-gray-200">
+    <>
+      {/* ✅ Mobile Card View */}
+      <div className="sm:hidden space-y-3">
+        {transactions.map((t, idx) => (
+          <div key={t.id} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-3 space-y-2 shadow-sm">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="font-semibold text-gray-800 dark:text-white text-sm">
+                  {isUrdu ? t.customerUrdu || t.customerName : t.customerName}
+                </p>
+                {t.fatherName && <p className="text-xs text-gray-500 dark:text-gray-400">{t.fatherName}</p>}
+              </div>
+              <div className="flex flex-col items-end gap-1">
                 <StatusBadge status={t.type} isUrdu={isUrdu} />
-              </td>
-              <td className="px-3 py-2 text-end font-semibold border border-gray-200">
-                Rs. {t.amount.toLocaleString()}
-              </td>
-              <td className="px-3 py-2 text-center border border-gray-200">
                 <StatusBadge status={t.status} isUrdu={isUrdu} />
-              </td>
-              <td className="px-3 py-2 text-center font-mono text-xs border border-gray-200">
-                {t.date ? new Date(t.date).toLocaleDateString(isUrdu ? 'ur-PK' : 'en-PK') : '—'}
-              </td>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-1.5 text-xs">
+              <div><span className="text-gray-500 dark:text-gray-400">{isUrdu ? 'فون' : 'Phone'}:</span> <span className="font-mono">{t.phone || '—'}</span></div>
+              <div><span className="text-gray-500 dark:text-gray-400">{isUrdu ? 'پروڈکٹ' : 'Product'}:</span> <span>{isUrdu ? t.productNameUrdu || t.productName : t.productName}</span></div>
+              <div className="col-span-2"><span className="text-gray-500 dark:text-gray-400">{isUrdu ? 'رقم' : 'Amount'}:</span> <span className="font-semibold">Rs. {t.amount.toLocaleString()}</span></div>
+              <div className="col-span-2"><span className="text-gray-500 dark:text-gray-400">{isUrdu ? 'تاریخ' : 'Date'}:</span> <span>{t.date ? new Date(t.date).toLocaleDateString(isUrdu ? 'ur-PK' : 'en-PK') : '—'}</span></div>
+            </div>
+          </div>
+        ))}
+      </div>
+      {/* ✅ Desktop Table View */}
+      <div className="hidden sm:block overflow-x-auto">
+        <table className="w-full min-w-[900px] text-sm border-collapse">
+          <thead>
+            <tr className="bg-gradient-to-r from-blue-600 to-blue-700 text-white">
+              <th className="px-3 py-2.5 text-start text-xs font-bold uppercase tracking-wider border border-blue-800">
+                {isUrdu ? 'گاہک کا نام' : 'Customer Name'}
+              </th>
+              <th className="px-3 py-2.5 text-start text-xs font-bold uppercase tracking-wider border border-blue-800">
+                {isUrdu ? 'والد کا نام' : 'Father Name'}
+              </th>
+              <th className="px-3 py-2.5 text-start text-xs font-bold uppercase tracking-wider border border-blue-800">
+                {isUrdu ? 'فون' : 'Phone'}
+              </th>
+              <th className="px-3 py-2.5 text-start text-xs font-bold uppercase tracking-wider border border-blue-800">
+                {isUrdu ? 'پروڈکٹ' : 'Product'}
+              </th>
+              <th className="px-3 py-2.5 text-center text-xs font-bold uppercase tracking-wider border border-blue-800">
+                {isUrdu ? 'قسم' : 'Type'}
+              </th>
+              <th className="px-3 py-2.5 text-end text-xs font-bold uppercase tracking-wider border border-blue-800">
+                {isUrdu ? 'رقم' : 'Amount'}
+              </th>
+              <th className="px-3 py-2.5 text-center text-xs font-bold uppercase tracking-wider border border-blue-800">
+                {isUrdu ? 'حالت' : 'Status'}
+              </th>
+              <th className="px-3 py-2.5 text-center text-xs font-bold uppercase tracking-wider border border-blue-800">
+                {isUrdu ? 'تاریخ' : 'Date'}
+              </th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody className="divide-y divide-gray-200">
+            {transactions.map((t, idx) => (
+              <tr key={t.id} className={`${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-blue-50 transition-colors`}>
+                <td className="px-3 py-2 font-semibold text-gray-800 border border-gray-200">
+                  {isUrdu ? t.customerUrdu || t.customerName : t.customerName}
+                </td>
+                <td className="px-3 py-2 text-gray-600 border border-gray-200">{t.fatherName || '—'}</td>
+                <td className="px-3 py-2 text-gray-600 font-mono text-xs border border-gray-200" dir="ltr">{t.phone || '—'}</td>
+                <td className="px-3 py-2 text-gray-600 border border-gray-200">
+                  {isUrdu ? t.productNameUrdu || t.productName : t.productName}
+                </td>
+                <td className="px-3 py-2 text-center border border-gray-200">
+                  <StatusBadge status={t.type} isUrdu={isUrdu} />
+                </td>
+                <td className="px-3 py-2 text-end font-semibold border border-gray-200">
+                  Rs. {t.amount.toLocaleString()}
+                </td>
+                <td className="px-3 py-2 text-center border border-gray-200">
+                  <StatusBadge status={t.status} isUrdu={isUrdu} />
+                </td>
+                <td className="px-3 py-2 text-center font-mono text-xs border border-gray-200">
+                  {t.date ? new Date(t.date).toLocaleDateString(isUrdu ? 'ur-PK' : 'en-PK') : '—'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 };
 

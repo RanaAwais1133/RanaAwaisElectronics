@@ -10,7 +10,8 @@ import PlanReceipt from './PlanReceipt';
 import RescheduleModal from './RescheduleModal';
 import api from '../../utils/api';
 import { useCustomerStore } from '../../store/useCustomerStore';
-import { formatPhone, formatCNIC } from '../../utils/helpers';
+// ✅ Fixed: Removed unused imports
+// import { formatPhone, formatCNIC } from '../../utils/helpers';
 import { APP_CONFIG } from '../../config/app';
 
 // ✅ Status Badge Component
@@ -663,8 +664,88 @@ const InstallmentList: React.FC = () => {
           </div>
         </div>
 
-        {/* Installments Table */}
-        <div className="overflow-x-auto">
+        {/* ✅ Mobile Card View for Installments */}
+        <div className="sm:hidden space-y-3 p-3">
+          {(plan.installments || []).map((inst: any) => {
+            const key = `${plan.id}_${inst.installmentNo}`;
+            const isPaid = inst.paid === true;
+            const partialPaid = inst.partialPaid || 0;
+            const instAmt = inst.amount || 0;
+            const fineAmt = inst.fine || 0;
+            const totalDue = instAmt + fineAmt;
+            const dueDateStr = (() => {
+              const d = new Date(inst.dueDate);
+              return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+            })();
+            const paidDateStr = (() => {
+              if (isPaid) {
+                const pd = inst.paidDate || inst.paid_date || null;
+                if (pd) {
+                  try {
+                    const dd = new Date(pd);
+                    return `${String(dd.getDate()).padStart(2, '0')}/${String(dd.getMonth() + 1).padStart(2, '0')}/${dd.getFullYear()}`;
+                  } catch (e) { return pd; }
+                }
+                return isUrdu ? 'ادا شدہ' : 'Paid';
+              }
+              return '—';
+            })();
+            return (
+              <div key={inst.installmentNo} className={`bg-white dark:bg-gray-800 rounded-xl border p-3 space-y-2 shadow-sm ${
+                isPaid ? 'border-emerald-200 dark:border-emerald-800' : partialPaid > 0 ? 'border-amber-200 dark:border-amber-800' : 'border-gray-200 dark:border-gray-700'
+              }`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-gray-400 bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded-full">#{inst.installmentNo}</span>
+                    <PaymentStatusBadge paid={isPaid} partialPaid={partialPaid} t={t} isUrdu={isUrdu} />
+                  </div>
+                  {!isPaid && (
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(key)}
+                      onChange={() => toggleSelection(plan.id, inst.installmentNo)}
+                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-1.5 text-xs">
+                  <div><span className="text-gray-500 dark:text-gray-400">{t('due_date')}:</span> <span className="font-medium">{dueDateStr}</span></div>
+                  <div><span className="text-gray-500 dark:text-gray-400">{t('amount')}:</span> <span className="font-semibold">Rs. {instAmt.toFixed(0)}</span></div>
+                  <div><span className="text-gray-500 dark:text-gray-400">{isUrdu ? 'فائن' : 'Fine'}:</span> <span className={fineAmt > 0 ? 'text-amber-600 dark:text-amber-400 font-medium' : 'text-gray-400'}>
+                    {fineAmt > 0 ? `Rs. ${fineAmt.toFixed(0)}` : '—'}
+                  </span></div>
+                  <div><span className="text-gray-500 dark:text-gray-400">{isUrdu ? 'کل' : 'Total'}:</span> <span className="font-semibold">Rs. {totalDue.toFixed(0)}</span></div>
+                  <div><span className="text-gray-500 dark:text-gray-400">{t('paid_date') || 'Paid Date'}:</span> <span>{paidDateStr}</span></div>
+                  <div><span className="text-gray-500 dark:text-gray-400">{isUrdu ? 'باقی' : 'Remaining'}:</span> <span className={`font-semibold ${
+                    isPaid ? 'text-emerald-600 dark:text-emerald-400' : partialPaid > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-rose-600 dark:text-rose-400'
+                  }`}>
+                    {isPaid ? 'Rs 0' : partialPaid > 0 ? `Rs ${(totalDue - partialPaid).toFixed(0)}` : `Rs ${totalDue.toFixed(0)}`}
+                  </span></div>
+                </div>
+                {!isPaid && (
+                  <button
+                    onClick={() => setSinglePay({
+                      planId: plan.id,
+                      installmentNo: inst.installmentNo,
+                      dueAmount: inst.remaining > 0 && inst.remaining < instAmt ? inst.remaining : instAmt,
+                      finePerDay: plan.finePerDay || 10,
+                      graceDays: plan.gracePeriodDays || 2,
+                      dueDate: inst.dueDate,
+                      fineAmount: fineAmt,
+                      fineType: plan.fineType || 'per_day',
+                      fixedFineAmount: plan.fixedFineAmount || 0
+                    })}
+                    className="w-full mt-1 bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-xs font-semibold transition-colors"
+                  >
+                    {t('pay')}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        {/* ✅ Desktop Table View */}
+        <div className="hidden sm:block overflow-x-auto">
           <table className="w-full min-w-[800px] text-sm">
             <thead className="bg-gray-50 dark:bg-gray-700 text-gray-500 dark:text-gray-400 uppercase tracking-wider">
               <tr>
@@ -688,7 +769,6 @@ const InstallmentList: React.FC = () => {
                 const instAmt = inst.amount || 0;
                 const fineAmt = inst.fine || 0;
                 const totalDue = instAmt + fineAmt;
-                const remaining = inst.remaining > 0 ? inst.remaining : (isPaid ? 0 : totalDue);
                 
                 return (
                   <tr key={inst.installmentNo} className="hover:bg-blue-50/50 dark:hover:bg-blue-900/10 transition-colors text-gray-800 dark:text-gray-200">
@@ -769,7 +849,9 @@ const InstallmentList: React.FC = () => {
                             finePerDay: plan.finePerDay || 10,
                             graceDays: plan.gracePeriodDays || 2,
                             dueDate: inst.dueDate,
-                            fineAmount: fineAmt
+                            fineAmount: fineAmt,
+                            fineType: plan.fineType || 'per_day',
+                            fixedFineAmount: plan.fixedFineAmount || 0
                           })}
                           className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded-lg text-xs transition-colors"
                         >

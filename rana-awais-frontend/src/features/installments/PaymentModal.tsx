@@ -1,4 +1,6 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
+// ✅ Fixed: Removed unused useEffect import
+// import React, { useState, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 import { recordPayment, advancePayment } from '../../utils/api';
@@ -14,10 +16,13 @@ interface Props {
   graceDays?: number;
   dueDate?: string;
   fineAmount?: number;
+  fineType?: string;
+  fixedFineAmount?: number;
   mode?: 'single' | 'advance';
   onClose: () => void;
   onSuccess: () => void;
 }
+
 
 const PaymentModal: React.FC<Props> = ({
   planId,
@@ -27,10 +32,13 @@ const PaymentModal: React.FC<Props> = ({
   graceDays = 2,
   dueDate,
   fineAmount = 0,
+  fineType = 'per_day',
+  fixedFineAmount = 0,
   mode = 'single',
   onClose,
   onSuccess,
 }) => {
+
   const { t, i18n } = useTranslation();
   const isUrdu = i18n.language === 'ur';
   const currentUser = useAuthStore((state) => state.user);
@@ -47,11 +55,14 @@ const PaymentModal: React.FC<Props> = ({
     dueDate ? new Date(dueDate).toISOString().split('T')[0] : ''
   );
   const [collectedBy, setCollectedBy] = useState(currentUser?.displayName || currentUser?.username || '');
-  const [collectedById, setCollectedById] = useState(currentUser?.id || '');
+  // ✅ Fixed: Removed unused setCollectedById
+  // const [collectedById, setCollectedById] = useState(currentUser?.id || '');
+  const [collectedById] = useState(currentUser?.id || '');
   const [remarks, setRemarks] = useState('');
   const [collectFine, setCollectFine] = useState(true);
 
-  // ✅ Calculate fine if overdue
+  // ✅ Calculate fine if overdue - Dynamic (Option C)
+  // Supports: "per_day", "fixed", "both", "none"
   const calculateFine = useCallback(() => {
     if (!dueDate || !dueAmount) return 0;
     const today = new Date();
@@ -63,10 +74,26 @@ const PaymentModal: React.FC<Props> = ({
     
     const daysOverdue = Math.floor((today.getTime() - graceEnd.getTime()) / (1000 * 60 * 60 * 24));
     if (daysOverdue <= 0) return 0;
-    
-    const fine = daysOverdue * finePerDay;
-    return Math.min(fine, dueAmount * 0.5); // Max fine = 50% of amount
-  }, [dueDate, dueAmount, finePerDay, graceDays]);
+
+    switch (fineType) {
+      case 'none':
+        return 0;
+
+      case 'fixed':
+        // Fixed fine: one-time charge
+        return Math.min(fixedFineAmount, dueAmount * 0.5);
+
+      case 'both':
+        // Both: fixed fine + per day fine
+        const bothFine = fixedFineAmount + (daysOverdue * finePerDay);
+        return Math.min(bothFine, dueAmount * 0.5);
+
+      default: // 'per_day'
+        const perDayFine = daysOverdue * finePerDay;
+        return Math.min(perDayFine, dueAmount * 0.5);
+    }
+  }, [dueDate, dueAmount, finePerDay, graceDays, fineType, fixedFineAmount]);
+
 
   const calculatedFine = calculateFine();
   const effectiveFine = fineAmount > 0 ? fineAmount : calculatedFine;

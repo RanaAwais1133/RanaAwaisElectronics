@@ -35,6 +35,8 @@ const InstallmentCreate: React.FC = () => {
   const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
   const [graceDays, setGraceDays] = useState(0);
   const [finePerDay, setFinePerDay] = useState(0);
+  const [fineType, setFineType] = useState('per_day');
+  const [fixedFineAmount, setFixedFineAmount] = useState(0);
   const [schedule, setSchedule] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -191,6 +193,8 @@ const InstallmentCreate: React.FC = () => {
         endDate: schedule[schedule.length - 1]?.dueDate || startDate,
         gracePeriodDays: graceDays,
         finePerDay: finePerDay || 0,
+        fineType: fineType || 'per_day',
+        fixedFineAmount: fixedFineAmount || 0,
         serialNumber: serialNumber || '',
         imei: imei || '',
         engineNo: engineNo || '',
@@ -384,12 +388,48 @@ const InstallmentCreate: React.FC = () => {
           <div><label className="block text-sm font-semibold mb-1.5">{t('months')} <span className="text-blue-600 dark:text-blue-400 font-bold">({months})</span></label><div className="w-full border rounded-xl px-4 py-2.5 bg-gray-100 dark:bg-gray-600 text-sm">{months > 0 ? `${months} ${t('months')}` : (isUrdu ? 'خودکار حساب' : t('auto_calculated') || 'Auto-calculated')}</div></div>
         </div>
 
-        {/* ✅ Start Date + Grace Days + Fine */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {/* ✅ Start Date + Grace Days */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div><label className="block text-sm font-semibold mb-1.5">{t('start_date')} *</label><input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full border rounded-xl px-4 py-2.5 bg-white dark:bg-gray-700 text-sm" /></div>
           <div><label className="block text-sm font-semibold mb-1.5">{t('grace_days')}</label><input type="number" min="0" value={graceDays} onChange={e => setGraceDays(Number(e.target.value))} className="w-full border rounded-xl px-4 py-2.5 bg-white dark:bg-gray-700 text-sm" /></div>
-          <div><label className="block text-sm font-semibold mb-1.5">{t('fine_per_day')}</label><input type="number" min="0" step="0.01" value={finePerDay} onChange={e => setFinePerDay(Number(e.target.value))} className="w-full border rounded-xl px-4 py-2.5 bg-white dark:bg-gray-700 text-sm" /></div>
         </div>
+
+        {/* ✅ Fine Type - Dynamic (Option C) */}
+        <div className="bg-red-50 dark:bg-red-900/20 rounded-2xl p-4 sm:p-5 border border-red-200 dark:border-red-800">
+          <h3 className="text-sm font-bold text-red-700 dark:text-red-300 mb-3">{isUrdu ? 'جرمانے کی قسم' : 'Fine Configuration'}</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div>
+              <label className="block text-xs font-medium mb-1">{isUrdu ? 'جرمانے کی قسم' : 'Fine Type'}</label>
+              <select value={fineType} onChange={e => setFineType(e.target.value)}
+                className="w-full border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-sm">
+                <option value="per_day">{isUrdu ? 'فی دن' : 'Per Day'}</option>
+                <option value="fixed">{isUrdu ? 'مقررہ' : 'Fixed'}</option>
+                <option value="both">{isUrdu ? 'دونوں' : 'Both'}</option>
+                <option value="none">{isUrdu ? 'کوئی نہیں' : 'None'}</option>
+              </select>
+            </div>
+            {(fineType === 'per_day' || fineType === 'both') && (
+              <div>
+                <label className="block text-xs font-medium mb-1">{isUrdu ? 'فی دن جرمانہ' : 'Fine Per Day (Rs.)'}</label>
+                <input type="number" min="0" step="0.01" value={finePerDay} onChange={e => setFinePerDay(Number(e.target.value))}
+                  className="w-full border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-sm" />
+              </div>
+            )}
+            {(fineType === 'fixed' || fineType === 'both') && (
+              <div>
+                <label className="block text-xs font-medium mb-1">{isUrdu ? 'مقررہ جرمانہ' : 'Fixed Fine (Rs.)'}</label>
+                <input type="number" min="0" step="0.01" value={fixedFineAmount} onChange={e => setFixedFineAmount(Number(e.target.value))}
+                  className="w-full border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-sm" />
+              </div>
+            )}
+            {fineType === 'none' && (
+              <div className="col-span-2 flex items-center">
+                <p className="text-sm text-gray-500 italic">{isUrdu ? 'اس پلان پر کوئی جرمانہ نہیں لگے گا' : 'No fine will be applied to this plan'}</p>
+              </div>
+            )}
+          </div>
+        </div>
+
 
         {/* ✅ Buttons */}
         <div className="flex flex-wrap gap-3 pt-3">

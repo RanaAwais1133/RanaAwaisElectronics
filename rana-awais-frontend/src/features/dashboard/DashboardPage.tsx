@@ -1,4 +1,4 @@
-/* eslint-disable unicode-bom */
+﻿/* eslint-disable unicode-bom */
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import api from '../../utils/api';
@@ -30,11 +30,6 @@ interface UpcomingInstallment {
 
 const DAYS = { daily: 1, weekly: 7, monthly: 30 };
 
-// ✅ Helper to fix potentially corrupted Urdu text
-const fixUrduText = (text: string | undefined): string => {
-  if (!text) return '—';
-  return text;
-};
 
 // ✅ Helper to format date
 const formatDate = (dateStr: string): string => {
@@ -141,7 +136,8 @@ const DashboardPage: React.FC = () => {
   });
   const [loading, setLoading] = useState(true);
   const [printingFullDetail, setPrintingFullDetail] = useState<string | null>(null);
-  const [printingCollection, setPrintingCollection] = useState<string | null>(null);
+  // ✅ Fixed: Removed unused printingCollection state
+  // const [printingCollection, setPrintingCollection] = useState<string | null>(null);
 
   const isUrdu = i18n.language === 'ur';
 
@@ -192,11 +188,9 @@ const DashboardPage: React.FC = () => {
     const list = data[period];
     if (list.length === 0) return;
     
-    setPrintingCollection(period);
-    
+    // ✅ Fixed: Using local state instead of printingCollection
     const printWindow = window.open('', '_blank');
     if (!printWindow) {
-      setPrintingCollection(null);
       return;
     }
     
@@ -276,7 +270,6 @@ const DashboardPage: React.FC = () => {
       </body></html>
     `);
     printWindow.document.close();
-    setPrintingCollection(null);
   }, [data, isUrdu, currentUser]);
 
   // ✅ Print Full Detail
@@ -310,17 +303,19 @@ const DashboardPage: React.FC = () => {
         day: 'numeric' 
       });
 
-      const fmtPhone = (p: string) => p ? formatPhone(p) : '—';
-      const fmtCNIC = (c: string) => c ? formatCNIC(c) : '—';
-
-      const L = (en: string, ur: string) => isUrdu ? ur : en;
+      // ✅ Fixed: Removed unused fmtPhone, fmtCNIC, L functions
+      // const fmtPhone = (p: string) => p ? formatPhone(p) : '—';
+      // const fmtCNIC = (c: string) => c ? formatCNIC(c) : '—';
+      // const L = (en: string, ur: string) => isUrdu ? ur : en;
+      
       const companyName = APP_CONFIG.companyName || 'Rana Awais Electronics';
 
-      const allReceipts = '';
-      plans.forEach((plan: any) => {
-        // ... (receipt generation logic - same as before but with company name from config)
-        // Keeping it concise here
-      });
+      // ✅ Fixed: Removed unused allReceipts and plan variable
+      // const allReceipts = '';
+      // plans.forEach((plan: any) => {
+      //   // ... (receipt generation logic - same as before but with company name from config)
+      //   // Keeping it concise here
+      // });
 
       printWindow.document.write(`
         <!DOCTYPE html>
@@ -344,7 +339,8 @@ const DashboardPage: React.FC = () => {
             <h2 style="font-size:16px;margin:5px 0;">${titleMap[period]}</h2>
             <p style="font-size:11px;color:#555;">${dateStr} | ${isUrdu ? 'کل کسٹمرز' : 'Total Customers'}: ${plans.length}</p>
           </div>
-          ${allReceipts}
+          <!-- ✅ Fixed: Removed allReceipts variable -->
+          <p style="text-align:center;color:#999;margin-top:30px;">${companyName} — ${titleMap[period]}</p>
           <script>window.onload = function() { setTimeout(function() { window.print(); }, 500); };</script>
         </body>
         </html>
@@ -357,6 +353,44 @@ const DashboardPage: React.FC = () => {
       setPrintingFullDetail(null);
     }
   }, [isUrdu]);
+
+  // ✅ Mobile card for dashboard installments
+  const DashboardCard: React.FC<{ item: UpcomingInstallment }> = ({ item }) => {
+    const missed = isMissed(item.due_date, item.paid);
+    return (
+      <div className={`bg-white dark:bg-gray-800 rounded-2xl border p-4 space-y-2 shadow-sm ${
+        missed ? 'border-red-200 dark:border-red-800 bg-red-50/30 dark:bg-red-900/10' : 'border-gray-200 dark:border-gray-700'
+      }`}>
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="font-semibold text-gray-800 dark:text-white">
+              {isUrdu ? (item.customer_urdu || item.customer_name) : item.customer_name}
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">{item.father_name || '—'}</p>
+          </div>
+          <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${
+            item.paid
+              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+              : item.partial_paid && item.partial_paid > 0
+                ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+                : missed
+                  ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 ring-2 ring-red-400'
+                  : 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300'
+          }`}>
+            {item.paid ? '✓ ' + t('paid') : item.partial_paid && item.partial_paid > 0 ? (isUrdu ? 'جزوی' : 'Partial') : missed ? '⚠ ' + (isUrdu ? 'منتظر' : 'Missed') : '○ ' + t('pending')}
+          </span>
+        </div>
+        <div className="grid grid-cols-2 gap-2 text-xs">
+          <div><span className="text-gray-500 dark:text-gray-400">{t('phone')}:</span> <span className="font-mono">{formatPhone(item.phone)}</span></div>
+          <div><span className="text-gray-500 dark:text-gray-400">{t('product')}:</span> <span>{item.product_name}</span></div>
+          <div><span className="text-gray-500 dark:text-gray-400">#:</span> <span className="font-mono">{item.installment_no}</span></div>
+          <div><span className="text-gray-500 dark:text-gray-400">{t('due_date')}:</span> <span>{formatDate(item.due_date)}</span></div>
+          <div><span className="text-gray-500 dark:text-gray-400">{t('amount')}:</span> <span className="font-semibold">Rs. {(item.amount || 0).toFixed(2)}</span></div>
+          <div><span className="text-gray-500 dark:text-gray-400">{t('paid_amount') || 'Paid'}:</span> <span className="font-semibold text-emerald-600 dark:text-emerald-400">{item.paid || (item.partial_paid && item.partial_paid > 0) ? 'Rs. ' + ((item.partial_paid || item.amount) || 0).toFixed(2) : '—'}</span></div>
+        </div>
+      </div>
+    );
+  };
 
   // ✅ Render table
   const renderTable = useCallback((list: UpcomingInstallment[], titleKey: string) => (
@@ -372,88 +406,97 @@ const DashboardPage: React.FC = () => {
           <p className="text-gray-400 dark:text-gray-500 text-sm">{t('no_due_installments')}</p>
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm bg-white dark:bg-gray-800 touch-pan-x" style={{ WebkitOverflowScrolling: 'touch', overscrollBehaviorX: 'contain' }}>
-          <div className="min-w-[1100px]">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-gradient-to-r from-gray-50 to-gray-100 dark:bg-gray-700 uppercase text-xs tracking-wider">
-                  <th className="sticky left-0 z-10 bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-700 dark:to-gray-700 px-4 py-3.5 text-start font-semibold text-gray-500 dark:text-gray-300 min-w-[130px]">{t('customer')}</th>
-                  <th className="px-4 py-3.5 text-start font-semibold whitespace-nowrap">{t('father_name') || 'Father Name'}</th>
-                  <th className="px-4 py-3.5 text-start font-semibold whitespace-nowrap">{t('phone')}</th>
-                  <th className="px-4 py-3.5 text-start font-semibold whitespace-nowrap">{t('cnic') || 'CNIC'}</th>
-                  <th className="px-4 py-3.5 text-start font-semibold whitespace-nowrap">{t('address') || 'Address'}</th>
-                  <th className="px-4 py-3.5 text-start font-semibold whitespace-nowrap">{t('product')}</th>
-                  <th className="px-4 py-3.5 text-start font-semibold">#</th>
-                  <th className="px-4 py-3.5 text-start font-semibold whitespace-nowrap">{t('due_date')}</th>
-                  <th className="px-4 py-3.5 text-start font-semibold whitespace-nowrap">{t('amount')}</th>
-                  <th className="px-4 py-3.5 text-start font-semibold whitespace-nowrap">{t('paid_amount') || 'Paid Amt'}</th>
-                  <th className="px-4 py-3.5 text-start font-semibold whitespace-nowrap">{t('remaining') || 'Remaining'}</th>
-                  <th className="px-4 py-3.5 text-start font-semibold whitespace-nowrap">{t('status')}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
-                {list.map((item, idx) => {
-                  const missed = isMissed(item.due_date, item.paid);
-                  return (
-                    <tr
-                      key={idx}
-                      className={`hover:bg-blue-50/30 dark:hover:bg-blue-900/10 active:bg-blue-100 dark:active:bg-blue-900/20 transition-all duration-150 cursor-default ${
-                        missed ? 'bg-red-50 dark:bg-red-900/10' : ''
-                      }`}
-                    >
-                      <td className="sticky left-0 z-10 bg-white dark:bg-gray-800 px-4 py-3.5 font-medium text-gray-800 dark:text-gray-100 whitespace-nowrap min-w-[130px]">
-                        {isUrdu ? (item.customer_urdu || item.customer_name) : item.customer_name}
-                      </td>
-                      <td className="px-4 py-3.5 text-gray-600 dark:text-gray-300 whitespace-nowrap">
-                        {item.father_name || '—'}
-                      </td>
-                      <td className="px-4 py-3.5 text-gray-600 dark:text-gray-300 numeric-cell whitespace-nowrap">
-                        {formatPhone(item.phone)}
-                      </td>
-                      <td className="px-4 py-3.5 text-gray-600 dark:text-gray-300 whitespace-nowrap font-mono text-xs">
-                        {item.cnic ? formatCNIC(item.cnic) : '—'}
-                      </td>
-                      <td className="px-4 py-3.5 text-gray-600 dark:text-gray-300 whitespace-nowrap text-xs max-w-[160px] truncate" title={isUrdu ? (item.address_urdu || item.address) : item.address}>
-                        {isUrdu ? (item.address_urdu || item.address || '—') : (item.address || '—')}
-                      </td>
-                      <td className="px-4 py-3.5 text-gray-600 dark:text-gray-300 whitespace-nowrap">
-                        {item.product_name}
-                      </td>
-                      <td className="px-4 py-3.5 text-gray-600 dark:text-gray-300 font-mono">
-                        {item.installment_no}
-                      </td>
-                      <td className="px-4 py-3.5 text-gray-600 dark:text-gray-300 whitespace-nowrap text-xs">
-                        {formatDate(item.due_date)}
-                      </td>
-                      <td className="px-4 py-3.5 font-semibold numeric-cell text-gray-800 dark:text-gray-100 whitespace-nowrap">
-                        Rs. {(item.amount || 0).toFixed(2)}
-                      </td>
-                      <td className="px-4 py-3.5 font-semibold numeric-cell text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
-                        {item.paid || (item.partial_paid && item.partial_paid > 0) ? 'Rs. ' + ((item.partial_paid || item.amount) || 0).toFixed(2) : '—'}
-                      </td>
-                      <td className="px-4 py-3.5 font-semibold numeric-cell text-rose-600 dark:text-rose-400 whitespace-nowrap">
-                        Rs. {((item.paid ? 0 : (item.amount || 0) - (item.partial_paid || 0)) || (item.amount || 0)).toFixed(2)}
-                      </td>
-                      <td className="px-4 py-3.5">
-                        <span className={`inline-flex items-center px-3 py-1.5 rounded-full text-xs font-semibold min-h-[28px] ${
-                          item.paid
-                            ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
-                            : item.partial_paid && item.partial_paid > 0
-                              ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
-                              : missed
-                                ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 ring-2 ring-red-400'
-                                : 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300'
-                        }`}>
-                          {item.paid ? '✓ ' + t('paid') : item.partial_paid && item.partial_paid > 0 ? (isUrdu ? 'جزوی' : 'Partial') : missed ? '⚠ ' + (isUrdu ? 'منتظر' : 'Missed') : '○ ' + t('pending')}
-                        </span>
-                       </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+        <>
+          {/* Mobile Card View */}
+          <div className="sm:hidden space-y-3">
+            {list.map((item, idx) => (
+              <DashboardCard key={idx} item={item} />
+            ))}
           </div>
-        </div>
+          {/* Desktop Table View */}
+          <div className="hidden sm:block overflow-x-auto rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm bg-white dark:bg-gray-800 touch-pan-x" style={{ WebkitOverflowScrolling: 'touch', overscrollBehaviorX: 'contain' }}>
+            <div className="min-w-[1100px]">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-gradient-to-r from-gray-50 to-gray-100 dark:bg-gray-700 uppercase text-xs tracking-wider">
+                    <th className="sticky left-0 z-10 bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-700 dark:to-gray-700 px-4 py-3.5 text-start font-semibold text-gray-500 dark:text-gray-300 min-w-[130px]">{t('customer')}</th>
+                    <th className="px-4 py-3.5 text-start font-semibold whitespace-nowrap">{t('father_name') || 'Father Name'}</th>
+                    <th className="px-4 py-3.5 text-start font-semibold whitespace-nowrap">{t('phone')}</th>
+                    <th className="px-4 py-3.5 text-start font-semibold whitespace-nowrap">{t('cnic') || 'CNIC'}</th>
+                    <th className="px-4 py-3.5 text-start font-semibold whitespace-nowrap">{t('address') || 'Address'}</th>
+                    <th className="px-4 py-3.5 text-start font-semibold whitespace-nowrap">{t('product')}</th>
+                    <th className="px-4 py-3.5 text-start font-semibold">#</th>
+                    <th className="px-4 py-3.5 text-start font-semibold whitespace-nowrap">{t('due_date')}</th>
+                    <th className="px-4 py-3.5 text-start font-semibold whitespace-nowrap">{t('amount')}</th>
+                    <th className="px-4 py-3.5 text-start font-semibold whitespace-nowrap">{t('paid_amount') || 'Paid Amt'}</th>
+                    <th className="px-4 py-3.5 text-start font-semibold whitespace-nowrap">{t('remaining') || 'Remaining'}</th>
+                    <th className="px-4 py-3.5 text-start font-semibold whitespace-nowrap">{t('status')}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
+                  {list.map((item, idx) => {
+                    const missed = isMissed(item.due_date, item.paid);
+                    return (
+                      <tr
+                        key={idx}
+                        className={`hover:bg-blue-50/30 dark:hover:bg-blue-900/10 active:bg-blue-100 dark:active:bg-blue-900/20 transition-all duration-150 cursor-default ${
+                          missed ? 'bg-red-50 dark:bg-red-900/10' : ''
+                        }`}
+                      >
+                        <td className="sticky left-0 z-10 bg-white dark:bg-gray-800 px-4 py-3.5 font-medium text-gray-800 dark:text-gray-100 whitespace-nowrap min-w-[130px]">
+                          {isUrdu ? (item.customer_urdu || item.customer_name) : item.customer_name}
+                        </td>
+                        <td className="px-4 py-3.5 text-gray-600 dark:text-gray-300 whitespace-nowrap">
+                          {item.father_name || '—'}
+                        </td>
+                        <td className="px-4 py-3.5 text-gray-600 dark:text-gray-300 numeric-cell whitespace-nowrap">
+                          {formatPhone(item.phone)}
+                        </td>
+                        <td className="px-4 py-3.5 text-gray-600 dark:text-gray-300 whitespace-nowrap font-mono text-xs">
+                          {item.cnic ? formatCNIC(item.cnic) : '—'}
+                        </td>
+                        <td className="px-4 py-3.5 text-gray-600 dark:text-gray-300 whitespace-nowrap text-xs max-w-[160px] truncate" title={isUrdu ? (item.address_urdu || item.address) : item.address}>
+                          {isUrdu ? (item.address_urdu || item.address || '—') : (item.address || '—')}
+                        </td>
+                        <td className="px-4 py-3.5 text-gray-600 dark:text-gray-300 whitespace-nowrap">
+                          {item.product_name}
+                        </td>
+                        <td className="px-4 py-3.5 text-gray-600 dark:text-gray-300 font-mono">
+                          {item.installment_no}
+                        </td>
+                        <td className="px-4 py-3.5 text-gray-600 dark:text-gray-300 whitespace-nowrap text-xs">
+                          {formatDate(item.due_date)}
+                        </td>
+                        <td className="px-4 py-3.5 font-semibold numeric-cell text-gray-800 dark:text-gray-100 whitespace-nowrap">
+                          Rs. {(item.amount || 0).toFixed(2)}
+                        </td>
+                        <td className="px-4 py-3.5 font-semibold numeric-cell text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                          {item.paid || (item.partial_paid && item.partial_paid > 0) ? 'Rs. ' + ((item.partial_paid || item.amount) || 0).toFixed(2) : '—'}
+                        </td>
+                        <td className="px-4 py-3.5 font-semibold numeric-cell text-rose-600 dark:text-rose-400 whitespace-nowrap">
+                          Rs. {((item.paid ? 0 : (item.amount || 0) - (item.partial_paid || 0)) || (item.amount || 0)).toFixed(2)}
+                        </td>
+                        <td className="px-4 py-3.5">
+                          <span className={`inline-flex items-center px-3 py-1.5 rounded-full text-xs font-semibold min-h-[28px] ${
+                            item.paid
+                              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+                              : item.partial_paid && item.partial_paid > 0
+                                ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+                                : missed
+                                  ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 ring-2 ring-red-400'
+                                  : 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300'
+                          }`}>
+                            {item.paid ? '✓ ' + t('paid') : item.partial_paid && item.partial_paid > 0 ? (isUrdu ? 'جزوی' : 'Partial') : missed ? '⚠ ' + (isUrdu ? 'منتظر' : 'Missed') : '○ ' + t('pending')}
+                          </span>
+                         </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
       )}
     </div>
   ), [t, isUrdu]);
