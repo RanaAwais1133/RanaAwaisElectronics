@@ -20,7 +20,7 @@ type Config struct {
 	ServerPort        string `env:"SERVER_PORT" envDefault:"8080"`
 	Environment       string `env:"ENVIRONMENT" envDefault:"development"`
 	FrontendURL       string `env:"FRONTEND_URL" envDefault:"http://localhost:3000"`
-	RateLimitRequests int    `env:"RATE_LIMIT_REQUESTS" envDefault:"100"`
+	RateLimitRequests int    `env:"RATE_LIMIT_REQUESTS" envDefault:"1000"`
 	MaxBodySizeMB     int    `env:"MAX_BODY_SIZE_MB" envDefault:"10"`
 
 	// ═══════════════════════════════════════
@@ -103,7 +103,7 @@ func Load() *Config {
 		ServerPort:        getEnv("SERVER_PORT", "8080"),
 		Environment:       getEnv("ENVIRONMENT", "development"),
 		FrontendURL:       getEnv("FRONTEND_URL", "http://localhost:3000"),
-		RateLimitRequests: getEnvAsInt("RATE_LIMIT_REQUESTS", 100),
+		RateLimitRequests: getEnvAsInt("RATE_LIMIT_REQUESTS", 1000),
 		MaxBodySizeMB:     getEnvAsInt("MAX_BODY_SIZE_MB", 10),
 
 		// Database

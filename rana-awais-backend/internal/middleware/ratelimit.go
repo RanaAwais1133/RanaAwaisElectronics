@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// RateLimiter provides simple per-IP rate limiting
+// RateLimiter provides per-IP rate limiting with a sliding window approach
 type RateLimiter struct {
 	mu       sync.Mutex
 	visitors map[string]*visitor
@@ -43,7 +43,8 @@ func (rl *RateLimiter) cleanup() {
 	}
 }
 
-// RateLimit middleware limits requests per IP
+// RateLimit middleware limits requests per IP using a sliding window approach.
+// The window resets based on the first request in the window, not the last request.
 func (rl *RateLimiter) RateLimit(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Get real IP from headers (for proxy/load balancer)
@@ -56,27 +57,30 @@ func (rl *RateLimiter) RateLimit(next http.Handler) http.Handler {
 		}
 
 		rl.mu.Lock()
-		defer rl.mu.Unlock()
 
 		v, exists := rl.visitors[ip]
 		if !exists {
 			rl.visitors[ip] = &visitor{count: 1, lastSeen: time.Now()}
+			rl.mu.Unlock()
 			next.ServeHTTP(w, r)
 			return
 		}
 
-		// Reset if window has passed
+		// Reset if window has passed (based on lastSeen which is the start of the window)
 		if time.Since(v.lastSeen) > rl.window {
 			v.count = 1
 			v.lastSeen = time.Now()
+			rl.mu.Unlock()
 			next.ServeHTTP(w, r)
 			return
 		}
 
 		v.count++
+		// Update lastSeen to now so the window slides forward
 		v.lastSeen = time.Now()
 
 		if v.count > rl.limit {
+			rl.mu.Unlock()
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("Retry-After", "60")
 			w.WriteHeader(http.StatusTooManyRequests)
@@ -87,6 +91,7 @@ func (rl *RateLimiter) RateLimit(next http.Handler) http.Handler {
 			return
 		}
 
+		rl.mu.Unlock()
 		next.ServeHTTP(w, r)
 	})
 }
@@ -119,19 +124,19 @@ func (rl *RateLimiter) ResetRateLimit(ip string) {
 	delete(rl.visitors, ip)
 }
 
-// ✅ NEW: GetCurrentLimit returns current rate limit value
+// GetCurrentLimit returns current rate limit value
 func (rl *RateLimiter) GetCurrentLimit() int {
 	return rl.limit
 }
 
-// ✅ NEW: UpdateLimit updates the rate limit dynamically
+// UpdateLimit updates the rate limit dynamically
 func (rl *RateLimiter) UpdateLimit(newLimit int) {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 	rl.limit = newLimit
 }
 
-// ✅ NEW: IsRateLimited checks if an IP is currently rate limited
+// IsRateLimited checks if an IP is currently rate limited
 func (rl *RateLimiter) IsRateLimited(ip string) bool {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()

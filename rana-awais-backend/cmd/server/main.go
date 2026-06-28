@@ -75,7 +75,7 @@ func main() {
 	// Rate limiting
 	rateLimitRequests := cfg.RateLimitRequests
 	if rateLimitRequests <= 0 {
-		rateLimitRequests = 100
+		rateLimitRequests = 1000
 	}
 	rateLimiter := middleware.NewRateLimiter(rateLimitRequests, time.Minute)
 	r.Use(rateLimiter.RateLimit)

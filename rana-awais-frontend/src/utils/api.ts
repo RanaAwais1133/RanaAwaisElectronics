@@ -1,6 +1,18 @@
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios';
 import toast from 'react-hot-toast';
 
+// ✅ Retry configuration for 429 errors
+const MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 2000; // Start with 2 seconds, will increase exponentially
+const RETRYABLE_STATUSES = [429, 503, 502];
+
+// ✅ Request deduplication - prevents the same in-flight request from being made multiple times
+const pendingRequests = new Map<string, Promise<any>>();
+
+function getRequestKey(config: InternalAxiosRequestConfig): string {
+  return `${config.method}:${config.url}:${JSON.stringify(config.params || {})}:${JSON.stringify(config.data || '')}`;
+}
+
 // ✅ Types
 export interface ApiResponse<T = any> {
   data: T;
@@ -30,7 +42,7 @@ const api: AxiosInstance = axios.create({
   },
 });
 
-// ✅ Request Interceptor - Attach JWT token
+// ✅ Request Interceptor - Attach JWT token and deduplicate GET requests
 api.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
     // Try multiple storage keys for compatibility
@@ -43,6 +55,16 @@ api.interceptors.request.use(
     const lang = localStorage.getItem('i18nextLng') || localStorage.getItem('language') || 'ur';
     config.headers['Accept-Language'] = lang;
     
+    // ✅ Deduplicate GET requests - if the same GET request is already in-flight, return the existing promise
+    if (config.method?.toLowerCase() === 'get') {
+      const key = getRequestKey(config);
+      const pending = pendingRequests.get(key);
+      if (pending) {
+        // Cancel this duplicate request and return the existing promise
+        return pending;
+      }
+    }
+    
     return config;
   },
   (error: AxiosError) => {
@@ -50,10 +72,59 @@ api.interceptors.request.use(
   }
 );
 
-// ✅ Response Interceptor - Handle errors
+// ✅ Wrap the axios instance to track pending GET requests
+const originalRequest = api.request.bind(api);
+api.request = function(config: any) {
+  if (config.method?.toLowerCase() === 'get' || config.method === undefined) {
+    const key = getRequestKey(config);
+    if (!pendingRequests.has(key)) {
+      const promise = originalRequest(config).finally(() => {
+        pendingRequests.delete(key);
+      });
+      pendingRequests.set(key, promise);
+      return promise;
+    }
+  }
+  return originalRequest(config);
+} as typeof api.request;
+
+// ✅ Response Interceptor - Handle errors with retry for 429, cleanup pending requests
 api.interceptors.response.use(
-  (response) => response,
-  (error: AxiosError) => {
+  (response) => {
+    // ✅ Cleanup pending request after successful response
+    const config = response.config as any;
+    if (config.method?.toLowerCase() === 'get') {
+      const key = getRequestKey(config);
+      pendingRequests.delete(key);
+    }
+    return response;
+  },
+  async (error: AxiosError) => {
+    const config = error.config as any;
+    
+    // ✅ Handle 429 Too Many Requests with retry
+    if (error.response?.status === 429) {
+      // Initialize retry count
+      config.__retryCount = config.__retryCount || 0;
+      
+      if (config.__retryCount < MAX_RETRIES) {
+        config.__retryCount += 1;
+        const delay = RETRY_DELAY_MS * Math.pow(2, config.__retryCount - 1); // Exponential backoff
+        
+        console.warn(`⚠️ Rate limited (429). Retry ${config.__retryCount}/${MAX_RETRIES} after ${delay}ms...`);
+        
+        // Wait for the delay
+        await new Promise(resolve => setTimeout(resolve, delay));
+        
+        // Retry the request
+        return api(config);
+      }
+      
+      // All retries exhausted
+      toast.error('بہت زیادہ درخواستیں۔ براہ کرم 60 سیکنڈ بعد دوبارہ کوشش کریں');
+      return Promise.reject(error);
+    }
+    
     // Handle 401 Unauthorized
     if (error.response?.status === 401) {
       const token = localStorage.getItem('token');
