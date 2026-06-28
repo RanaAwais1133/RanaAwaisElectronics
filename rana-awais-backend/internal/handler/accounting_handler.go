@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/your-org/rana-awais-backend/internal/service"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/service"
 )
 
 type AccountingHandler struct {

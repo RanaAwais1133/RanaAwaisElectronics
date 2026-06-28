@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/your-org/rana-awais-backend/internal/domain"
-	"github.com/your-org/rana-awais-backend/internal/repository"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/domain"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/repository"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 

@@ -5,8 +5,8 @@ import (
 	"log"
 	"time"
 
-	"github.com/your-org/rana-awais-backend/config"
-	"github.com/your-org/rana-awais-backend/internal/domain"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/config"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/domain"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )

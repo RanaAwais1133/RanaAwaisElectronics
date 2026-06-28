@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/your-org/rana-awais-backend/internal/repository"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/repository"
 )
 
 type AccountingService struct {

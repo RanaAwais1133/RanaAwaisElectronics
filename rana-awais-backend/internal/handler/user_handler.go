@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/your-org/rana-awais-backend/internal/domain"
-	"github.com/your-org/rana-awais-backend/internal/service"
-	"github.com/your-org/rana-awais-backend/pkg/audit"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/domain"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/service"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/pkg/audit"
 )
 
 type UserHandler struct {

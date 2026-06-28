@@ -1,7 +1,7 @@
 package sms
 
 import (
-	"github.com/your-org/rana-awais-backend/pkg/logger"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/pkg/logger"
 )
 
 // Sender implements the SmsSender interface for sending SMS messages.

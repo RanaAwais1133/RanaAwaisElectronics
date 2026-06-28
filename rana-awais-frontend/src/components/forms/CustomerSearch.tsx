@@ -33,9 +33,6 @@ const CustomerSearch: React.FC<CustomerSearchProps> = ({
 
   const wrapperRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  
-  // ✅ FIX: Use proper timeout type for browser
-  const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ✅ Fetch customers if not loaded
   useEffect(() => {

@@ -1,7 +1,7 @@
 package whatsapp
 
 import (
-	"github.com/your-org/rana-awais-backend/pkg/logger"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/pkg/logger"
 )
 
 // Sender implements the WhatsAppSender interface for sending WhatsApp messages.

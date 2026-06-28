@@ -12,14 +12,14 @@ import (
 	"time"
 
 	"github.com/gorilla/handlers"
-	"github.com/your-org/rana-awais-backend/config"
-	"github.com/your-org/rana-awais-backend/internal/handler"
-	"github.com/your-org/rana-awais-backend/internal/middleware"
-	"github.com/your-org/rana-awais-backend/internal/repository/mongo"
-	"github.com/your-org/rana-awais-backend/internal/service"
-	"github.com/your-org/rana-awais-backend/pkg/sms"
-	"github.com/your-org/rana-awais-backend/pkg/thermal"
-	"github.com/your-org/rana-awais-backend/pkg/whatsapp"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/config"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/handler"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/middleware"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/repository/mongo"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/service"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/pkg/sms"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/pkg/thermal"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/pkg/whatsapp"
 )
 
 func main() {

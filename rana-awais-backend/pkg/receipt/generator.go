@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/fogleman/gg"
-	"github.com/your-org/rana-awais-backend/config"
-	"github.com/your-org/rana-awais-backend/internal/domain"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/config"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/domain"
 )
 
 type ReceiptConfig struct {

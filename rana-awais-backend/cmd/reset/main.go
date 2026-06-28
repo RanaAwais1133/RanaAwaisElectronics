@@ -10,10 +10,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/your-org/rana-awais-backend/config"
-	"github.com/your-org/rana-awais-backend/internal/domain"
-	"github.com/your-org/rana-awais-backend/internal/repository/mongo"
-	"github.com/your-org/rana-awais-backend/internal/service"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/config"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/domain"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/repository/mongo"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/service"
 )
 
 func main() {

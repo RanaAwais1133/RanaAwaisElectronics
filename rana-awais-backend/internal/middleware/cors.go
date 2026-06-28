@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/your-org/rana-awais-backend/config"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/config"
 )
 
 // CORSMiddleware handles CORS with configurable allowed origins

@@ -4,7 +4,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/your-org/rana-awais-backend/internal/domain"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/domain"
 )
 
 type DynamicFineService struct{}

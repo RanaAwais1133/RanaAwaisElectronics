@@ -5,9 +5,9 @@ import (
 	"strconv"
 
 	"github.com/gorilla/mux"
-	"github.com/your-org/rana-awais-backend/config"
-	"github.com/your-org/rana-awais-backend/internal/service"
-	"github.com/your-org/rana-awais-backend/pkg/receipt"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/config"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/service"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/pkg/receipt"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 

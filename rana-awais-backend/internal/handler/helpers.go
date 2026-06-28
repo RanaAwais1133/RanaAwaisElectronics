@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	"github.com/golang-jwt/jwt/v4"
-	"github.com/your-org/rana-awais-backend/internal/middleware"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/middleware"
 )
 
 type errorResponse struct {

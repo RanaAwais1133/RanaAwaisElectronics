@@ -8,10 +8,10 @@ import (
 	"strings"
 
 	"github.com/gorilla/mux"
-	"github.com/your-org/rana-awais-backend/internal/domain"
-	"github.com/your-org/rana-awais-backend/internal/service"
-	"github.com/your-org/rana-awais-backend/pkg/audit"
-	"github.com/your-org/rana-awais-backend/pkg/validator"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/domain"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/service"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/pkg/audit"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/pkg/validator"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
