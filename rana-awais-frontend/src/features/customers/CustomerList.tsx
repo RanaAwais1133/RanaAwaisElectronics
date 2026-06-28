@@ -204,7 +204,7 @@ const CustomerList: React.FC = () => {
     try {
       await api.delete(`/customers/${id}`);
       toast.success(isUrdu ? 'گاہک ڈیلیٹ ہو گیا' : t('customer_deleted'));
-      await fetchCustomers();
+      await fetchCustomers(true);
     } catch (e) {
       toast.error(isUrdu ? 'گاہک ڈیلیٹ کرنے میں ناکامی' : t('error_deleting_customer'));
     } finally {
@@ -346,7 +346,7 @@ const CustomerList: React.FC = () => {
         <CustomerCreateModal 
           onClose={() => setShowCreate(false)} 
           onSuccess={() => { 
-            fetchCustomers(); 
+            fetchCustomers(true); 
             setShowCreate(false); 
           }} 
         />
@@ -357,7 +357,7 @@ const CustomerList: React.FC = () => {
           customerId={editCustomerId} 
           onClose={() => setEditCustomerId(null)} 
           onSuccess={() => { 
-            fetchCustomers(); 
+            fetchCustomers(true); 
             setEditCustomerId(null); 
           }} 
         />

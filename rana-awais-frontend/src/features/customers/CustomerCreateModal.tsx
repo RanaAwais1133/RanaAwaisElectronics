@@ -127,7 +127,7 @@ const CustomerCreateModal: React.FC<Props> = ({ onClose, onSuccess, initialData 
         toast.success(isUrdu ? 'Ú¯Ø§ÛÚ© Ø¨Ù† Ú¯ÛŒØ§' : 'Customer created successfully');
       }
       
-      await fetchCustomers();
+      await fetchCustomers(true);
       onSuccess?.();
       onClose();
     } catch (err: any) {

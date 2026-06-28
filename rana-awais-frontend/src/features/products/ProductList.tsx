@@ -157,7 +157,7 @@ const ProductList: React.FC = () => {
     try {
       await api.delete(`/products/${id}`);
       toast.success(isUrdu ? 'پروڈکٹ ڈیلیٹ ہو گئی' : t('product_deleted'));
-      await fetchProducts();
+      await fetchProducts(true);
     } catch (err) {
       toast.error(isUrdu ? 'پروڈکٹ ڈیلیٹ کرنے میں ناکامی' : t('error_deleting_product'));
     } finally {
@@ -284,7 +284,7 @@ const ProductList: React.FC = () => {
         <ProductCreate
           onClose={() => setShowCreate(false)}
           onSuccess={() => {
-            fetchProducts();
+            fetchProducts(true);
             setShowCreate(false);
           }}
         />
@@ -295,7 +295,7 @@ const ProductList: React.FC = () => {
           productId={editProductId}
           onClose={() => setEditProductId(null)}
           onSuccess={() => {
-            fetchProducts();
+            fetchProducts(true);
             setEditProductId(null);
           }}
         />
@@ -308,7 +308,7 @@ const ProductList: React.FC = () => {
           currentPurchasePrice={products.find(p => p.id === addStockProductId)?.purchasePrice}
           onClose={() => setAddStockProductId(null)}
           onSuccess={() => {
-            fetchProducts();
+            fetchProducts(true);
             setAddStockProductId(null);
           }}
         />
