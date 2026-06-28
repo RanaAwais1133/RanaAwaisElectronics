@@ -70,7 +70,7 @@ const LoginPage: React.FC = () => {
       </div>
 
       {/* ✅ Header */}
-      <header className="relative z-10 flex justify-end items-center px-4 py-3 sm:px-6 gap-2">
+      <header className="absolute top-0 right-0 z-20 flex justify-end items-center px-4 py-3 sm:px-6 gap-2">
         <div className="flex items-center gap-2">
           <LanguageToggle size="sm" />
           <ThemeToggle size="sm" />
