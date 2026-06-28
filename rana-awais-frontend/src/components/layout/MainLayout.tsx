@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Routes, Route, useLocation } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import Navbar from './Navbar';
 import Sidebar from './Sidebar';
 import DashboardPage from '../../features/dashboard/DashboardPage';
@@ -17,11 +18,12 @@ import AuditLogsPage from '../../features/audit/AuditLogsPage';
 import NotFoundPage from '../../pages/NotFoundPage';
 import RequireRole from '../auth/RequireRole';
 import { useShortcuts } from '../../hooks/useShortcuts';
-import { APP_CONFIG } from '../../config/app'; // ✅ NEW: Import config
+import { APP_CONFIG } from '../../config/app';
 
 const MainLayout: React.FC = () => {
   useShortcuts();
   const location = useLocation();
+  const { t } = useTranslation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
 
@@ -45,33 +47,37 @@ const MainLayout: React.FC = () => {
   const toggleSidebar = () => setSidebarOpen(prev => !prev);
   const closeSidebar = () => setSidebarOpen(false);
 
-  // ✅ Dynamic page title
+  // ✅ Dynamic page title — using translation keys
   useEffect(() => {
     const path = location.pathname;
-    let title = APP_CONFIG.companyName;
+    
+    // Build page title using dynamic translation keys
     const pageNames: Record<string, string> = {
-      '/': 'Dashboard',
-      '/customers': 'Customers',
-      '/products': 'Products',
-      '/installments': 'Installments',
-      '/installments/new': 'New Installment',
-      '/guarantors': 'Guarantors',
-      '/reports': 'Reports',
-      '/reports/profit-loss': 'Profit & Loss',
-      '/reminders': 'Reminders',
-      '/notifications': 'Notifications',
-      '/audit-logs': 'Audit Logs',
-      '/settings': 'Settings',
+      '/': t('dashboard'),
+      '/customers': t('customers'),
+      '/products': t('products'),
+      '/installments': t('installments'),
+      '/installments/new': t('new_installment'),
+      '/guarantors': t('guarantors'),
+      '/reports': t('reports'),
+      '/reports/profit-loss': t('profit_loss'),
+      '/reminders': t('reminders'),
+      '/notifications': t('notifications'),
+      '/audit-logs': t('audit_logs'),
+      '/settings': t('settings'),
     };
+    
+    let pageTitle = APP_CONFIG.companyName;
     
     for (const [key, value] of Object.entries(pageNames)) {
       if (path === key || path.startsWith(key + '/')) {
-        title = `${value} | ${APP_CONFIG.companyName}`;
+        pageTitle = `${value} | ${APP_CONFIG.companyName}`;
         break;
       }
     }
-    document.title = title;
-  }, [location.pathname]);
+    
+    document.title = pageTitle;
+  }, [location.pathname, t]);
 
   return (
     <div className="min-h-screen bg-gray-50/50 dark:bg-gray-900 flex flex-col">

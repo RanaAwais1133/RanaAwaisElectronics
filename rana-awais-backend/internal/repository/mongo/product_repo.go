@@ -108,7 +108,7 @@ func (r *ProductRepository) List(ctx context.Context, skip, limit int64) ([]doma
 		return prods, nil
 	}
 
-	invColl := config.DB.Collection("inventory")
+	invColl := config.DB.Collection(config.ColInventory)
 	productIDs := make([]primitive.ObjectID, len(prods))
 	for i, p := range prods {
 		productIDs[i] = p.ID

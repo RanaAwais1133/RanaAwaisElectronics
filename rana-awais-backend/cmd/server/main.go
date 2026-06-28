@@ -5,6 +5,10 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
 	"time"
 
 	"github.com/gorilla/handlers"
@@ -19,10 +23,19 @@ import (
 )
 
 func main() {
+	// ═══════════════════════════════════════
+	// 📋 CONFIG & DB
+	// ═══════════════════════════════════════
 	cfg := config.Load()
 	config.ConnectDB(cfg)
 
-	// --- Repositories ---
+	fmt.Println(strings.Repeat("═", 55))
+	fmt.Printf("🚀 %s Starting...\n", cfg.AppName)
+	fmt.Println(strings.Repeat("═", 55))
+
+	// ═══════════════════════════════════════
+	// 🗄️ REPOSITORIES
+	// ═══════════════════════════════════════
 	custRepo := mongo.NewCustomerRepository()
 	guarRepo := mongo.NewGuarantorRepository()
 	prodRepo := mongo.NewProductRepository()
@@ -33,7 +46,9 @@ func main() {
 	notifRepo := mongo.NewNotificationRepository()
 	userRepo := mongo.NewUserRepository()
 
-	// --- Services ---
+	// ═══════════════════════════════════════
+	// ⚙️ SERVICES
+	// ═══════════════════════════════════════
 	custSvc := service.NewCustomerService(custRepo)
 	guarSvc := service.NewGuarantorService(guarRepo, custRepo)
 	prodSvc := service.NewProductService(prodRepo)
@@ -49,25 +64,38 @@ func main() {
 
 	printer := thermal.NewPrinter(cfg.ThermalEndpoint)
 	recSvc := service.NewReceiptService(payRepo, planRepo, custRepo, printer)
+	recSvc.SetConfig(cfg)
 
-	// --- Router ---
+	// ═══════════════════════════════════════
+	// 🛣️ ROUTER SETUP
+	// ═══════════════════════════════════════
 	r := handler.SetupRouter(cfg, custSvc, guarSvc, prodSvc, invSvc, planSvc, paySvc, accSvc, notifSvc, recSvc, userSvc)
 	r.Use(middleware.LanguageMiddleware)
 	r.Use(middleware.LoggerMiddleware)
 
-	// Rate limiting - 100 requests per minute per IP
-	rateLimiter := middleware.NewRateLimiter(100, time.Minute)
+	// Rate limiting
+	rateLimitRequests := cfg.RateLimitRequests
+	if rateLimitRequests <= 0 {
+		rateLimitRequests = 100
+	}
+	rateLimiter := middleware.NewRateLimiter(rateLimitRequests, time.Minute)
 	r.Use(rateLimiter.RateLimit)
 
-	// Request body size limit (10MB)
+	// Request body size limit
+	maxBodySize := cfg.MaxBodySizeMB
+	if maxBodySize <= 0 {
+		maxBodySize = 10
+	}
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10MB
+			r.Body = http.MaxBytesReader(w, r.Body, int64(maxBodySize)<<20)
 			next.ServeHTTP(w, r)
 		})
 	})
 
-	// CORS - Use config for allowed origins
+	// ═══════════════════════════════════════
+	// 🌐 CORS
+	// ═══════════════════════════════════════
 	allowedOrigins := []string{cfg.FrontendURL}
 	if cfg.Environment == "development" {
 		allowedOrigins = append(allowedOrigins, "http://localhost:3000", "http://localhost:3001")
@@ -80,27 +108,71 @@ func main() {
 		handlers.AllowCredentials(),
 	)
 
+	// ═══════════════════════════════════════
+	// 📅 REMINDER SCHEDULER
+	// ═══════════════════════════════════════
 	go scheduleReminders(notifSvc)
 
+	// ═══════════════════════════════════════
+	// 🖥️ START SERVER
+	// ═══════════════════════════════════════
 	addr := fmt.Sprintf(":%s", cfg.ServerPort)
-	fmt.Printf("%s running on %s\n", cfg.AppName, addr)
-	log.Fatal(http.ListenAndServe(addr, corsObj(r)))
+
+	srv := &http.Server{
+		Addr:         addr,
+		Handler:      corsObj(r),
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
+	go func() {
+		fmt.Printf("   ✅ Server running on http://localhost%s\n", addr)
+		fmt.Println(strings.Repeat("═", 55))
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("❌ Server failed to start: %v", err)
+		}
+	}()
+
+	// ═══════════════════════════════════════
+	// 🛑 GRACEFUL SHUTDOWN
+	// ═══════════════════════════════════════
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	fmt.Println()
+	fmt.Println(strings.Repeat("═", 55))
+	fmt.Println("🛑 Shutting down server gracefully...")
+	fmt.Println(strings.Repeat("═", 55))
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer shutdownCancel()
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Fatalf("❌ Server forced to shutdown: %v", err)
+	}
+
+	fmt.Println("   ✅ Server exited gracefully")
+	fmt.Println(strings.Repeat("═", 55))
 }
 
+// scheduleReminders runs reminder notifications periodically
 func scheduleReminders(notifSvc *service.NotificationService) {
 	time.Sleep(10 * time.Second)
 
 	runReminder := func() {
-		log.Println("Scheduler: Sending reminders...")
-		if err := notifSvc.SendReminders(context.Background()); err != nil {
-			log.Printf("Reminder error: %v", err)
+		log.Println("📅 Scheduler: Sending payment reminders...")
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := notifSvc.SendReminders(ctx); err != nil {
+			log.Printf("   ⚠️  Reminder error: %v", err)
 		} else {
-			log.Println("Reminders sent successfully")
+			log.Println("   ✅ Reminders sent successfully")
 		}
 	}
 
 	runReminder()
-
 	ticker := time.NewTicker(24 * time.Hour)
 	defer ticker.Stop()
 	for range ticker.C {

@@ -19,9 +19,9 @@ type AccountingRepository struct {
 
 func NewAccountingRepository() *AccountingRepository {
 	return &AccountingRepository{
-		coll:    config.DB.Collection("accounting"),
-		invColl: config.DB.Collection("inventory"),
-		payColl: config.DB.Collection("payments"),
+		coll:    config.DB.Collection(config.ColAccounting),
+		invColl: config.DB.Collection(config.ColInventory),
+		payColl: config.DB.Collection(config.ColPayments),
 	}
 }
 
@@ -101,7 +101,7 @@ func (r *AccountingRepository) GetSoldItems(ctx context.Context, start, end time
 	return items, nil
 }
 
-// ✅ NEW: GetRevenueAndProfit for dashboard
+// GetRevenueAndProfit calculates revenue and profit from actual data
 func (r *AccountingRepository) GetRevenueAndProfit(ctx context.Context, start, end time.Time) (revenue float64, profit float64, err error) {
 	// Get all payments in date range
 	filter := bson.M{
@@ -126,11 +126,46 @@ func (r *AccountingRepository) GetRevenueAndProfit(ctx context.Context, start, e
 		revenue += p.Amount
 	}
 
-	// For profit, we need to calculate cost of goods sold
-	// This is simplified - in production, get from inventory purchase prices
-	// For now, assume 70% of revenue is cost (30% profit margin)
-	// In real implementation, get actual purchase prices from inventory
-	profit = revenue * 0.30 // 30% profit margin (adjust as needed)
+	// Calculate profit from sold items (actual purchase vs selling price)
+	soldFilter := bson.M{
+		"status": "sold",
+		"sold_date": bson.M{
+			"$gte": start,
+			"$lte": end,
+		},
+	}
+	soldCursor, err := r.invColl.Find(ctx, soldFilter)
+	if err != nil {
+		// Fallback: if can't get cost, assume 30% margin
+		profit = revenue * 0.30
+		return revenue, profit, nil
+	}
+	defer soldCursor.Close(ctx)
+
+	var soldItems []domain.InventoryItem
+	if err = soldCursor.All(ctx, &soldItems); err != nil || len(soldItems) == 0 {
+		profit = revenue * 0.30
+		return revenue, profit, nil
+	}
+
+	// Calculate actual profit: selling price - purchase price
+	var totalCost float64
+	var totalSelling float64
+	for _, item := range soldItems {
+		if item.PurchasePrice > 0 {
+			totalCost += item.PurchasePrice
+		}
+		if item.SellingPrice > 0 {
+			totalSelling += item.SellingPrice
+		}
+	}
+
+	if totalSelling > 0 && totalCost > 0 {
+		profit = totalSelling - totalCost
+	} else {
+		// Fallback if prices not set
+		profit = revenue * 0.30
+	}
 
 	return revenue, profit, nil
 }

@@ -40,7 +40,7 @@ func SetupRouter(
 	paymentH := NewPaymentHandler(paySvc)
 	accountingH := NewAccountingHandler(accSvc)
 	notificationH := NewNotificationHandler(notifSvc)
-	receiptH := NewReceiptHandler(recSvc, planSvc, custSvc, prodSvc, guarSvc)
+	receiptH := NewReceiptHandler(recSvc, planSvc, custSvc, prodSvc, guarSvc, cfg)
 	userH := NewUserHandler(userSvc)
 	authH := NewAuthHandler(userSvc, cfg)
 	adminH := NewAdminHandler(userSvc)
@@ -48,11 +48,11 @@ func SetupRouter(
 
 	api := r.PathPrefix("/api").Subrouter()
 
-	// ========== PUBLIC ROUTES (NO AUTH) ==========
+	// ========== PUBLIC ROUTES ==========
 	api.HandleFunc("/health", HealthCheck).Methods("GET")
 	api.HandleFunc("/auth/login", authH.Login).Methods("POST")
 
-	// ========== PROTECTED ROUTES (AUTH REQUIRED) ==========
+	// ========== PROTECTED ROUTES ==========
 	protected := api.NewRoute().Subrouter()
 	protected.Use(middleware.AuthMiddleware(cfg))
 
@@ -66,7 +66,7 @@ func SetupRouter(
 	// Audit logs
 	protected.HandleFunc("/audit-logs", func(w http.ResponseWriter, r *http.Request) {
 		db := config.DB
-		coll := db.Collection("audit_logs")
+		coll := db.Collection(config.ColAuditLogs)
 
 		pageStr := r.URL.Query().Get("page")
 		limitStr := r.URL.Query().Get("limit")
@@ -93,7 +93,7 @@ func SetupRouter(
 			return
 		}
 
-		userColl := db.Collection("users")
+		userColl := db.Collection(config.ColUsers)
 		var enriched []map[string]interface{}
 		for _, log := range rawLogs {
 			userId := ""
@@ -102,8 +102,6 @@ func SetupRouter(
 				userId = v
 			case primitive.ObjectID:
 				userId = v.Hex()
-			case primitive.Binary:
-				userId = string(v.Data)
 			default:
 				if v != nil {
 					userId = fmt.Sprintf("%v", v)
@@ -175,6 +173,9 @@ func SetupRouter(
 	protected.HandleFunc("/installments/bulk-payment", installmentH.BulkPayment).Methods("POST")
 	protected.HandleFunc("/installments/advance", installmentH.AdvancePayment).Methods("POST")
 	protected.HandleFunc("/installments/customer", installmentH.ListByCustomer).Methods("GET")
+	protected.HandleFunc("/installments/reschedule", installmentH.Reschedule).Methods("POST")
+	protected.HandleFunc("/installments/{id}", installmentH.GetByID).Methods("GET")
+	protected.HandleFunc("/installments/{id}", installmentH.Delete).Methods("DELETE")
 
 	// Upcoming installments
 	protected.HandleFunc("/installments/upcoming", func(w http.ResponseWriter, r *http.Request) {
@@ -209,7 +210,7 @@ func SetupRouter(
 		}
 
 		db := config.DB
-		installmentsColl := db.Collection("installments")
+		installmentsColl := db.Collection(config.ColInstallments)
 
 		pipeline := mongo.Pipeline{
 			{{Key: "$match", Value: bson.M{"status": "active"}}},
@@ -222,22 +223,19 @@ func SetupRouter(
 				},
 			}}},
 			{{Key: "$lookup", Value: bson.M{
-				"from":         "customers",
+				"from":         config.ColCustomers,
 				"localField":   "customer_id",
 				"foreignField": "_id",
 				"as":           "customer",
 			}}},
 			{{Key: "$unwind", Value: bson.M{"path": "$customer", "preserveNullAndEmptyArrays": true}}},
 			{{Key: "$lookup", Value: bson.M{
-				"from":         "products",
+				"from":         config.ColProducts,
 				"localField":   "product_id",
 				"foreignField": "_id",
 				"as":           "product",
 			}}},
 			{{Key: "$unwind", Value: bson.M{"path": "$product", "preserveNullAndEmptyArrays": true}}},
-			{{Key: "$addFields", Value: bson.M{
-				"total_installments": "$num_installments",
-			}}},
 			{{Key: "$project", Value: bson.M{
 				"id":                 bson.M{"$toString": "$_id"},
 				"customer_name":      "$customer.name",
@@ -270,6 +268,9 @@ func SetupRouter(
 		if err = cursor.All(r.Context(), &result); err != nil {
 			respondError(w, r, http.StatusInternalServerError, "Failed to parse results", "ناکام")
 			return
+		}
+		if result == nil {
+			result = []bson.M{}
 		}
 
 		respondJSON(w, http.StatusOK, result)
@@ -308,9 +309,9 @@ func SetupRouter(
 		}
 
 		db := config.DB
-		installmentsColl := db.Collection("installments")
-		paymentsColl := db.Collection("payments")
-		guarColl := db.Collection("guarantors")
+		installmentsColl := db.Collection(config.ColInstallments)
+		paymentsColl := db.Collection(config.ColPayments)
+		guarColl := db.Collection(config.ColGuarantors)
 
 		pipeline := mongo.Pipeline{
 			{{Key: "$match", Value: bson.M{"status": "active"}}},
@@ -334,14 +335,14 @@ func SetupRouter(
 			{{Key: "$match", Value: bson.M{"has_due_in_range": true}}},
 			{{Key: "$project", Value: bson.M{"has_due_in_range": 0}}},
 			{{Key: "$lookup", Value: bson.M{
-				"from":         "customers",
+				"from":         config.ColCustomers,
 				"localField":   "customer_id",
 				"foreignField": "_id",
 				"as":           "customer",
 			}}},
 			{{Key: "$unwind", Value: bson.M{"path": "$customer", "preserveNullAndEmptyArrays": true}}},
 			{{Key: "$lookup", Value: bson.M{
-				"from":         "products",
+				"from":         config.ColProducts,
 				"localField":   "product_id",
 				"foreignField": "_id",
 				"as":           "product",
@@ -549,10 +550,6 @@ func SetupRouter(
 		respondJSON(w, http.StatusOK, result)
 	}).Methods("GET")
 
-	protected.HandleFunc("/installments/reschedule", installmentH.Reschedule).Methods("POST")
-	protected.HandleFunc("/installments/{id}", installmentH.GetByID).Methods("GET")
-	protected.HandleFunc("/installments/{id}", installmentH.Delete).Methods("DELETE")
-
 	// Payments
 	protected.HandleFunc("/payments/plan/{plan_id}", paymentH.ListByPlan).Methods("GET")
 
@@ -563,7 +560,7 @@ func SetupRouter(
 	protected.HandleFunc("/accounting/profit-loss/accrual", accountingH.ProfitLossAccrual).Methods("GET")
 	protected.HandleFunc("/accounting/pending-total", func(w http.ResponseWriter, r *http.Request) {
 		db := config.DB
-		installmentsColl := db.Collection("installments")
+		installmentsColl := db.Collection(config.ColInstallments)
 
 		pipeline := mongo.Pipeline{
 			{{Key: "$match", Value: bson.M{"status": "active"}}},
@@ -617,7 +614,7 @@ func SetupRouter(
 			respondError(w, r, http.StatusBadRequest, "Invalid date range", "غلط تاریخ کی حد")
 			return
 		}
-		coll := config.DB.Collection("accounting")
+		coll := config.DB.Collection(config.ColAccounting)
 
 		pipeline := mongo.Pipeline{
 			{{Key: "$match", Value: bson.M{
@@ -656,10 +653,10 @@ func SetupRouter(
 		respondJSON(w, http.StatusOK, map[string]interface{}{"total_income": income, "total_expense": expense, "net_profit": income - expense})
 	}).Methods("GET")
 	protected.HandleFunc("/accounting/product-wise", func(w http.ResponseWriter, r *http.Request) {
-		coll := config.DB.Collection("installments")
+		coll := config.DB.Collection(config.ColInstallments)
 		pipeline := bson.A{
 			bson.M{"$match": bson.M{"status": "active"}},
-			bson.M{"$lookup": bson.M{"from": "products", "localField": "product_id", "foreignField": "_id", "as": "product"}},
+			bson.M{"$lookup": bson.M{"from": config.ColProducts, "localField": "product_id", "foreignField": "_id", "as": "product"}},
 			bson.M{"$unwind": bson.M{"path": "$product", "preserveNullAndEmptyArrays": true}},
 			bson.M{"$group": bson.M{
 				"_id":   bson.M{"$ifNull": bson.A{"$product.category", "Uncategorized"}},

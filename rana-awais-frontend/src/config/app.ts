@@ -1,18 +1,28 @@
+// src/config/app.ts
+
 export interface AppConfig {
   appName: string;
   companyName: string;
   companyNameUr: string;
+  branchName: string;           // ✅ NEW
+  branchNameUr: string;         // ✅ NEW
   address: string;
   addressUr: string;
   phones: string[];
   softwareBy: string;
   softwareByUr: string;
+  invoiceNote: string;          // ✅ NEW
+  invoiceNoteUr: string;        // ✅ NEW
+  serviceNote: string;          // ✅ NEW
+  serviceNoteUr: string;        // ✅ NEW
 }
 
 export const APP_CONFIG: AppConfig = {
   appName: process.env.REACT_APP_APP_NAME || 'MY_SHOP_PPC',
   companyName: process.env.REACT_APP_COMPANY_NAME || 'MY ELECTRONICS',
   companyNameUr: process.env.REACT_APP_COMPANY_NAME_UR || 'مائی الیکٹرانکس',
+  branchName: process.env.REACT_APP_BRANCH_NAME || 'SADIQ',                      // ✅ NEW
+  branchNameUr: process.env.REACT_APP_BRANCH_NAME_UR || 'صادق',                  // ✅ NEW
   address: process.env.REACT_APP_ADDRESS || 'Behari Colony, Disposal Chowk, Bismillah Service Station, Opposite Noor Super Store, Kacha Aiemanabad Road, Gujranwala',
   addressUr: process.env.REACT_APP_ADDRESS_UR || 'بہاری کالونی، ڈسپوزل چوک، بسم اللہ سروس اسٹیشن، نور سپر اسٹور کے سامنے، کچّہ ایمن آباد روڈ، گوجرانوالہ',
   phones: [
@@ -22,4 +32,8 @@ export const APP_CONFIG: AppConfig = {
   ],
   softwareBy: process.env.REACT_APP_SOFTWARE_BY || 'Huzaifa (0313-6487199)',
   softwareByUr: process.env.REACT_APP_SOFTWARE_BY_UR || 'حذیفہ (0313-6487199)',
+  invoiceNote: process.env.REACT_APP_INVOICE_NOTE || '',                         // ✅ NEW
+  invoiceNoteUr: process.env.REACT_APP_INVOICE_NOTE_UR || 'نوٹ: مذکورہ بالا تفصیلات درست اور تصدیق شدہ ہیں۔',  // ✅ NEW
+  serviceNote: process.env.REACT_APP_SERVICE_NOTE || '',                         // ✅ NEW
+  serviceNoteUr: process.env.REACT_APP_SERVICE_NOTE_UR || 'سروس چارجز میں صرف ایڈوانس شامل ہے',              // ✅ NEW
 };

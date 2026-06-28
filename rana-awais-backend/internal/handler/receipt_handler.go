@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/gorilla/mux"
+	"github.com/your-org/rana-awais-backend/config"
 	"github.com/your-org/rana-awais-backend/internal/service"
 	"github.com/your-org/rana-awais-backend/pkg/receipt"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -16,6 +17,7 @@ type ReceiptHandler struct {
 	custSvc        *service.CustomerService
 	prodSvc        *service.ProductService
 	guarSvc        *service.GuarantorService
+	cfg            *config.Config
 }
 
 func NewReceiptHandler(
@@ -24,6 +26,7 @@ func NewReceiptHandler(
 	custSvc *service.CustomerService,
 	prodSvc *service.ProductService,
 	guarSvc *service.GuarantorService,
+	cfg *config.Config,
 ) *ReceiptHandler {
 	return &ReceiptHandler{
 		svc:            svc,
@@ -31,6 +34,7 @@ func NewReceiptHandler(
 		custSvc:        custSvc,
 		prodSvc:        prodSvc,
 		guarSvc:        guarSvc,
+		cfg:            cfg,
 	}
 }
 
@@ -61,7 +65,15 @@ func (h *ReceiptHandler) DownloadReceipt(w http.ResponseWriter, r *http.Request)
 
 	guarantors, _ := h.guarSvc.ListByCustomer(r.Context(), plan.CustomerID)
 
-	imgBytes, err := receipt.GenerateInstallmentReceipt(plan, cust, prod, guarantors)
+	recCfg := receipt.DefaultReceiptConfig()
+	receipt.ApplyToConfig(&recCfg,
+		h.cfg.CompanyName, h.cfg.CompanyNameUr,
+		h.cfg.Address, h.cfg.AddressUr,
+		h.cfg.GetPhonesString(),
+		h.cfg.SoftwareBy, h.cfg.SoftwareByUr,
+	)
+
+	imgBytes, err := receipt.GenerateInstallmentReceipt(recCfg, plan, cust, prod, guarantors)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "Failed to generate receipt", "رسید نہیں بن سکی")
 		return

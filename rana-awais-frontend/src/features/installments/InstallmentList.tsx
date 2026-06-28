@@ -58,6 +58,7 @@ const InstallmentList: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [errorDetails, setErrorDetails] = useState('');
+  const [printLoading, setPrintLoading] = useState(false);
 
   // Filters
   const [filterStatus, setFilterStatus] = useState<string>('all');
@@ -77,10 +78,19 @@ const InstallmentList: React.FC = () => {
 
   const { customers, fetchCustomers } = useCustomerStore();
 
+  // ✅ Dynamic config
+  const companyName = APP_CONFIG.companyName || 'Company Name';
+  const companyNameUr = APP_CONFIG.companyNameUr || 'کمپنی کا نام';
+  const address = APP_CONFIG.address || '';
+  const addressUr = APP_CONFIG.addressUr || '';
+  const phones = APP_CONFIG.phones || [];
+  const softwareBy = APP_CONFIG.softwareBy || '';
+  const softwareByUr = APP_CONFIG.softwareByUr || '';
+
   // ✅ Page title
   useEffect(() => {
-    document.title = `${t('installments')} | ${APP_CONFIG.companyName}`;
-  }, [t]);
+    document.title = `${t('installments')} | ${companyName}`;
+  }, [t, companyName]);
 
   // ✅ Fetch customers
   useEffect(() => {
@@ -203,6 +213,390 @@ const InstallmentList: React.FC = () => {
     
     return filtered;
   }, [plans, filterStatus, searchQuery, customers]);
+
+  // ✅ Helper functions for print
+  const fd = useCallback((d: string) => {
+    if (!d) return '';
+    const dt = new Date(d);
+    return `${String(dt.getDate()).padStart(2, '0')}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getFullYear()).slice(-2)}`;
+  }, []);
+
+  const fdf = useCallback((d: string) => {
+    if (!d) return '';
+    const dt = new Date(d);
+    return `${String(dt.getDate()).padStart(2, '0')}-${String(dt.getMonth() + 1).padStart(2, '0')}-${dt.getFullYear()}`;
+  }, []);
+
+  const ft = useCallback((d: string) => {
+    if (!d) return '';
+    const dt = new Date(d);
+    let h = dt.getHours();
+    const a = h >= 12 ? 'PM' : 'AM';
+    h = h % 12 || 12;
+    return `${String(h).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}:${String(dt.getSeconds()).padStart(2, '0')} ${a}`;
+  }, []);
+
+  const fc = useCallback((n: number) => (n || 0).toLocaleString('en-US'), []);
+
+  const fph = useCallback((p: string) => {
+    if (!p) return '';
+    const c = p.replace(/\D/g, '');
+    if (c.length === 11) return `${c.slice(0, 4)}-${c.slice(4)}`;
+    return p;
+  }, []);
+
+  const fcn = useCallback((c: string) => {
+    if (!c) return '';
+    const cl = c.replace(/\D/g, '');
+    if (cl.length === 13) return `${cl.slice(0, 5)}-${cl.slice(5, 12)}-${cl.slice(12)}`;
+    return c;
+  }, []);
+
+  const L = useCallback((en: string, ur: string) => isUrdu ? ur : en, [isUrdu]);
+
+  // ✅ Print All Plans Handler
+  const handlePrintAllPlans = useCallback(async () => {
+    const plansToPrint = filteredPlans.length > 0 ? filteredPlans : plans;
+    
+    if (plansToPrint.length === 0) {
+      toast.error(isUrdu ? 'کوئی پلان موجود نہیں' : 'No plans to print');
+      return;
+    }
+
+    setPrintLoading(true);
+    toast(isUrdu ? 'پرنٹ تیار ہو رہا ہے...' : 'Preparing print...', { duration: 2000 });
+
+    try {
+      // ✅ Fetch full details for each plan
+      const plansWithDetails = await Promise.all(
+        plansToPrint.map(async (plan: any) => {
+          try {
+            let cust = null;
+            if (plan?.customerId) {
+              try { cust = (await api.get(`/customers/${plan.customerId}`)).data; } catch {}
+            }
+            let prod = null;
+            if (plan?.productId) {
+              try { prod = (await api.get(`/products/${plan.productId}`)).data; } catch {}
+            }
+            let pays = [];
+            try { pays = (await api.get(`/payments/plan/${plan.id}`)).data || []; } catch {}
+            let guars = [];
+            if (cust?.guarantorIds?.length > 0) {
+              guars = (await Promise.all(
+                cust.guarantorIds.map((gId: string) =>
+                  api.get(`/guarantors/${gId}`).then(r => r.data).catch(() => null)
+                )
+              )).filter(Boolean);
+            }
+            return { ...plan, cust, prod, pays, guars };
+          } catch {
+            return plan;
+          }
+        })
+      );
+
+      const pn = new Date();
+      const pds = fdf(pn.toISOString());
+      const pts = ft(pn.toISOString());
+
+      // ✅ Generate HTML for all plans
+      const allPlansHTML = plansWithDetails.map((plan: any, index: number) => {
+        const cust = plan.cust || {};
+        const prod = plan.prod || {};
+        const pays = plan.pays || [];
+        const insts = plan.installments || [];
+        const guars = plan.guars || [];
+
+        const cn = cust.name || plan.customerName || '—';
+        const fn = cust.fatherName || cust.father_name || '—';
+        const cp = cust.phone || '';
+        const cic = cust.cnic || '';
+        const res = cust.residential || '';
+        const occ = cust.occupant || '';
+        const ra = cust.residentialAddress || cust.address || '';
+        const oa = cust.officeAddress || '';
+        const acn = cust.accountNo || plan.accountNo || '';
+        const csn = cust.costNo || '';
+        const psn = cust.processNo || '';
+        const rac = cust.reprAsCost || '';
+        const rag = cust.reprAsGar || '';
+        const pac = cust.prepAC || '';
+        const comp = prod.company || plan.company || '';
+        const mdl = prod.model || plan.model || '';
+        const sn = prod.serialNumber || plan.serialNumber || '';
+        const imei = prod.imei || plan.imei || '';
+        const eng = prod.engineNo || plan.engineNo || '';
+        const chs = prod.chassisNo || plan.chassisNo || '';
+        const clr = prod.color || plan.color || '';
+        const ta = plan.totalAmount || 0;
+        const dp = plan.downPayment || 0;
+        const ia = plan.installmentAmount || 0;
+        const ni = plan.numInstallments || insts.length || 0;
+        const rm = plan.remainingAmount || 0;
+        const aa = plan.advanceAmount || 0;
+        const ar = plan.advanceReceived || 0;
+        const planTid = plan.tid || '';
+        const planUid = plan.uid || '';
+        const planStatus = plan.status || '';
+        let tr = 0;
+        pays.forEach((p: any) => { tr += p.amount || 0; });
+        let tf = 0;
+        insts.forEach((i: any) => { tf += i.fine || 0; });
+        const paidCount = insts.filter((i: any) => i.paid === true).length;
+        const bal = ta - tr;
+        const pct = ta > 0 ? Math.round(tr / ta * 100) : 0;
+        const isLast = index === plansWithDetails.length - 1;
+
+        return `
+          <div style="${isLast ? '' : 'page-break-after: always;'} font-family: 'Times New Roman', Georgia, serif; max-width: 1000px; width: 100%; background: #fff; padding: 18px 22px; border: 1px solid #000; line-height: 1.35; color: #000; font-size: 9px; box-sizing: border-box; margin: 0 auto 20px; direction: ltr;">
+            <!-- Header -->
+            <div style="text-align: center; border-bottom: 2px solid #000; padding-bottom: 8px; margin-bottom: 10px;">
+              <h1 style="font-size: 20px; font-weight: bold; margin: 0 0 3px; letter-spacing: 1px;">${isUrdu ? companyNameUr : companyName}</h1>
+              <p style="font-size: 11px; font-weight: bold; margin: 0 0 3px;">${L('Customer Account Info Detail', 'کسٹمر اکاؤنٹ کی تفصیلات')} (${L('Plan', 'پلان')} ${index + 1} ${L('of', 'از')} ${plansWithDetails.length})</p>
+              <div style="display: flex; justify-content: center; gap: 15px; font-size: 9px; font-weight: bold; margin-bottom: 3px;">
+                <span>${L('Print:', 'پرنٹ:')} ${pds} ${pts}</span>
+                ${planTid ? `<span>TID: ${planTid}</span>` : ''}
+                ${planUid ? `<span>UID: ${planUid}</span>` : ''}
+              </div>
+              ${address ? `<div style="font-size: 7px; font-weight: bold;">${isUrdu ? addressUr : address}</div>` : ''}
+              ${phones.length > 0 ? `<div style="display: flex; justify-content: center; gap: 12px; font-size: 7px; margin-top: 1px; font-weight: bold;">${phones.map((ph: string) => `<span>📞 ${ph}</span>`).join('')}</div>` : ''}
+            </div>
+
+            <!-- Customer Info Row 1 -->
+            <div style="display: flex; gap: 8px; margin-bottom: 4px; font-size: 9px;">
+              <div style="flex: 1;"><b>${L('A/C No:', 'اکاؤنٹ:')}</b> ${acn || '—'}</div>
+              <div style="flex: 1;"><b>${L('Date:', 'تاریخ:')}</b> ${fdf(cust.createdAt || plan.createdAt || new Date().toISOString())}</div>
+              <div style="flex: 1;"><b>${L('Cost No:', 'کوسٹ:')}</b> ${csn || '—'}</div>
+              <div style="flex: 1;"><b>${L('Proc No:', 'پروسس:')}</b> ${psn || '—'}</div>
+            </div>
+
+            <!-- Customer Info Row 2 -->
+            <div style="display: flex; gap: 8px; margin-bottom: 4px; font-size: 9px;">
+              <div style="flex: 1;"><b>${L('Cost Name:', 'کوسٹ نام:')}</b> ${cn}</div>
+              <div style="flex: 1;"><b>${L('Rep Cost:', 'ریپر کوسٹ:')}</b> ${rac || '—'}</div>
+              <div style="flex: 1;"><b>${L('F/H Name:', 'والد:')}</b> ${fn}</div>
+              <div style="flex: 1;"><b>${L('Rep Gar:', 'ریپر گار:')}</b> ${rag || '—'}</div>
+            </div>
+
+            <!-- Customer Info Row 3 -->
+            <div style="display: flex; gap: 8px; margin-bottom: 4px; font-size: 9px;">
+              <div style="flex: 1;"><b>${L('Residential:', 'رہائشی:')}</b> ${res || '—'}</div>
+              <div style="flex: 1;"><b>${L('Occupant:', 'قابض:')}</b> ${occ || '—'}</div>
+              <div style="flex: 2;"><b>${L('Address:', 'پتہ:')}</b> ${ra || '—'}</div>
+            </div>
+
+            <!-- Customer Info Row 4 -->
+            <div style="display: flex; gap: 8px; margin-bottom: 4px; font-size: 9px;">
+              <div style="flex: 1;"><b>${L('Office Addr:', 'دفتر:')}</b> ${oa || '—'}</div>
+              <div style="flex: 1;"><b>${L('Prep AC:', 'پریپ AC:')}</b> ${pac || '—'}</div>
+              <div style="flex: 1;"><b>${L('Mobile:', 'موبائل:')}</b> ${fph(cp)}</div>
+            </div>
+
+            <!-- Product Info -->
+            <div style="display: flex; gap: 8px; margin-bottom: 4px; font-size: 9px;">
+              <div style="flex: 1;"><b>${L('Company:', 'کمپنی:')}</b> ${comp || '—'}</div>
+              <div style="flex: 1;"><b>${L('Model:', 'ماڈل:')}</b> ${mdl || '—'}</div>
+              <div style="flex: 1;"><b>${L('Serial No:', 'سیریل:')}</b> ${sn || '—'}</div>
+              <div style="flex: 1;"><b>${L('Color:', 'رنگ:')}</b> ${clr || '—'}</div>
+            </div>
+
+            ${(imei || eng || chs) ? `
+            <div style="display: flex; gap: 8px; margin-bottom: 4px; font-size: 9px;">
+              ${imei ? `<div style="flex: 1;"><b>IMEI:</b> ${imei}</div>` : ''}
+              ${eng ? `<div style="flex: 1;"><b>${L('Engine:', 'انجن:')}</b> ${eng}</div>` : ''}
+              ${chs ? `<div style="flex: 1;"><b>${L('Chassis:', 'چیسس:')}</b> ${chs}</div>` : ''}
+              <div style="flex: 1;"><b>${L('CNIC:', 'شناختی:')}</b> ${fcn(cic) || '—'}</div>
+            </div>` : ''}
+
+            <!-- Plan Details -->
+            <h3 style="font-weight: bold; font-size: 10px; margin: 8px 0 4px; border-bottom: 1px solid #ccc; padding-bottom: 2px;">${L('Plan Details', 'پلان تفصیلات')}</h3>
+            <div style="display: flex; gap: 8px; margin-bottom: 4px; font-size: 9px;">
+              <div style="flex: 1;"><b>${L('Total Amt:', 'کل رقم:')}</b> ${fc(ta)}</div>
+              <div style="flex: 1;"><b>${L('Down Pay:', 'بیعانہ:')}</b> ${fc(dp)}</div>
+              <div style="flex: 1;"><b>${L('Per Inst:', 'فی قسط:')}</b> ${fc(ia)}</div>
+              <div style="flex: 1;"><b>${L('Installments:', 'اقساط:')}</b> ${ni}</div>
+            </div>
+            <div style="display: flex; gap: 8px; margin-bottom: 4px; font-size: 9px;">
+              <div style="flex: 1;"><b>${L('Remaining:', 'باقی:')}</b> ${fc(rm)}</div>
+              <div style="flex: 1;"><b>${L('Adv Amt:', 'ایڈوانس رقم:')}</b> ${fc(aa)}</div>
+              <div style="flex: 1;"><b>${L('Adv Recv:', 'ایڈوانس موصول:')}</b> ${fc(ar)}</div>
+              <div style="flex: 1;"><b>${L('Status:', 'حیثیت:')}</b> ${planStatus || '—'}</div>
+            </div>
+
+            <!-- Payment Summary -->
+            <h3 style="font-weight: bold; font-size: 10px; margin: 8px 0 4px; border-bottom: 1px solid #ccc; padding-bottom: 2px;">${L('Payment Summary', 'ادائیگی خلاصہ')}</h3>
+            <div style="margin-bottom: 6px;">
+              <div style="display: flex; justify-content: space-between; font-size: 9px; margin-bottom: 3px;">
+                <span><b>${L('Received:', 'وصول:')}</b> ${fc(tr)} (${pct}%)</span>
+                <span><b>${L('Balance:', 'باقی:')}</b> ${fc(bal)} (${100 - pct}%)</span>
+              </div>
+              <div style="width: 100%; height: 8px; background-color: #e5e7eb; border-radius: 4px; overflow: hidden;">
+                <div style="width: ${pct}%; height: 100%; background-color: #000; border-radius: 4px;"></div>
+              </div>
+              ${tf > 0 ? `<div style="font-size: 8px; margin-top: 2px;"><b>${L('Total Fine:', 'کل جرمانہ:')}</b> ${fc(tf)}</div>` : ''}
+              <div style="font-size: 8px; margin-top: 2px;"><b>${L('Paid Installments:', 'ادا کردہ قسطیں:')}</b> ${paidCount} / ${ni}</div>
+            </div>
+
+            <!-- Installment Schedule -->
+            <h3 style="font-weight: bold; font-size: 10px; margin: 8px 0 4px; border-bottom: 1px solid #ccc; padding-bottom: 2px;">${L('Installment Schedule', 'اقساط شیڈول')}</h3>
+            <table style="width: 100%; border-collapse: collapse; font-size: 9px; border: 1px solid #000;">
+              <thead>
+                <tr>
+                  <th style="border: 1px solid #000; padding: 5px 6px; text-align: center; font-weight: bold; background-color: #f0f0f0; font-size: 9px;">#</th>
+                  <th style="border: 1px solid #000; padding: 5px 6px; text-align: center; font-weight: bold; background-color: #f0f0f0; font-size: 9px;">${L('Due Date', 'تاریخ')}</th>
+                  <th style="border: 1px solid #000; padding: 5px 6px; text-align: center; font-weight: bold; background-color: #f0f0f0; font-size: 9px;">${L('Amount', 'رقم')}</th>
+                  <th style="border: 1px solid #000; padding: 5px 6px; text-align: center; font-weight: bold; background-color: #f0f0f0; font-size: 9px;">${L('Fine', 'جرمانہ')}</th>
+                  <th style="border: 1px solid #000; padding: 5px 6px; text-align: center; font-weight: bold; background-color: #f0f0f0; font-size: 9px;">${L('Paid', 'ادا')}</th>
+                  <th style="border: 1px solid #000; padding: 5px 6px; text-align: center; font-weight: bold; background-color: #f0f0f0; font-size: 9px;">${L('Status', 'حیثیت')}</th>
+                  <th style="border: 1px solid #000; padding: 5px 6px; text-align: center; font-weight: bold; background-color: #f0f0f0; font-size: 9px;">${L('Collected By', 'وصول کنندہ')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${insts.length > 0 ? insts.map((i: any) => {
+                  const rp = pays.filter((p: any) => p.installmentNo === i.installmentNo);
+                  const paidAmt = rp.reduce((s: number, p: any) => s + (p.amount || 0), 0);
+                  const cb = rp.length > 0 ? (rp[rp.length - 1].collectedBy || rp[rp.length - 1].collected_by || '') : (i.paid ? (i.collectedBy || i.collected_by || '') : '');
+                  const isPd = i.paid || paidAmt >= i.amount;
+                  const isPrt = !isPd && paidAmt > 0;
+                  const bgColor = isPd ? '#ffffff' : isPrt ? '#f9f9f9' : '#f5f5f5';
+                  const statusText = isPd ? L('Paid', 'ادا') : isPrt ? L('Partial', 'جزوی') : L('Pending', 'زیر التواء');
+                  return `
+                    <tr style="background-color: ${bgColor};">
+                      <td style="border: 1px solid #000; padding: 5px 6px; text-align: center; font-size: 9px;">${i.installmentNo}</td>
+                      <td style="border: 1px solid #000; padding: 5px 6px; text-align: center; font-size: 9px;">${fd(i.dueDate)}</td>
+                      <td style="border: 1px solid #000; padding: 5px 8px; text-align: right; font-size: 9px; font-weight: bold;">${fc(i.amount)}</td>
+                      <td style="border: 1px solid #000; padding: 5px 8px; text-align: right; font-size: 9px;">${i.fine ? fc(i.fine) : '0'}</td>
+                      <td style="border: 1px solid #000; padding: 5px 8px; text-align: right; font-size: 9px;">${paidAmt > 0 ? fc(paidAmt) : '0'}</td>
+                      <td style="border: 1px solid #000; padding: 5px 6px; text-align: center; font-size: 9px;">
+                        <span style="display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 8px; font-weight: bold; border: 1px solid #000;">${statusText}</span>
+                      </td>
+                      <td style="border: 1px solid #000; padding: 5px 6px; text-align: center; font-size: 9px;">${cb || '—'}</td>
+                    </tr>
+                  `;
+                }).join('') : `<tr><td colspan="7" style="border: 1px solid #000; padding: 12px; text-align: center; font-size: 9px;">${L('No installments', 'کوئی قسط نہیں')}</td></tr>`}
+              </tbody>
+            </table>
+
+            <!-- Payment History -->
+            ${pays.length > 0 ? `
+            <h3 style="font-weight: bold; font-size: 10px; margin: 8px 0 4px; border-bottom: 1px solid #ccc; padding-bottom: 2px;">${L('Payment History', 'ادائیگی تاریخ')}</h3>
+            <table style="width: 100%; border-collapse: collapse; font-size: 9px; border: 1px solid #000;">
+              <thead>
+                <tr>
+                  <th style="border: 1px solid #000; padding: 5px 6px; text-align: center; font-weight: bold; background-color: #f0f0f0; font-size: 9px;">#</th>
+                  <th style="border: 1px solid #000; padding: 5px 6px; text-align: center; font-weight: bold; background-color: #f0f0f0; font-size: 9px;">${L('Date', 'تاریخ')}</th>
+                  <th style="border: 1px solid #000; padding: 5px 6px; text-align: center; font-weight: bold; background-color: #f0f0f0; font-size: 9px;">${L('Inst#', 'قسط#')}</th>
+                  <th style="border: 1px solid #000; padding: 5px 6px; text-align: center; font-weight: bold; background-color: #f0f0f0; font-size: 9px;">${L('Amount', 'رقم')}</th>
+                  <th style="border: 1px solid #000; padding: 5px 6px; text-align: center; font-weight: bold; background-color: #f0f0f0; font-size: 9px;">${L('Method', 'طریقہ')}</th>
+                  <th style="border: 1px solid #000; padding: 5px 6px; text-align: center; font-weight: bold; background-color: #f0f0f0; font-size: 9px;">${L('Collected By', 'وصول')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${pays.map((p: any, i: number) => `
+                  <tr>
+                    <td style="border: 1px solid #000; padding: 5px 6px; text-align: center; font-size: 9px;">${i + 1}</td>
+                    <td style="border: 1px solid #000; padding: 5px 6px; text-align: center; font-size: 9px;">${fd(p.transactionDate || p.createdAt)}</td>
+                    <td style="border: 1px solid #000; padding: 5px 6px; text-align: center; font-size: 9px;">${p.installmentNo}</td>
+                    <td style="border: 1px solid #000; padding: 5px 8px; text-align: right; font-size: 9px; font-weight: bold;">${fc(p.amount)}</td>
+                    <td style="border: 1px solid #000; padding: 5px 6px; text-align: center; font-size: 9px;">${p.method || '—'}</td>
+                    <td style="border: 1px solid #000; padding: 5px 6px; text-align: center; font-size: 9px;">${p.collectedBy || p.collected_by || '—'}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+            ` : ''}
+
+            <!-- Guarantors -->
+            ${guars.length > 0 ? `
+            <h3 style="font-weight: bold; font-size: 10px; margin: 8px 0 4px; border-bottom: 1px solid #ccc; padding-bottom: 2px;">${L('Guarantors', 'ضامن')}</h3>
+            <table style="width: 100%; border-collapse: collapse; font-size: 9px; border: 1px solid #000;">
+              <thead>
+                <tr>
+                  <th style="border: 1px solid #000; padding: 5px 6px; text-align: center; font-weight: bold; background-color: #f0f0f0; font-size: 9px;">#</th>
+                  <th style="border: 1px solid #000; padding: 5px 6px; text-align: center; font-weight: bold; background-color: #f0f0f0; font-size: 9px;">${L('Name', 'نام')}</th>
+                  <th style="border: 1px solid #000; padding: 5px 6px; text-align: center; font-weight: bold; background-color: #f0f0f0; font-size: 9px;">${L('Father', 'والد')}</th>
+                  <th style="border: 1px solid #000; padding: 5px 6px; text-align: center; font-weight: bold; background-color: #f0f0f0; font-size: 9px;">${L('Phone', 'فون')}</th>
+                  <th style="border: 1px solid #000; padding: 5px 6px; text-align: center; font-weight: bold; background-color: #f0f0f0; font-size: 9px;">${L('CNIC', 'شناختی')}</th>
+                  <th style="border: 1px solid #000; padding: 5px 6px; text-align: center; font-weight: bold; background-color: #f0f0f0; font-size: 9px;">${L('Relation', 'رشتہ')}</th>
+                  <th style="border: 1px solid #000; padding: 5px 6px; text-align: center; font-weight: bold; background-color: #f0f0f0; font-size: 9px;">${L('Occupation', 'پیشہ')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${guars.map((g: any, i: number) => `
+                  <tr>
+                    <td style="border: 1px solid #000; padding: 5px 6px; text-align: center; font-size: 9px;">${i + 1}</td>
+                    <td style="border: 1px solid #000; padding: 5px 6px; text-align: center; font-size: 9px;">${g.name || '—'}</td>
+                    <td style="border: 1px solid #000; padding: 5px 6px; text-align: center; font-size: 9px;">${g.fatherName || g.father_name || '—'}</td>
+                    <td style="border: 1px solid #000; padding: 5px 6px; text-align: center; font-size: 9px;">${fph(g.phone || '')}</td>
+                    <td style="border: 1px solid #000; padding: 5px 6px; text-align: center; font-size: 9px;">${fcn(g.cnic || '')}</td>
+                    <td style="border: 1px solid #000; padding: 5px 6px; text-align: center; font-size: 9px;">${g.relation || '—'}</td>
+                    <td style="border: 1px solid #000; padding: 5px 6px; text-align: center; font-size: 9px;">${g.occupation || '—'}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+            ` : ''}
+
+            <!-- Footer -->
+            <div style="margin-top: 12px; border-top: 1px solid #000; padding-top: 6px; text-align: center;">
+              ${address ? `<p style="font-size: 8px; margin: 2px 0;">${isUrdu ? addressUr : address}</p>` : ''}
+              ${phones.length > 0 ? `<p style="font-size: 8px; margin: 2px 0; font-weight: bold;">${phones.join(' | ')}</p>` : ''}
+              <p style="font-size: 8px; margin: 0;">${L('Generated:', 'تیار:')} ${pds} ${pts}</p>
+              ${softwareBy ? `<p style="font-size: 9px; margin: 4px 0; font-weight: bold;">${L('Software: ' + softwareBy, 'سافٹ ویئر: ' + softwareByUr)}</p>` : ''}
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      // ✅ Open print window with safe approach
+      const customerName = customers.find(c => c.id === selectedCustomer)?.name || 'Customer';
+      const w = window.open('', '_blank', 'width=1100,height=1200');
+      if (!w) {
+        toast.error(isUrdu ? 'پاپ اپ بلاک ہے' : 'Pop-up blocked');
+        setPrintLoading(false);
+        return;
+      }
+
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>${L('All Plans', 'تمام پلان')} - ${customerName}</title>
+            <style>
+              * { margin: 0; padding: 0; box-sizing: border-box; }
+              body { font-family: 'Times New Roman', Georgia, serif; background: #fff; display: flex; flex-direction: column; align-items: center; padding: 20px; }
+              @page { size: A4; margin: 0.3in; }
+              @media print { body { padding: 0; } }
+            </style>
+          </head>
+          <body>
+            ${allPlansHTML}
+            <script>
+              window.onload = function() {
+                setTimeout(function() {
+                  window.print();
+                  setTimeout(function() {
+                    window.close();
+                  }, 500);
+                }, 400);
+              };
+            </script>
+          </body>
+        </html>
+      `;
+
+      w.document.open();
+      w.document.write(htmlContent);
+      w.document.close();
+
+      toast.success(isUrdu ? 'پرنٹ تیار ہے!' : 'Print ready!');
+    } catch (err) {
+      toast.error(isUrdu ? 'پرنٹ تیار کرنے میں ناکامی' : 'Failed to prepare print');
+    } finally {
+      setPrintLoading(false);
+    }
+  }, [filteredPlans, plans, isUrdu, customers, selectedCustomer, fd, fdf, ft, fc, fph, fcn, L, companyName, companyNameUr, address, addressUr, phones, softwareBy, softwareByUr]);
 
   // ✅ Render plan card
   const renderPlan = useCallback((plan: any) => {
@@ -426,13 +820,18 @@ const InstallmentList: React.FC = () => {
           <div className="flex flex-wrap gap-3 items-end">
             <div className="w-full sm:w-auto flex items-end">
               <button
-                onClick={async () => {
-                  // Print all plans functionality
-                  toast(isUrdu ? 'پرنٹ تیار ہو رہا ہے...' : 'Preparing print...');
-                }}
-                className="px-4 py-2 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-xl text-sm font-semibold hover:bg-gray-800 dark:hover:bg-gray-100 transition-all shadow-sm"
+                onClick={handlePrintAllPlans}
+                disabled={printLoading}
+                className="px-4 py-2 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-xl text-sm font-semibold hover:bg-gray-800 dark:hover:bg-gray-100 transition-all shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                🖨️ {isUrdu ? 'تمام پلان پرنٹ کریں' : 'Print All Plans'}
+                {printLoading ? (
+                  <span className="flex items-center gap-2">
+                    <span className="w-4 h-4 border-2 border-white dark:border-gray-900 border-t-transparent rounded-full animate-spin"></span>
+                    {isUrdu ? 'تیار ہو رہا...' : 'Preparing...'}
+                  </span>
+                ) : (
+                  <>🖨️ {isUrdu ? 'تمام پلان پرنٹ کریں' : 'Print All Plans'}</>
+                )}
               </button>
             </div>
 

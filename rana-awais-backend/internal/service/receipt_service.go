@@ -38,6 +38,20 @@ func (s *ReceiptService) SetConfig(cfg *config.Config) {
 	s.cfg = cfg
 }
 
+// getConfig safely returns config or defaults from APP_CONFIG
+func (s *ReceiptService) getConfig() *config.Config {
+	if s.cfg != nil {
+		return s.cfg
+	}
+	// Fallback to global config
+	return &config.Config{
+		CompanyName:   config.APP_CONFIG.CompanyName,
+		CompanyNameUr: config.APP_CONFIG.CompanyNameUr,
+		SoftwareBy:    config.APP_CONFIG.SoftwareBy,
+		SoftwareByUr:  config.APP_CONFIG.SoftwareByUr,
+	}
+}
+
 func (s *ReceiptService) GenerateAndPrintReceipt(ctx context.Context, paymentID primitive.ObjectID) error {
 	payment, err := s.paymentRepo.GetByID(ctx, paymentID)
 	if err != nil || payment == nil {
@@ -52,18 +66,12 @@ func (s *ReceiptService) GenerateAndPrintReceipt(ctx context.Context, paymentID 
 		return errors.New("customer not found")
 	}
 
-	// Get company info from config
-	companyName := "RANA AWAIS ELECTRONICS"
-	companyNameUr := "رانا اویس الیکٹرانکس"
-	softwareBy := "Huzaifa (0313-6487199)"
-	softwareByUr := "حذیفہ (0313-6487199)"
-	
-	if s.cfg != nil {
-		companyName = s.cfg.CompanyName
-		companyNameUr = s.cfg.CompanyNameUr
-		softwareBy = s.cfg.SoftwareBy
-		softwareByUr = s.cfg.SoftwareByUr
-	}
+	// ✅ Get company info from config (dynamic, no hardcoded fallback needed)
+	cfg := s.getConfig()
+	companyName := cfg.CompanyName
+	companyNameUr := cfg.CompanyNameUr
+	softwareBy := cfg.SoftwareBy
+	softwareByUr := cfg.SoftwareByUr
 
 	headerEn := fmt.Sprintf("%s\nPayment Receipt", companyName)
 	headerUr := fmt.Sprintf("%s\nادائیگی رسید", companyNameUr)
@@ -78,13 +86,13 @@ func (s *ReceiptService) GenerateAndPrintReceipt(ctx context.Context, paymentID 
 	}
 	bodyEn += fmt.Sprintf("Installment No: %d\n", payment.InstallmentNo)
 	bodyEn += fmt.Sprintf("Amount Paid: Rs. %.2f\n", payment.Amount)
-	
+
 	// Show fine if any
 	if payment.FinePaid > 0 {
 		bodyEn += fmt.Sprintf("Fine Paid: Rs. %.2f\n", payment.FinePaid)
 		bodyEn += fmt.Sprintf("Amount Without Fine: Rs. %.2f\n", payment.AmountWithoutFine)
 	}
-	
+
 	bodyEn += fmt.Sprintf("Method: %s\n", payment.Method)
 	bodyEn += fmt.Sprintf("Date: %s\n", payment.TransactionDate.Format("02-Jan-2006 03:04 PM"))
 	bodyEn += fmt.Sprintf("Total Plan: Rs. %.2f\n", plan.TotalAmount)
@@ -102,12 +110,12 @@ func (s *ReceiptService) GenerateAndPrintReceipt(ctx context.Context, paymentID 
 	}
 	bodyUr += fmt.Sprintf("قسط نمبر: %d\n", payment.InstallmentNo)
 	bodyUr += fmt.Sprintf("ادا کردہ رقم: %.2f روپے\n", payment.Amount)
-	
+
 	if payment.FinePaid > 0 {
 		bodyUr += fmt.Sprintf("جرمانہ: %.2f روپے\n", payment.FinePaid)
 		bodyUr += fmt.Sprintf("بغیر جرمانہ رقم: %.2f روپے\n", payment.AmountWithoutFine)
 	}
-	
+
 	bodyUr += fmt.Sprintf("طریقہ: %s\n", payment.Method)
 	bodyUr += fmt.Sprintf("تاریخ: %s\n", payment.TransactionDate.Format("02-Jan-2006 03:04 PM"))
 	bodyUr += fmt.Sprintf("کل پلان: %.2f روپے\n", plan.TotalAmount)

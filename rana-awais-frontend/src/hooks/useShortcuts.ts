@@ -1,53 +1,82 @@
 import { useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 
 interface ShortcutConfig {
   key: string;
   path: string;
-  label: string;
-  labelUrdu: string;
+  labelKey: string;
+  labelUrduKey: string;
   icon?: string;
 }
 
-const SHORTCUTS: ShortcutConfig[] = [
-  { key: 'd', path: '/', label: 'Dashboard', labelUrdu: 'ڈیش بورڈ', icon: '📊' },
-  { key: 'c', path: '/customers', label: 'Customers', labelUrdu: 'گاہک', icon: '👤' },
-  { key: 'p', path: '/products', label: 'Products', labelUrdu: 'پروڈکٹس', icon: '📦' },
-  { key: 'i', path: '/installments', label: 'Installments', labelUrdu: 'اقساط', icon: '📋' },
-  { key: 'n', path: '/installments/new', label: 'New Installment', labelUrdu: 'نیا قسط', icon: '➕' },
-  { key: 'g', path: '/guarantors', label: 'Guarantors', labelUrdu: 'ضامن', icon: '🤝' },
-  { key: 'v', path: '/inventory', label: 'Inventory', labelUrdu: 'انوینٹری', icon: '📦' },
-  { key: 'r', path: '/reports/profit-loss', label: 'Profit & Loss', labelUrdu: 'منافع و نقصان', icon: '📈' },
-  { key: 'm', path: '/reminders', label: 'Reminders', labelUrdu: 'یاد دہانیاں', icon: '🔔' },
-  { key: 'l', path: '/audit-logs', label: 'Audit Logs', labelUrdu: 'آڈٹ لاگز', icon: '📜' },
-  { key: 's', path: '/settings', label: 'Settings', labelUrdu: 'ترتیبات', icon: '⚙️' },
+// ✅ Only keys and paths — labels from translations
+const SHORTCUTS_BASE: Omit<ShortcutConfig, 'labelKey' | 'labelUrduKey'>[] = [
+  { key: 'd', path: '/', icon: '📊' },
+  { key: 'c', path: '/customers', icon: '👤' },
+  { key: 'p', path: '/products', icon: '📦' },
+  { key: 'i', path: '/installments', icon: '📋' },
+  { key: 'n', path: '/installments/new', icon: '➕' },
+  { key: 'g', path: '/guarantors', icon: '🤝' },
+  { key: 'v', path: '/inventory', icon: '📦' },
+  { key: 'r', path: '/reports/profit-loss', icon: '📈' },
+  { key: 'm', path: '/reminders', icon: '🔔' },
+  { key: 'l', path: '/audit-logs', icon: '📜' },
+  { key: 's', path: '/settings', icon: '⚙️' },
 ];
 
+// ✅ Labels from translation keys
+const SHORTCUT_LABELS: Record<string, { en: string; ur: string }> = {
+  '/': { en: 'dashboard', ur: 'ڈیش بورڈ' },
+  '/customers': { en: 'customers', ur: 'گاہک' },
+  '/products': { en: 'products', ur: 'پروڈکٹس' },
+  '/installments': { en: 'installments', ur: 'اقساط' },
+  '/installments/new': { en: 'new_installment', ur: 'نیا قسط' },
+  '/guarantors': { en: 'guarantors', ur: 'ضامن' },
+  '/inventory': { en: 'inventory', ur: 'انوینٹری' },
+  '/reports/profit-loss': { en: 'profit_loss', ur: 'منافع و نقصان' },
+  '/reminders': { en: 'reminders', ur: 'یاد دہانیاں' },
+  '/audit-logs': { en: 'audit_logs', ur: 'آڈٹ لاگز' },
+  '/settings': { en: 'settings', ur: 'ترتیبات' },
+};
+
 export const useShortcuts = () => {
+  const { t, i18n } = useTranslation();
+  const isUrdu = i18n.language === 'ur';
   const navigate = useNavigate();
   const location = useLocation();
 
-  // ✅ Get current path name for display
+  // ✅ Build dynamic shortcuts with translated labels
+  const SHORTCUTS: ShortcutConfig[] = SHORTCUTS_BASE.map(s => ({
+    ...s,
+    labelKey: SHORTCUT_LABELS[s.path]?.en || s.path,
+    labelUrduKey: SHORTCUT_LABELS[s.path]?.ur || s.path,
+  }));
+
+  // ✅ Get current page label from translation
   const getCurrentPageLabel = useCallback(() => {
     const current = SHORTCUTS.find(s => s.path === location.pathname);
-    return current?.label || 'Unknown';
-  }, [location.pathname]);
+    if (!current) return isUrdu ? 'نامعلوم' : 'Unknown';
+    return isUrdu ? current.labelUrduKey : current.labelKey;
+  }, [location.pathname, isUrdu]);
 
-  // ✅ Show shortcuts help
+  // ✅ Show shortcuts help — using translated labels
   const showShortcutsHelp = useCallback(() => {
     const shortcutsList = SHORTCUTS
-      .map(s => `Alt+${s.key.toUpperCase()} → ${s.label}`)
+      .map(s => {
+        const label = isUrdu ? s.labelUrduKey : s.labelKey;
+        return `Alt+${s.key.toUpperCase()} → ${label}`;
+      })
       .join('\n');
     toast.success(
-      `Keyboard Shortcuts:\n${shortcutsList}\n\nAlt+H → Show this help`,
+      `${isUrdu ? 'کی بورڈ شارٹ کٹس' : 'Keyboard Shortcuts'}:\n${shortcutsList}\n\nAlt+H → ${isUrdu ? 'یہ مدد دکھائیں' : 'Show this help'}`,
       { duration: 5000 }
     );
-  }, []);
+  }, [isUrdu]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      // Prevent shortcuts when typing in input fields
       const active = document.activeElement;
       if (active && (
         active.tagName === 'INPUT' ||
@@ -59,7 +88,6 @@ export const useShortcuts = () => {
         return;
       }
 
-      // ✅ Show help on Alt+H
       if (e.altKey && e.key.toLowerCase() === 'h') {
         e.preventDefault();
         showShortcutsHelp();
@@ -71,27 +99,22 @@ export const useShortcuts = () => {
       e.preventDefault();
       const key = e.key.toLowerCase();
 
-      // ✅ Check if key matches any shortcut
       const shortcut = SHORTCUTS.find(s => s.key === key);
       if (shortcut) {
-        // ✅ Prevent navigation to current page
+        const currentLabel = isUrdu ? shortcut.labelUrduKey : shortcut.labelKey;
         if (shortcut.path === location.pathname) {
-          toast(`Already on ${shortcut.label}`);
+          toast(`${isUrdu ? 'پہلے سے' : 'Already on'} ${currentLabel}`);
           return;
         }
         navigate(shortcut.path);
         return;
       }
-
-      // ✅ Unknown key - don't prevent default
-      // (allows normal browser shortcuts like Alt+Tab)
     };
 
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [navigate, location.pathname, showShortcutsHelp]);
+  }, [navigate, location.pathname, showShortcutsHelp, isUrdu, SHORTCUTS]);
 
-  // ✅ Return helper functions
   return {
     shortcuts: SHORTCUTS,
     getCurrentPageLabel,

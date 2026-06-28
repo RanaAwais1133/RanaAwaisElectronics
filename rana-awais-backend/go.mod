@@ -1,4 +1,4 @@
-module github.com/your-org/rana-awais-backend
+module github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend
 
 go 1.25.0
 

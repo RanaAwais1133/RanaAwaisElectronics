@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -35,36 +36,35 @@ func (h *ReportHandler) DailyReport(w http.ResponseWriter, r *http.Request) {
 	endOfDay := startOfDay.Add(24 * time.Hour)
 
 	db := config.DB
-	paymentsColl := db.Collection("payments")
-	installmentsColl := db.Collection("installments")
+	paymentsColl := db.Collection(config.ColPayments)
 
 	// Get all payments for this date
 	paymentsPipeline := mongo.Pipeline{
-		bson.D{{Key: "$match", Value: bson.M{
+		{{Key: "$match", Value: bson.M{
 			"transaction_date": bson.M{"$gte": startOfDay, "$lt": endOfDay},
 		}}},
-		bson.D{{Key: "$lookup", Value: bson.M{
-			"from":         "installments",
+		{{Key: "$lookup", Value: bson.M{
+			"from":         config.ColInstallments,
 			"localField":   "installment_plan_id",
 			"foreignField": "_id",
 			"as":           "plan",
 		}}},
-		bson.D{{Key: "$unwind", Value: bson.M{"path": "$plan", "preserveNullAndEmptyArrays": true}}},
-		bson.D{{Key: "$lookup", Value: bson.M{
-			"from":         "customers",
+		{{Key: "$unwind", Value: bson.M{"path": "$plan", "preserveNullAndEmptyArrays": true}}},
+		{{Key: "$lookup", Value: bson.M{
+			"from":         config.ColCustomers,
 			"localField":   "plan.customer_id",
 			"foreignField": "_id",
 			"as":           "customer",
 		}}},
-		bson.D{{Key: "$unwind", Value: bson.M{"path": "$customer", "preserveNullAndEmptyArrays": true}}},
-		bson.D{{Key: "$lookup", Value: bson.M{
-			"from":         "products",
+		{{Key: "$unwind", Value: bson.M{"path": "$customer", "preserveNullAndEmptyArrays": true}}},
+		{{Key: "$lookup", Value: bson.M{
+			"from":         config.ColProducts,
 			"localField":   "plan.product_id",
 			"foreignField": "_id",
 			"as":           "product",
 		}}},
-		bson.D{{Key: "$unwind", Value: bson.M{"path": "$product", "preserveNullAndEmptyArrays": true}}},
-		bson.D{{Key: "$project", Value: bson.M{
+		{{Key: "$unwind", Value: bson.M{"path": "$product", "preserveNullAndEmptyArrays": true}}},
+		{{Key: "$project", Value: bson.M{
 			"id":                bson.M{"$toString": "$_id"},
 			"customer_name":     "$customer.name",
 			"customer_urdu":     "$customer.name_urdu",
@@ -72,25 +72,27 @@ func (h *ReportHandler) DailyReport(w http.ResponseWriter, r *http.Request) {
 			"phone":             "$customer.phone",
 			"product_name":      "$product.name",
 			"product_name_urdu": "$product.name_urdu",
-			"amount":            "$amount_paid",
-			"type":              "$payment_type",
+			"amount":            "$amount",
+			"fine_paid":         "$fine_paid",
+			"method":            "$method",
 			"status":            "paid",
 			"date":              bson.M{"$dateToString": bson.M{"format": "%Y-%m-%d", "date": "$transaction_date"}},
 			"installment_no":    "$installment_no",
+			"collected_by":      "$collected_by",
 		}}},
-		bson.D{{Key: "$sort", Value: bson.M{"date": -1}}},
+		{{Key: "$sort", Value: bson.M{"date": -1}}},
 	}
 
 	cursor, err := paymentsColl.Aggregate(r.Context(), paymentsPipeline)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "Failed to fetch daily report", "ناکام")
+		respondError(w, r, http.StatusInternalServerError, "Failed to fetch daily report", "روزانہ رپورٹ نہیں آئی")
 		return
 	}
 	defer cursor.Close(r.Context())
 
 	var transactions []bson.M
 	if err = cursor.All(r.Context(), &transactions); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "Failed to parse results", "ناکام")
+		respondError(w, r, http.StatusInternalServerError, "Failed to parse results", "نتائج پڑھنے میں ناکامی")
 		return
 	}
 	if transactions == nil {
@@ -98,7 +100,7 @@ func (h *ReportHandler) DailyReport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Calculate totals
-	var totalCollected, totalPending float64
+	var totalCollected float64
 	var totalInstallments, totalCustomers int
 	customerSet := make(map[string]bool)
 
@@ -114,59 +116,10 @@ func (h *ReportHandler) DailyReport(w http.ResponseWriter, r *http.Request) {
 	totalCustomers = len(customerSet)
 
 	// Get pending installments for this date
-	pendingPipeline := mongo.Pipeline{
-		bson.D{{Key: "$match", Value: bson.M{"status": "active"}}},
-		bson.D{{Key: "$unwind", Value: "$installments"}},
-		bson.D{{Key: "$match", Value: bson.M{
-			"installments.paid":     false,
-			"installments.due_date": bson.M{"$gte": startOfDay, "$lt": endOfDay},
-		}}},
-		bson.D{{Key: "$group", Value: bson.M{
-			"_id": nil,
-			"total_pending": bson.M{"$sum": bson.M{
-				"$subtract": bson.A{
-					bson.M{"$add": bson.A{"$installments.amount", "$installments.fine"}},
-					"$installments.partial_paid",
-				},
-			}},
-			"count": bson.M{"$sum": 1},
-		}}},
-	}
+	totalPending := h.getPendingTotal(r.Context(), startOfDay, endOfDay)
 
-	pendingCursor, err := installmentsColl.Aggregate(r.Context(), pendingPipeline)
-	if err == nil {
-		defer pendingCursor.Close(r.Context())
-		var pendingResults []struct {
-			TotalPending float64 `bson:"total_pending"`
-			Count        int     `bson:"count"`
-		}
-		if pendingCursor.All(r.Context(), &pendingResults) == nil && len(pendingResults) > 0 {
-			totalPending = pendingResults[0].TotalPending
-		}
-	}
-
-	// Get total sales (sum of all installment plan totals created today)
-	salesPipeline := mongo.Pipeline{
-		bson.D{{Key: "$match", Value: bson.M{
-			"created_at": bson.M{"$gte": startOfDay, "$lt": endOfDay},
-		}}},
-		bson.D{{Key: "$group", Value: bson.M{
-			"_id":   nil,
-			"total": bson.M{"$sum": "$total_amount"},
-		}}},
-	}
-
-	salesCursor, err := installmentsColl.Aggregate(r.Context(), salesPipeline)
-	totalSales := totalCollected
-	if err == nil {
-		defer salesCursor.Close(r.Context())
-		var salesResults []struct {
-			Total float64 `bson:"total"`
-		}
-		if salesCursor.All(r.Context(), &salesResults) == nil && len(salesResults) > 0 {
-			totalSales += salesResults[0].Total
-		}
-	}
+	// Get total sales
+	totalSales := h.getTotalSales(r.Context(), startOfDay, endOfDay, totalCollected)
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"date":              dateStr,
@@ -267,36 +220,34 @@ func (h *ReportHandler) DateRangeReport(w http.ResponseWriter, r *http.Request) 
 // generateDateRangeReport - shared logic for date range reports
 func (h *ReportHandler) generateDateRangeReport(w http.ResponseWriter, r *http.Request, start, end time.Time) {
 	db := config.DB
-	paymentsColl := db.Collection("payments")
-	installmentsColl := db.Collection("installments")
+	paymentsColl := db.Collection(config.ColPayments)
 
-	// Get all payments in date range
 	paymentsPipeline := mongo.Pipeline{
-		bson.D{{Key: "$match", Value: bson.M{
+		{{Key: "$match", Value: bson.M{
 			"transaction_date": bson.M{"$gte": start, "$lt": end},
 		}}},
-		bson.D{{Key: "$lookup", Value: bson.M{
-			"from":         "installments",
+		{{Key: "$lookup", Value: bson.M{
+			"from":         config.ColInstallments,
 			"localField":   "installment_plan_id",
 			"foreignField": "_id",
 			"as":           "plan",
 		}}},
-		bson.D{{Key: "$unwind", Value: bson.M{"path": "$plan", "preserveNullAndEmptyArrays": true}}},
-		bson.D{{Key: "$lookup", Value: bson.M{
-			"from":         "customers",
+		{{Key: "$unwind", Value: bson.M{"path": "$plan", "preserveNullAndEmptyArrays": true}}},
+		{{Key: "$lookup", Value: bson.M{
+			"from":         config.ColCustomers,
 			"localField":   "plan.customer_id",
 			"foreignField": "_id",
 			"as":           "customer",
 		}}},
-		bson.D{{Key: "$unwind", Value: bson.M{"path": "$customer", "preserveNullAndEmptyArrays": true}}},
-		bson.D{{Key: "$lookup", Value: bson.M{
-			"from":         "products",
+		{{Key: "$unwind", Value: bson.M{"path": "$customer", "preserveNullAndEmptyArrays": true}}},
+		{{Key: "$lookup", Value: bson.M{
+			"from":         config.ColProducts,
 			"localField":   "plan.product_id",
 			"foreignField": "_id",
 			"as":           "product",
 		}}},
-		bson.D{{Key: "$unwind", Value: bson.M{"path": "$product", "preserveNullAndEmptyArrays": true}}},
-		bson.D{{Key: "$project", Value: bson.M{
+		{{Key: "$unwind", Value: bson.M{"path": "$product", "preserveNullAndEmptyArrays": true}}},
+		{{Key: "$project", Value: bson.M{
 			"id":                bson.M{"$toString": "$_id"},
 			"customer_name":     "$customer.name",
 			"customer_urdu":     "$customer.name_urdu",
@@ -304,32 +255,33 @@ func (h *ReportHandler) generateDateRangeReport(w http.ResponseWriter, r *http.R
 			"phone":             "$customer.phone",
 			"product_name":      "$product.name",
 			"product_name_urdu": "$product.name_urdu",
-			"amount":            "$amount_paid",
-			"type":              "$payment_type",
+			"amount":            "$amount",
+			"fine_paid":         "$fine_paid",
+			"method":            "$method",
 			"status":            "paid",
 			"date":              bson.M{"$dateToString": bson.M{"format": "%Y-%m-%d", "date": "$transaction_date"}},
 			"installment_no":    "$installment_no",
+			"collected_by":      "$collected_by",
 		}}},
-		bson.D{{Key: "$sort", Value: bson.M{"date": -1}}},
+		{{Key: "$sort", Value: bson.M{"date": -1}}},
 	}
 
 	cursor, err := paymentsColl.Aggregate(r.Context(), paymentsPipeline)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "Failed to fetch report", "ناکام")
+		respondError(w, r, http.StatusInternalServerError, "Failed to fetch report", "رپورٹ نہیں آئی")
 		return
 	}
 	defer cursor.Close(r.Context())
 
 	var transactions []bson.M
 	if err = cursor.All(r.Context(), &transactions); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "Failed to parse results", "ناکام")
+		respondError(w, r, http.StatusInternalServerError, "Failed to parse results", "نتائج پڑھنے میں ناکامی")
 		return
 	}
 	if transactions == nil {
 		transactions = []bson.M{}
 	}
 
-	// Calculate totals
 	var totalCollected float64
 	var totalInstallments, totalCustomers int
 	customerSet := make(map[string]bool)
@@ -345,64 +297,11 @@ func (h *ReportHandler) generateDateRangeReport(w http.ResponseWriter, r *http.R
 	}
 	totalCustomers = len(customerSet)
 
-	// Get pending installments in date range
-	pendingPipeline := mongo.Pipeline{
-		bson.D{{Key: "$match", Value: bson.M{"status": "active"}}},
-		bson.D{{Key: "$unwind", Value: "$installments"}},
-		bson.D{{Key: "$match", Value: bson.M{
-			"installments.paid":     false,
-			"installments.due_date": bson.M{"$gte": start, "$lt": end},
-		}}},
-		bson.D{{Key: "$group", Value: bson.M{
-			"_id": nil,
-			"total_pending": bson.M{"$sum": bson.M{
-				"$subtract": bson.A{
-					bson.M{"$add": bson.A{"$installments.amount", "$installments.fine"}},
-					"$installments.partial_paid",
-				},
-			}},
-			"count": bson.M{"$sum": 1},
-		}}},
-	}
-
-	pendingCursor, err := installmentsColl.Aggregate(r.Context(), pendingPipeline)
-	totalPending := 0.0
-	if err == nil {
-		defer pendingCursor.Close(r.Context())
-		var pendingResults []struct {
-			TotalPending float64 `bson:"total_pending"`
-			Count        int     `bson:"count"`
-		}
-		if pendingCursor.All(r.Context(), &pendingResults) == nil && len(pendingResults) > 0 {
-			totalPending = pendingResults[0].TotalPending
-		}
-	}
-
-	// Get total sales in date range
-	salesPipeline := mongo.Pipeline{
-		bson.D{{Key: "$match", Value: bson.M{
-			"created_at": bson.M{"$gte": start, "$lt": end},
-		}}},
-		bson.D{{Key: "$group", Value: bson.M{
-			"_id":   nil,
-			"total": bson.M{"$sum": "$total_amount"},
-		}}},
-	}
-
-	salesCursor, err := installmentsColl.Aggregate(r.Context(), salesPipeline)
-	totalSales := totalCollected
-	if err == nil {
-		defer salesCursor.Close(r.Context())
-		var salesResults []struct {
-			Total float64 `bson:"total"`
-		}
-		if salesCursor.All(r.Context(), &salesResults) == nil && len(salesResults) > 0 {
-			totalSales += salesResults[0].Total
-		}
-	}
+	totalPending := h.getPendingTotal(r.Context(), start, end)
+	totalSales := h.getTotalSales(r.Context(), start, end, totalCollected)
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"date":              start.Format("2006-01-02"),
+		"startDate":         start.Format("2006-01-02"),
 		"endDate":           end.Add(-24 * time.Hour).Format("2006-01-02"),
 		"totalSales":        totalSales,
 		"totalInstallments": totalInstallments,
@@ -416,36 +315,36 @@ func (h *ReportHandler) generateDateRangeReport(w http.ResponseWriter, r *http.R
 // CustomerReport - returns all customers with their installment details
 func (h *ReportHandler) CustomerReport(w http.ResponseWriter, r *http.Request) {
 	db := config.DB
-	customersColl := db.Collection("customers")
-	installmentsColl := db.Collection("installments")
+	customersColl := db.Collection(config.ColCustomers)
+	installmentsColl := db.Collection(config.ColInstallments)
 
 	cursor, err := customersColl.Find(r.Context(), bson.M{}, options.Find().SetSort(bson.M{"name": 1}))
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "Failed to fetch customers", "ناکام")
+		respondError(w, r, http.StatusInternalServerError, "Failed to fetch customers", "گاہک نہیں لائے جا سکے")
 		return
 	}
 	defer cursor.Close(r.Context())
 
 	var customers []bson.M
 	if err = cursor.All(r.Context(), &customers); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "Failed to parse customers", "ناکام")
+		respondError(w, r, http.StatusInternalServerError, "Failed to parse customers", "گاہک پڑھنے میں ناکامی")
 		return
 	}
 
 	type CustomerReportItem struct {
 		ID                string  `json:"id"`
 		Name              string  `json:"name"`
-		NameUrdu          string  `json:"name_urdu"`
-		FatherName        string  `json:"father_name"`
+		NameUrdu          string  `json:"nameUrdu"`
+		FatherName        string  `json:"fatherName"`
 		Phone             string  `json:"phone"`
 		CNIC              string  `json:"cnic"`
 		Address           string  `json:"address"`
-		TotalPlans        int     `json:"total_plans"`
-		TotalAmount       float64 `json:"total_amount"`
-		TotalPaid         float64 `json:"total_paid"`
-		TotalPending      float64 `json:"total_pending"`
-		TotalInstallments int     `json:"total_installments"`
-		PaidInstallments  int     `json:"paid_installments"`
+		TotalPlans        int     `json:"totalPlans"`
+		TotalAmount       float64 `json:"totalAmount"`
+		TotalPaid         float64 `json:"totalPaid"`
+		TotalPending      float64 `json:"totalPending"`
+		TotalInstallments int     `json:"totalInstallments"`
+		PaidInstallments  int     `json:"paidInstallments"`
 		Status            string  `json:"status"`
 	}
 
@@ -456,7 +355,6 @@ func (h *ReportHandler) CustomerReport(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		// Get all plans for this customer
 		planCursor, err := installmentsColl.Find(r.Context(), bson.M{"customer_id": custID})
 		if err != nil {
 			continue
@@ -486,6 +384,9 @@ func (h *ReportHandler) CustomerReport(w http.ResponseWriter, r *http.Request) {
 						} else {
 							if amt, ok := instMap["amount"].(float64); ok {
 								totalPending += amt
+							}
+							if fine, ok := instMap["fine"].(float64); ok {
+								totalPending += fine
 							}
 						}
 					}
@@ -528,4 +429,72 @@ func (h *ReportHandler) CustomerReport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, http.StatusOK, result)
+}
+
+// ✅ Helper methods
+
+func (h *ReportHandler) getPendingTotal(ctx context.Context, start, end time.Time) float64 {
+	db := config.DB
+	installmentsColl := db.Collection(config.ColInstallments)
+
+	pendingPipeline := mongo.Pipeline{
+		{{Key: "$match", Value: bson.M{"status": "active"}}},
+		{{Key: "$unwind", Value: "$installments"}},
+		{{Key: "$match", Value: bson.M{
+			"installments.paid":     false,
+			"installments.due_date": bson.M{"$gte": start, "$lt": end},
+		}}},
+		{{Key: "$group", Value: bson.M{
+			"_id": nil,
+			"total_pending": bson.M{"$sum": bson.M{
+				"$subtract": bson.A{
+					bson.M{"$add": bson.A{"$installments.amount", "$installments.fine"}},
+					"$installments.partial_paid",
+				},
+			}},
+		}}},
+	}
+
+	pendingCursor, err := installmentsColl.Aggregate(ctx, pendingPipeline)
+	if err != nil {
+		return 0
+	}
+	defer pendingCursor.Close(ctx)
+
+	var pendingResults []struct {
+		TotalPending float64 `bson:"total_pending"`
+	}
+	if pendingCursor.All(ctx, &pendingResults) == nil && len(pendingResults) > 0 {
+		return pendingResults[0].TotalPending
+	}
+	return 0
+}
+
+func (h *ReportHandler) getTotalSales(ctx context.Context, start, end time.Time, existingTotal float64) float64 {
+	db := config.DB
+	installmentsColl := db.Collection(config.ColInstallments)
+
+	salesPipeline := mongo.Pipeline{
+		{{Key: "$match", Value: bson.M{
+			"created_at": bson.M{"$gte": start, "$lt": end},
+		}}},
+		{{Key: "$group", Value: bson.M{
+			"_id":   nil,
+			"total": bson.M{"$sum": "$total_amount"},
+		}}},
+	}
+
+	salesCursor, err := installmentsColl.Aggregate(ctx, salesPipeline)
+	if err != nil {
+		return existingTotal
+	}
+	defer salesCursor.Close(ctx)
+
+	var salesResults []struct {
+		Total float64 `bson:"total"`
+	}
+	if salesCursor.All(ctx, &salesResults) == nil && len(salesResults) > 0 {
+		return existingTotal + salesResults[0].Total
+	}
+	return existingTotal
 }

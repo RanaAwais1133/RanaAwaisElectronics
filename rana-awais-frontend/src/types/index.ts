@@ -72,6 +72,7 @@ export interface InstallmentPlan {
   id?: string;
   customerId: string;
   productId: string;
+  inventoryItemId?: string;
   totalAmount: number;
   downPayment: number;
   remainingAmount: number;
@@ -84,6 +85,7 @@ export interface InstallmentPlan {
   status?: 'active' | 'completed' | 'defaulted' | 'overdue';
   createdBy?: string;
   schedule: InstallmentDetail[];
+  // Product details
   serialNumber?: string;
   imei?: string;
   engineNo?: string;
@@ -91,6 +93,29 @@ export interface InstallmentPlan {
   model?: string;
   color?: string;
   company?: string;
+  // Additional plan fields
+  advanceAmount?: number;
+  advanceReceived?: number;
+  processFee?: number;
+  discount?: number;
+  salaryIncome?: number;
+  defaulter?: string;
+  pto?: string;
+  vpnStatus?: string;
+  employeeStatus?: string;
+  dbmRemarks?: string;
+  crcRemarks?: string;
+  processAt?: string;
+  doOfficer?: string;
+  markOff?: string;
+  debtMng?: string;
+  secondMng?: string;
+  inspOff?: string;
+  srm?: string;
+  mobilePhone?: string;
+  crc?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface InstallmentDetail {
@@ -101,6 +126,10 @@ export interface InstallmentDetail {
   partialPaid?: number;
   remaining?: number;
   fine?: number;
+  finePerDay?: number;
+  daysLate?: number;
+  fineApplied?: number;
+  totalPayable?: number;
   paidDate?: string;
   collectedBy?: string;
   collectedById?: string;
@@ -112,11 +141,17 @@ export interface Payment {
   planId: string;
   installmentNo: number;
   amount: number;
+  amountWithoutFine?: number;
+  finePaid?: number;
   method: string;
+  receiptNumber?: string;
   transactionDate: string;
+  paymentDate?: string;
   collectedBy?: string;
   collectedById?: string;
+  recoveryOfficer?: string;
   remarks?: string;
+  isFullPayment?: boolean;
 }
 
 export interface InventoryItem {
@@ -134,4 +169,57 @@ export interface InventoryItem {
   purchasePrice: number;
   sellingPrice?: number;
   soldDate?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface AccountingEntry {
+  id: string;
+  type: 'revenue' | 'expense' | 'profit' | 'fine';
+  basis: 'sale' | 'payment' | 'fine' | 'expense';
+  amount: number;
+  description?: string;
+  relatedPlanId?: string;
+  relatedPaymentId?: string;
+  fineAmount?: number;
+  date: string;
+  createdAt?: string;
+}
+
+export interface Notification {
+  id: string;
+  customerId: string;
+  installmentPlanId?: string;
+  channel: 'sms' | 'whatsapp' | 'email';
+  messageEn: string;
+  messageUr: string;
+  sentAt?: string;
+  status: 'sent' | 'failed' | 'pending';
+  fineAmount?: number;
+  createdAt?: string;
+}
+
+export interface AuditLog {
+  id: string;
+  action: string;
+  entity: string;
+  entityId?: string;
+  userId?: string;
+  timestamp: string;
+  details?: string;
+}
+
+export interface Receipt {
+  id: string;
+  paymentId: string;
+  planId?: string;
+  receiptNumber: string;
+  headerEn: string;
+  headerUr: string;
+  bodyEn: string;
+  bodyUr: string;
+  totalAmount: number;
+  fineAmount?: number;
+  printedAt?: string;
+  createdAt?: string;
 }

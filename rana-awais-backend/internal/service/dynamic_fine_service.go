@@ -9,6 +9,7 @@ import (
 
 type DynamicFineService struct{}
 
+
 func NewDynamicFineService() *DynamicFineService {
 	return &DynamicFineService{}
 }
