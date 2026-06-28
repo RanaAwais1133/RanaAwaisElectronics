@@ -63,6 +63,9 @@ func SetupRouter(
 	admin.HandleFunc("/users", userH.List).Methods("GET")
 	admin.HandleFunc("/users", userH.Create).Methods("POST")
 
+	// Password change (any authenticated user)
+	protected.HandleFunc("/auth/change-password", userH.ChangePassword).Methods("POST")
+
 	// Audit logs
 	protected.HandleFunc("/audit-logs", func(w http.ResponseWriter, r *http.Request) {
 		db := config.DB
@@ -174,11 +177,10 @@ func SetupRouter(
 	protected.HandleFunc("/installments/advance", installmentH.AdvancePayment).Methods("POST")
 	protected.HandleFunc("/installments/customer", installmentH.ListByCustomer).Methods("GET")
 	protected.HandleFunc("/installments/reschedule", installmentH.Reschedule).Methods("POST")
-	protected.HandleFunc("/installments/{id}", installmentH.GetByID).Methods("GET")
-	protected.HandleFunc("/installments/{id}", installmentH.Delete).Methods("DELETE")
 
-	// Upcoming installments
+	// Upcoming installments (MUST be before /installments/{id} to avoid route conflict)
 	protected.HandleFunc("/installments/upcoming", func(w http.ResponseWriter, r *http.Request) {
+
 		daysStr := r.URL.Query().Get("days")
 		days, err := strconv.Atoi(daysStr)
 		if err != nil || days <= 0 {
@@ -213,7 +215,8 @@ func SetupRouter(
 		installmentsColl := db.Collection(config.ColInstallments)
 
 		pipeline := mongo.Pipeline{
-			{{Key: "$match", Value: bson.M{"status": "active"}}},
+			{{Key: "$match", Value: bson.M{"status": bson.M{"$in": bson.A{"active", "Open"}}}}},
+
 			{{Key: "$unwind", Value: "$installments"}},
 			{{Key: "$match", Value: bson.M{
 				"installments.paid": false,
@@ -276,7 +279,12 @@ func SetupRouter(
 		respondJSON(w, http.StatusOK, result)
 	}).Methods("GET")
 
+	// Installment by ID and Delete (must be after /installments/upcoming to avoid route conflict)
+	protected.HandleFunc("/installments/{id}", installmentH.GetByID).Methods("GET")
+	protected.HandleFunc("/installments/{id}", installmentH.Delete).Methods("DELETE")
+
 	// Detailed report
+
 	protected.HandleFunc("/installments/detailed-report", func(w http.ResponseWriter, r *http.Request) {
 		daysStr := r.URL.Query().Get("days")
 		days, err := strconv.Atoi(daysStr)

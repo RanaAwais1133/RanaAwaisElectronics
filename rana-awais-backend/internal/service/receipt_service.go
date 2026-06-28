@@ -89,9 +89,19 @@ func (s *ReceiptService) GenerateAndPrintReceipt(ctx context.Context, paymentID 
 
 	// Show fine if any
 	if payment.FinePaid > 0 {
-		bodyEn += fmt.Sprintf("Fine Paid: Rs. %.2f\n", payment.FinePaid)
+		// Check if plan has "both" fine type for breakdown
+		if plan.FineType == "both" && plan.FixedFineAmount > 0 && plan.FinePerDay > 0 {
+			bodyEn += fmt.Sprintf("Fixed Fine: Rs. %.2f\n", plan.FixedFineAmount)
+			bodyEn += fmt.Sprintf("Per Day Fine: Rs. %.2f\n", payment.FinePaid-plan.FixedFineAmount)
+			bodyEn += fmt.Sprintf("Total Fine Paid: Rs. %.2f\n", payment.FinePaid)
+		} else if plan.FineType == "fixed" {
+			bodyEn += fmt.Sprintf("Fixed Fine: Rs. %.2f\n", payment.FinePaid)
+		} else {
+			bodyEn += fmt.Sprintf("Fine Paid: Rs. %.2f\n", payment.FinePaid)
+		}
 		bodyEn += fmt.Sprintf("Amount Without Fine: Rs. %.2f\n", payment.AmountWithoutFine)
 	}
+
 
 	bodyEn += fmt.Sprintf("Method: %s\n", payment.Method)
 	bodyEn += fmt.Sprintf("Date: %s\n", payment.TransactionDate.Format("02-Jan-2006 03:04 PM"))

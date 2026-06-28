@@ -11,7 +11,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gorilla/handlers"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/config"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/handler"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/middleware"
@@ -94,19 +93,9 @@ func main() {
 	})
 
 	// ═══════════════════════════════════════
-	// 🌐 CORS
+	// 🌐 CORS - Use custom middleware for multi-origin support
 	// ═══════════════════════════════════════
-	allowedOrigins := []string{cfg.FrontendURL}
-	if cfg.Environment == "development" {
-		allowedOrigins = append(allowedOrigins, "http://localhost:3000", "http://localhost:3001")
-	}
-
-	corsObj := handlers.CORS(
-		handlers.AllowedOrigins(allowedOrigins),
-		handlers.AllowedMethods([]string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}),
-		handlers.AllowedHeaders([]string{"Content-Type", "Authorization", "Accept-Language"}),
-		handlers.AllowCredentials(),
-	)
+	corsMiddleware := middleware.CORSMiddleware(cfg)
 
 	// ═══════════════════════════════════════
 	// 📅 REMINDER SCHEDULER
@@ -120,7 +109,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:         addr,
-		Handler:      corsObj(r),
+		Handler:      corsMiddleware(r),
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,

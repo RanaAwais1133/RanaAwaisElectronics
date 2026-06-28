@@ -62,18 +62,37 @@ func (s *UserService) Count(ctx context.Context) (int64, error) {
     return s.repo.Count(ctx)
 }
 
-// ✅ NEW: Update user password
+// ✅ NEW: Change user password (verify old password first)
+func (s *UserService) ChangePassword(ctx context.Context, id primitive.ObjectID, oldPassword, newPassword string) error {
+	user, err := s.repo.GetByID(ctx, id)
+	if err != nil || user == nil {
+		return errors.New("user not found")
+	}
+	// Verify old password
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(oldPassword)); err != nil {
+		return errors.New("old password is incorrect")
+	}
+	// Hash new password
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	user.PasswordHash = string(hash)
+	return s.repo.Update(ctx, id, user)
+}
+
+// ✅ NEW: Update user password (admin override, no old password check)
 func (s *UserService) UpdatePassword(ctx context.Context, id primitive.ObjectID, newPassword string) error {
-    user, err := s.repo.GetByID(ctx, id)
-    if err != nil || user == nil {
-        return errors.New("user not found")
-    }
-    hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
-    if err != nil {
-        return err
-    }
-    user.PasswordHash = string(hash)
-    return s.repo.Update(ctx, id, user)
+	user, err := s.repo.GetByID(ctx, id)
+	if err != nil || user == nil {
+		return errors.New("user not found")
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	user.PasswordHash = string(hash)
+	return s.repo.Update(ctx, id, user)
 }
 
 // ✅ NEW: Get users by role

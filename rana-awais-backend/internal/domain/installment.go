@@ -21,6 +21,8 @@ type InstallmentPlan struct {
 	EndDate              time.Time            `bson:"end_date" json:"endDate"`
 	GracePeriodDays      int                  `bson:"grace_period_days" json:"gracePeriodDays"`
 	FinePerDay           float64              `bson:"fine_per_day" json:"finePerDay"`
+	FineType             string               `bson:"fine_type" json:"fineType"`                         // "per_day" | "fixed" | "both" | "none"
+	FixedFineAmount      float64              `bson:"fixed_fine_amount" json:"fixedFineAmount"`           // One-time fixed fine
 	Status               string               `bson:"status" json:"status"` // "Open", "Completed", "Defaulted"
 	Installments         []InstallmentDetail  `bson:"installments" json:"installments"`
 

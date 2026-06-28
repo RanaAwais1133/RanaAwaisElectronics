@@ -701,25 +701,67 @@ func (s *InstallmentService) AdvancePayment(
 }
 
 // ============================================================
-// FINE CALCULATION
+// FINE CALCULATION - Dynamic (Option C)
+// Supports: "per_day", "fixed", "both", "none"
 // ============================================================
 func (s *InstallmentService) CalculateFine(plan *domain.InstallmentPlan, detail domain.InstallmentDetail, now time.Time) float64 {
 	if detail.Paid || now.Before(detail.DueDate) {
 		return 0
 	}
-	graceEnd := detail.DueDate.AddDate(0, 0, plan.GracePeriodDays)
-	if now.Before(graceEnd) {
+
+	// Determine fine type (default to "per_day" for backward compatibility)
+	fineType := plan.FineType
+	if fineType == "" {
+		fineType = "per_day"
+	}
+
+	switch fineType {
+	case "none":
 		return 0
+
+	case "fixed":
+		graceEnd := detail.DueDate.AddDate(0, 0, plan.GracePeriodDays)
+		if now.Before(graceEnd) {
+			return 0
+		}
+		// Fixed fine: one-time charge if overdue past grace period
+		fine := plan.FixedFineAmount
+		if fine > detail.Amount*2 {
+			fine = detail.Amount * 2
+		}
+		return math.Round(fine*100) / 100
+
+	case "both":
+		graceEnd := detail.DueDate.AddDate(0, 0, plan.GracePeriodDays)
+		if now.Before(graceEnd) {
+			return 0
+		}
+		daysOverdue := int(now.Sub(graceEnd).Hours() / 24)
+		if daysOverdue <= 0 {
+			return 0
+		}
+		// Both: fixed fine + per day fine
+		fine := plan.FixedFineAmount + (float64(daysOverdue) * plan.FinePerDay)
+		if fine > detail.Amount*2 {
+			fine = detail.Amount * 2
+		}
+		return math.Round(fine*100) / 100
+
+	default: // "per_day"
+		graceEnd := detail.DueDate.AddDate(0, 0, plan.GracePeriodDays)
+		if now.Before(graceEnd) {
+			return 0
+		}
+		daysOverdue := int(now.Sub(graceEnd).Hours() / 24)
+		if daysOverdue <= 0 {
+			return 0
+		}
+		fine := float64(daysOverdue) * plan.FinePerDay
+		if fine > detail.Amount*2 {
+			fine = detail.Amount * 2
+		}
+		return math.Round(fine*100) / 100
 	}
-	daysOverdue := int(now.Sub(graceEnd).Hours() / 24)
-	if daysOverdue <= 0 {
-		return 0
-	}
-	fine := float64(daysOverdue) * plan.FinePerDay
-	if fine > detail.Amount*2 {
-		fine = detail.Amount * 2
-	}
-	return math.Round(fine*100) / 100
 }
 
 // ============================================================

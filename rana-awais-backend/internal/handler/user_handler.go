@@ -8,6 +8,7 @@ import (
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/domain"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/service"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/pkg/audit"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type UserHandler struct {
@@ -54,6 +55,51 @@ func (h *UserHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	audit.Log(r.Context(), "CREATE", "user", user.ID.Hex(), "", getUserID(r))
 	respondJSON(w, http.StatusCreated, user)
+}
+
+type changePasswordRequest struct {
+	OldPassword string `json:"oldPassword"`
+	NewPassword string `json:"newPassword"`
+}
+
+func (h *UserHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
+	var req changePasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, r, http.StatusBadRequest, "Invalid body", "غلط مواد")
+		return
+	}
+	if req.OldPassword == "" || req.NewPassword == "" {
+		respondError(w, r, http.StatusBadRequest, "Old and new password required", "پرانا اور نیا پاس ورڈ ضروری ہے")
+		return
+	}
+	if len(req.NewPassword) < 4 {
+		respondError(w, r, http.StatusBadRequest, "New password must be at least 4 characters", "نیا پاس ورڈ کم از کم 4 حروف کا ہو")
+		return
+	}
+
+	userID := getUserID(r)
+	if userID == "" {
+		respondError(w, r, http.StatusUnauthorized, "Unauthorized", "غیر مجاز")
+		return
+	}
+
+	oid, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		respondError(w, r, http.StatusBadRequest, "Invalid user ID", "غلط صارف شناخت")
+		return
+	}
+
+	if err := h.svc.ChangePassword(r.Context(), oid, req.OldPassword, req.NewPassword); err != nil {
+		if err.Error() == "old password is incorrect" {
+			respondError(w, r, http.StatusBadRequest, "Old password is incorrect", "پرانا پاس ورڈ غلط ہے")
+			return
+		}
+		respondError(w, r, http.StatusInternalServerError, "Failed to change password", "پاس ورڈ تبدیل نہیں ہو سکا")
+		return
+	}
+
+	audit.Log(r.Context(), "UPDATE", "user", userID, "Password changed", getUserID(r))
+	respondJSON(w, http.StatusOK, map[string]string{"message": "Password changed successfully", "messageUr": "پاس ورڈ کامیابی سے تبدیل ہو گیا"})
 }
 
 func (h *UserHandler) List(w http.ResponseWriter, r *http.Request) {

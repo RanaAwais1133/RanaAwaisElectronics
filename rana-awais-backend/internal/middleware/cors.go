@@ -61,6 +61,12 @@ func CORSMiddlewareSimple(next http.Handler) http.Handler {
 func buildAllowedOrigins(cfg *config.Config) []string {
 	origins := []string{cfg.FrontendURL}
 
+	// Always add common production frontend URLs
+	origins = append(origins,
+		"https://rana-awais-electronics-orcin.vercel.app",
+		"https://rana-awais-electronics.vercel.app",
+	)
+
 	// Add localhost URLs for development
 	if cfg.Environment == "development" {
 		origins = append(origins,
