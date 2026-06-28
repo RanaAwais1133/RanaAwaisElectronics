@@ -1,5 +1,5 @@
 // Fixed BOM issue for CI build
-import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 import { useCustomerStore } from '../../store/useCustomerStore';
@@ -56,6 +56,24 @@ const InstallmentCreate: React.FC = () => {
 
   const [createdBy, setCreatedBy] = useState(currentUser?.displayName || currentUser?.username || '');
   const [savedPlanId, setSavedPlanId] = useState<string | null>(null);
+
+  // ✅ Refs for click-outside detection
+  const customerDropdownRef = useRef<HTMLDivElement>(null);
+  const productDropdownRef = useRef<HTMLDivElement>(null);
+
+  // ✅ Close dropdowns on outside click
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (customerDropdownRef.current && !customerDropdownRef.current.contains(event.target as Node)) {
+        setShowCustomerDropdown(false);
+      }
+      if (productDropdownRef.current && !productDropdownRef.current.contains(event.target as Node)) {
+        setShowProductDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   useEffect(() => {
     fetchCustomers();
@@ -268,7 +286,7 @@ const InstallmentCreate: React.FC = () => {
         <div>
           <label className="block text-sm font-semibold mb-1.5 text-gray-700 dark:text-gray-300">{t('customer')} *</label>
           <div className="flex flex-col sm:flex-row gap-2">
-            <div className="relative flex-1">
+            <div className="relative flex-1" ref={customerDropdownRef}>
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center">
                 <svg className="h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M11 19a8 8 0 1 1 0-16 8 8 0 0 1 0 16z" />
@@ -309,7 +327,7 @@ const InstallmentCreate: React.FC = () => {
         {/* ✅ Product */}
         <div>
           <label className="block text-sm font-semibold mb-1.5 text-gray-700 dark:text-gray-300">{t('product')} *</label>
-          <div className="relative">
+          <div className="relative" ref={productDropdownRef}>
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center">
               <svg className="h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M11 19a8 8 0 1 1 0-16 8 8 0 0 1 0 16z" />
