@@ -101,7 +101,7 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
           <th>#</th><th>${isUrdu ? 'نام' : 'Name'}</th><th>${isUrdu ? 'فون' : 'Phone'}</th>
           <th>${isUrdu ? 'رقم' : 'Amount'}</th><th>${isUrdu ? 'تاریخ' : 'Date'}</th>
         </tr></thead><tbody>${rows}</tbody></table>
-        <div class="footer">${isUrdu ? 'رانا عويس الیکٹرانکس' : 'Rana Awais Electronics'} — ${new Date().toLocaleDateString()}</div>
+        <div class="footer">${isUrdu ? 'رانا اویس آٹوز اور الیکٹرانکس' : 'Rana Awais Autos and Electronics'} — ${new Date().toLocaleDateString()}</div>
         <script>window.onload=function(){setTimeout(function(){window.print();window.close()},300)}</script>
       </body></html>
     `);

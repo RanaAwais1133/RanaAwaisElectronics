@@ -81,8 +81,8 @@ export const useLanguageStore = create<LanguageState>()((set, get) => ({
       const metaDesc = document.querySelector('meta[name="description"]');
       if (metaDesc) {
         const desc = lang === 'ur' 
-          ? 'رانا اویس الیکٹرانکس - قسطوں کا مکمل نظام' 
-          : 'Rana Awais Electronics - Complete Installment Management System';
+          ? 'رانا اویس آٹوز اور الیکٹرانکس - قسطوں کا مکمل نظام' 
+          : 'Rana Awais Autos and Electronics - Complete Installment Management System';
         metaDesc.setAttribute('content', desc);
       }
 
