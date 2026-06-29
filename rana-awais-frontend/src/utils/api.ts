@@ -460,6 +460,22 @@ export const getAuditLogs = (page = 1, limit = 50) =>
   api.get(`/audit-logs?page=${page}&limit=${limit}`).then(res => res.data);
 
 // ============================================================
+// ✅ DASHBOARD FULL DETAILS (Professional Tables)
+// ============================================================
+
+export const getTodayDueFull = () =>
+  api.get('/dashboard/today-due-full').then(res => {
+    const d = res.data;
+    return Array.isArray(d) ? d : (Array.isArray(d.data) ? d.data : []);
+  });
+
+export const getOverdueFull = () =>
+  api.get('/dashboard/overdue-full').then(res => {
+    const d = res.data;
+    return Array.isArray(d) ? d : (Array.isArray(d.data) ? d.data : []);
+  });
+
+// ============================================================
 // ✅ UTILITY FUNCTIONS
 // ============================================================
 

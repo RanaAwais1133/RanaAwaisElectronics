@@ -519,6 +519,185 @@ func (h *DashboardHandler) LowStockDetails(w http.ResponseWriter, r *http.Reques
 	respondJSON(w, http.StatusOK, results)
 }
 
+// TodayDueFull returns complete details of installments due today with full customer info
+func (h *DashboardHandler) TodayDueFull(w http.ResponseWriter, r *http.Request) {
+	db := config.DB
+	ctx := r.Context()
+
+	now := time.Now()
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	todayEnd := todayStart.Add(24 * time.Hour)
+
+	pipeline := mongo.Pipeline{
+		{{Key: "$match", Value: bson.M{"status": "active"}}},
+		{{Key: "$unwind", Value: "$installments"}},
+		{{Key: "$match", Value: bson.M{
+			"installments.paid":     false,
+			"installments.due_date": bson.M{"$gte": todayStart, "$lt": todayEnd},
+		}}},
+		{{Key: "$lookup", Value: bson.M{
+			"from":         config.ColCustomers,
+			"localField":   "customer_id",
+			"foreignField": "_id",
+			"as":           "customer",
+		}}},
+		{{Key: "$unwind", Value: bson.M{"path": "$customer", "preserveNullAndEmptyArrays": true}}},
+		{{Key: "$lookup", Value: bson.M{
+			"from":         config.ColProducts,
+			"localField":   "product_id",
+			"foreignField": "_id",
+			"as":           "product",
+		}}},
+		{{Key: "$unwind", Value: bson.M{"path": "$product", "preserveNullAndEmptyArrays": true}}},
+		{{Key: "$addFields", Value: bson.M{
+			"paid_count": bson.M{
+				"$size": bson.M{
+					"$filter": bson.M{
+						"input": "$installments",
+						"as":    "inst",
+						"cond":  bson.M{"$eq": bson.A{"$$inst.paid", true}},
+					},
+				},
+			},
+			"total_installments": "$num_installments",
+		}}},
+		{{Key: "$project", Value: bson.M{
+			"plan_id":            bson.M{"$toString": "$_id"},
+			"customer_id":        bson.M{"$toString": "$customer_id"},
+			"customer_name":      "$customer.name",
+			"customer_urdu":      "$customer.name_urdu",
+			"father_name":        "$customer.father_name",
+			"phone":              "$customer.phone",
+			"cnic":               "$customer.cnic",
+			"address":            "$customer.address",
+			"address_urdu":       "$customer.address_urdu",
+			"product_name":       "$product.name",
+			"product_name_urdu":  "$product.name_urdu",
+			"installment_no":     "$installments.installment_no",
+			"due_date":           bson.M{"$dateToString": bson.M{"format": "%Y-%m-%d", "date": "$installments.due_date"}},
+			"amount":             "$installments.amount",
+			"fine":               "$installments.fine",
+			"partial_paid":       "$installments.partial_paid",
+			"paid":               "$installments.paid",
+			"paid_date":          bson.M{"$dateToString": bson.M{"format": "%Y-%m-%d", "date": "$installments.paid_date"}},
+			"paid_count":         1,
+			"total_installments": 1,
+			"remaining":          bson.M{"$subtract": bson.A{"$num_installments", bson.M{"$size": bson.M{"$filter": bson.M{"input": "$installments", "as": "inst", "cond": bson.M{"$eq": bson.A{"$$inst.paid", true}}}}}}},
+			"total_amount":       "$total_amount",
+			"down_payment":       "$down_payment",
+			"remaining_amount":   "$remaining_amount",
+		}}},
+		{{Key: "$sort", Value: bson.M{"due_date": 1}}},
+	}
+
+	cursor, err := db.Collection(config.ColInstallments).Aggregate(ctx, pipeline)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "Failed to fetch today's due details", "ناکام")
+		return
+	}
+	defer cursor.Close(ctx)
+
+	var results []bson.M
+	if err = cursor.All(ctx, &results); err != nil {
+		respondError(w, r, http.StatusInternalServerError, "Failed to parse results", "ناکام")
+		return
+	}
+	if results == nil {
+		results = []bson.M{}
+	}
+
+	respondJSON(w, http.StatusOK, results)
+}
+
+// OverdueFull returns complete details of overdue installments with full customer info
+func (h *DashboardHandler) OverdueFull(w http.ResponseWriter, r *http.Request) {
+	db := config.DB
+	ctx := r.Context()
+
+	now := time.Now()
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+
+	pipeline := mongo.Pipeline{
+		{{Key: "$match", Value: bson.M{"status": "active"}}},
+		{{Key: "$unwind", Value: "$installments"}},
+		{{Key: "$match", Value: bson.M{
+			"installments.paid":     false,
+			"installments.due_date": bson.M{"$lt": todayStart},
+		}}},
+		{{Key: "$lookup", Value: bson.M{
+			"from":         config.ColCustomers,
+			"localField":   "customer_id",
+			"foreignField": "_id",
+			"as":           "customer",
+		}}},
+		{{Key: "$unwind", Value: bson.M{"path": "$customer", "preserveNullAndEmptyArrays": true}}},
+		{{Key: "$lookup", Value: bson.M{
+			"from":         config.ColProducts,
+			"localField":   "product_id",
+			"foreignField": "_id",
+			"as":           "product",
+		}}},
+		{{Key: "$unwind", Value: bson.M{"path": "$product", "preserveNullAndEmptyArrays": true}}},
+		{{Key: "$addFields", Value: bson.M{
+			"paid_count": bson.M{
+				"$size": bson.M{
+					"$filter": bson.M{
+						"input": "$installments",
+						"as":    "inst",
+						"cond":  bson.M{"$eq": bson.A{"$$inst.paid", true}},
+					},
+				},
+			},
+			"total_installments": "$num_installments",
+		}}},
+		{{Key: "$project", Value: bson.M{
+			"plan_id":            bson.M{"$toString": "$_id"},
+			"customer_id":        bson.M{"$toString": "$customer_id"},
+			"customer_name":      "$customer.name",
+			"customer_urdu":      "$customer.name_urdu",
+			"father_name":        "$customer.father_name",
+			"phone":              "$customer.phone",
+			"cnic":               "$customer.cnic",
+			"address":            "$customer.address",
+			"address_urdu":       "$customer.address_urdu",
+			"product_name":       "$product.name",
+			"product_name_urdu":  "$product.name_urdu",
+			"installment_no":     "$installments.installment_no",
+			"due_date":           bson.M{"$dateToString": bson.M{"format": "%Y-%m-%d", "date": "$installments.due_date"}},
+			"amount":             "$installments.amount",
+			"fine":               "$installments.fine",
+			"partial_paid":       "$installments.partial_paid",
+			"paid":               "$installments.paid",
+			"paid_date":          bson.M{"$dateToString": bson.M{"format": "%Y-%m-%d", "date": "$installments.paid_date"}},
+			"paid_count":         1,
+			"total_installments": 1,
+			"remaining":          bson.M{"$subtract": bson.A{"$num_installments", bson.M{"$size": bson.M{"$filter": bson.M{"input": "$installments", "as": "inst", "cond": bson.M{"$eq": bson.A{"$$inst.paid", true}}}}}}},
+			"total_amount":       "$total_amount",
+			"down_payment":       "$down_payment",
+			"remaining_amount":   "$remaining_amount",
+		}}},
+		{{Key: "$sort", Value: bson.M{"due_date": 1}}},
+	}
+
+	cursor, err := db.Collection(config.ColInstallments).Aggregate(ctx, pipeline)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "Failed to fetch overdue details", "ناکام")
+		return
+	}
+	defer cursor.Close(ctx)
+
+	var results []bson.M
+	if err = cursor.All(ctx, &results); err != nil {
+		respondError(w, r, http.StatusInternalServerError, "Failed to parse results", "ناکام")
+		return
+	}
+	if results == nil {
+		results = []bson.M{}
+	}
+
+	respondJSON(w, http.StatusOK, results)
+}
+
 // RecentActivities returns recent system activities
 func (h *DashboardHandler) RecentActivities(w http.ResponseWriter, r *http.Request) {
 	db := config.DB

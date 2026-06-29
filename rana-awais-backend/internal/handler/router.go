@@ -700,6 +700,9 @@ func SetupRouter(
 	protected.HandleFunc("/dashboard/today-due", dashboardH.TodayDueDetails).Methods("GET")
 	protected.HandleFunc("/dashboard/low-stock", dashboardH.LowStockDetails).Methods("GET")
 	protected.HandleFunc("/dashboard/activities", dashboardH.RecentActivities).Methods("GET")
+	// Full detail endpoints for professional tables
+	protected.HandleFunc("/dashboard/today-due-full", dashboardH.TodayDueFull).Methods("GET")
+	protected.HandleFunc("/dashboard/overdue-full", dashboardH.OverdueFull).Methods("GET")
 
 	// Reports
 	protected.HandleFunc("/reports/customers", reportH.CustomerReport).Methods("GET")

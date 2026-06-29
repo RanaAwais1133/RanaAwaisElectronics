@@ -6,6 +6,7 @@ import { APP_CONFIG } from '../../config/app';
 import DashboardCard from './DashboardCard';
 import DashboardModal from './DashboardModal';
 import DashboardSummaryModal from './DashboardSummaryModal';
+import InstallmentDetailTable from './InstallmentDetailTable';
 
 interface DashboardSummary {
   todayCollection?: { total: number; count: number };
@@ -446,51 +447,26 @@ const DashboardPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Row 4: Monthly Summary */}
+      {/* Row 4: Today's Due Installments - Professional Detail Table */}
       <div className="mb-8">
         <div className="flex items-center gap-2 mb-4">
-          <div className="w-1 h-5 bg-gray-900 dark:bg-gray-300 rounded-full" />
+          <div className="w-1 h-5 bg-amber-500 rounded-full" />
           <h2 className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-            {isUrdu ? 'ماہانہ خلاصہ' : 'Monthly Summary'}
+            {isUrdu ? 'آج کی واجب الادا اقساط' : "Today's Due Installments"}
           </h2>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-          <DashboardCard
-            title={isUrdu ? 'ماہانہ آمدنی' : "Month's Revenue"}
-            value={fmt(summary.monthRevenue)}
-            icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>}
-            loading={loading}
-            onClick={() => openModal(isUrdu ? 'ماہانہ آمدنی' : "Month's Revenue", '/dashboard/today-due')}
-          />
-          <DashboardCard
-            title={isUrdu ? 'ماہانہ منافع' : "Month's Profit"}
-            value={fmt(summary.monthProfit)}
-            icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>}
-            loading={loading}
-            onClick={() => openModal(isUrdu ? 'ماہانہ منافع' : "Month's Profit", '/dashboard/today-due')}
-          />
-          <DashboardCard
-            title={isUrdu ? 'کل بقایا' : 'Total Pending'}
-            value={fmt(summary.totalPending)}
-            icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
-            loading={loading}
-            onClick={() => openModal(isUrdu ? 'کل بقایا' : 'Total Pending', '/dashboard/overdue')}
-          />
-          <DashboardCard
-            title={isUrdu ? 'کل ادا شدہ' : 'Total Paid'}
-            value={fmt(summary.totalPaid)}
-            icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
-            loading={loading}
-            onClick={() => openModal(isUrdu ? 'کل ادا شدہ' : 'Total Paid', '/dashboard/today-due')}
-          />
-          <DashboardCard
-            title={isUrdu ? 'فعال پلانز' : 'Active Plans'}
-            value={fmtCount(summary.activePlans)}
-            icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>}
-            loading={loading}
-            onClick={() => openModal(isUrdu ? 'فعال پلانز' : 'Active Plans', '/dashboard/overdue')}
-          />
+        <InstallmentDetailTable type="today-due" isUrdu={isUrdu} />
+      </div>
+
+      {/* Row 5: Overdue Installments - Professional Detail Table */}
+      <div className="mb-8">
+        <div className="flex items-center gap-2 mb-4">
+          <div className="w-1 h-5 bg-red-500 rounded-full" />
+          <h2 className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+            {isUrdu ? 'تاخیر شدہ اقساط' : 'Overdue Installments'}
+          </h2>
         </div>
+        <InstallmentDetailTable type="overdue" isUrdu={isUrdu} />
       </div>
 
       {/* Modals */}
