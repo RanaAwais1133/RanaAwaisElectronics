@@ -56,25 +56,52 @@ const DashboardPage: React.FC = () => {
   }, [t]);
 
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
-    Promise.all([
+    
+    // Set a timeout to force loading to false after 8 seconds max
+    const forceTimeout = setTimeout(() => {
+      if (!cancelled) {
+        console.warn('⚠️ Dashboard loading timeout - forcing display');
+        setLoading(false);
+      }
+    }, 8000);
+    
+    // Use Promise.allSettled so one failure doesn't block others
+    Promise.allSettled([
       api.get('/dashboard/summary'),
       api.get('/accounting/today'),
       api.get('/accounting/month'),
       api.get('/accounting/pending-total'),
     ])
-      .then(([summaryRes, todayRes, monthRes, pendingRes]) => {
-        setSummary(summaryRes.data || {});
-        setTodayRevenue(todayRes.data.revenue ?? null);
-        setTodayProfit(todayRes.data.profit ?? null);
-        setMonthRevenue(monthRes.data.revenue ?? null);
-        setMonthProfit(monthRes.data.profit ?? null);
-        setPendingTotal(pendingRes.data.pending_total ?? null);
+      .then((results) => {
+        if (cancelled) return;
+        
+        const [summaryRes, todayRes, monthRes, pendingRes] = results;
+        
+        if (summaryRes.status === 'fulfilled') {
+          setSummary(summaryRes.value.data || {});
+        }
+        if (todayRes.status === 'fulfilled') {
+          setTodayRevenue(todayRes.value.data.revenue ?? null);
+          setTodayProfit(todayRes.value.data.profit ?? null);
+        }
+        if (monthRes.status === 'fulfilled') {
+          setMonthRevenue(monthRes.value.data.revenue ?? null);
+          setMonthProfit(monthRes.value.data.profit ?? null);
+        }
+        if (pendingRes.status === 'fulfilled') {
+          setPendingTotal(pendingRes.value.data.pending_total ?? null);
+        }
       })
-      .catch(() => {
-        // Silent fail - use empty data
-      })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!cancelled) {
+          clearTimeout(forceTimeout);
+          setLoading(false);
+        }
+      });
+      
+    return () => { cancelled = true; };
   }, []);
 
   const fmt = (val: number | undefined | null): string => {

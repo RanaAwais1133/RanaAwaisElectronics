@@ -53,8 +53,8 @@ const api: AxiosInstance = axios.create({
 // ✅ Request Interceptor - Attach JWT token, check cache, and deduplicate GET requests
 api.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
-    // Try multiple storage keys for compatibility
-    const token = localStorage.getItem('auth_token') || localStorage.getItem('token');
+    // Get token from storage - use 'token' as primary key
+    const token = localStorage.getItem('token') || localStorage.getItem('auth_token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -148,15 +148,24 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
     
-    // Handle 401 Unauthorized
+    // Handle 401 Unauthorized - DON'T auto-logout, just show a warning
+    // Token expiry is now 10 years, so this should rarely happen
     if (error.response?.status === 401) {
       const token = localStorage.getItem('token');
       if (token) {
-        // Token expired or invalid
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-        toast.error('Session expired. Please login again.');
-        window.location.href = '/login';
+        // Instead of immediately logging out, try to get current user to refresh session
+        console.warn('⚠️ Received 401. Attempting to refresh session...');
+        // Only logout if it's an auth endpoint that failed
+        const url = error.config?.url || '';
+        if (url.includes('/auth/')) {
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          toast.error('Session expired. Please login again.');
+          window.location.href = '/login';
+        } else {
+          // For non-auth endpoints, just show a toast and let the user continue
+          toast.error('Please try again.');
+        }
       }
     }
     

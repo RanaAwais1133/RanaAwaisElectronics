@@ -179,13 +179,13 @@ export const useAuthError = () => useAuthStore((state) => state.error);
 
 // ✅ Utility function to get auth headers
 export const getAuthHeaders = (): Record<string, string> => {
-  const token = localStorage.getItem(STORAGE_KEYS.TOKEN);
+  const token = localStorage.getItem('token') || localStorage.getItem(STORAGE_KEYS.TOKEN);
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
 // ✅ Utility to check if authenticated
 export const isAuthenticated = (): boolean => {
-  return !!localStorage.getItem(STORAGE_KEYS.TOKEN) && !!localStorage.getItem(STORAGE_KEYS.USER);
+  return !!(localStorage.getItem('token') || localStorage.getItem(STORAGE_KEYS.TOKEN)) && !!localStorage.getItem(STORAGE_KEYS.USER);
 };
 
 // ✅ Utility to get current user from storage
