@@ -10,7 +10,7 @@ interface DashboardModalProps {
   isUrdu: boolean;
 }
 
-type DataType = 'customers' | 'products' | 'inventory' | 'installments' | 'payments' | 'unknown';
+type DataType = 'customers' | 'products' | 'inventory' | 'installments' | 'payments' | 'accounting' | 'unknown';
 
 // Consistent name display logic used in both print and UI
 const displayName = (item: any, isUrdu: boolean): string => {
@@ -30,6 +30,9 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
   const dataType: DataType = useMemo(() => {
     if (data.length === 0) return 'unknown';
     const first = data[0];
+    
+    // Check for accounting data first (revenue/profit objects)
+    if (first._type === 'accounting') return 'accounting';
     
     // Check endpoint first
     if (endpoint.includes('/products')) return 'products';
@@ -79,9 +82,44 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
         } else if (d?.inventory && Array.isArray(d.inventory)) {
           items = d.inventory;
         } else if (typeof d === 'object' && d !== null) {
-          const arrayField = Object.values(d).find(v => Array.isArray(v));
-          if (arrayField) {
-            items = arrayField as any[];
+          // Check for accounting-style responses: { revenue, profit }
+          if ('revenue' in d || 'profit' in d) {
+            const rows: any[] = [];
+            if (d.revenue !== undefined) {
+              rows.push({
+                _type: 'accounting',
+                label: isUrdu ? 'آمدنی' : 'Revenue',
+                label_urdu: 'آمدنی',
+                amount: d.revenue,
+                icon: 'revenue'
+              });
+            }
+            if (d.profit !== undefined) {
+              rows.push({
+                _type: 'accounting',
+                label: isUrdu ? 'منافع' : 'Profit',
+                label_urdu: 'منافع',
+                amount: d.profit,
+                icon: 'profit'
+              });
+            }
+            if (d.pending_total !== undefined) {
+              rows.push({
+                _type: 'accounting',
+                label: isUrdu ? 'کل بقایا' : 'Total Pending',
+                label_urdu: 'کل بقایا',
+                amount: d.pending_total,
+                icon: 'pending'
+              });
+            }
+            if (rows.length > 0) {
+              items = rows;
+            }
+          } else {
+            const arrayField = Object.values(d).find(v => Array.isArray(v));
+            if (arrayField) {
+              items = arrayField as any[];
+            }
           }
         }
 
@@ -340,6 +378,56 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
           );
         }
 
+        // ========== ACCOUNTING (Revenue/Profit) ==========
+        case 'accounting':
+          return (
+            <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
+              <td className="px-4 py-3 text-gray-400 font-mono text-xs text-center">{idx + 1}</td>
+              <td className="px-4 py-3">
+                <div className="flex items-center gap-2">
+                  <div className={`p-1.5 rounded-lg ${
+                    item.icon === 'profit' 
+                      ? 'bg-emerald-100 dark:bg-emerald-900/40' 
+                      : item.icon === 'revenue'
+                      ? 'bg-blue-100 dark:bg-blue-900/40'
+                      : 'bg-amber-100 dark:bg-amber-900/40'
+                  }`}>
+                    {item.icon === 'profit' ? (
+                      <svg className="w-4 h-4 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                      </svg>
+                    ) : item.icon === 'revenue' ? (
+                      <svg className="w-4 h-4 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    ) : (
+                      <svg className="w-4 h-4 text-amber-600 dark:text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    )}
+                  </div>
+                  <span className="font-semibold text-gray-800 dark:text-white text-sm">
+                    {isUrdu ? (item.label_urdu || item.label) : item.label}
+                  </span>
+                </div>
+              </td>
+              <td className="px-4 py-3 text-end">
+                <span className={`text-lg font-bold ${
+                  item.icon === 'profit' 
+                    ? 'text-emerald-600 dark:text-emerald-400' 
+                    : 'text-gray-900 dark:text-white'
+                }`}>
+                  Rs. {Number(item.amount || 0).toLocaleString()}
+                </span>
+              </td>
+              <td className="px-4 py-3 text-center">
+                <span className="text-xs text-gray-400">
+                  {new Date().toLocaleDateString()}
+                </span>
+              </td>
+            </tr>
+          );
+
         // ========== PAYMENTS ==========
         case 'payments':
           return (
@@ -524,6 +612,13 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
                         <th className="px-4 py-3 text-end text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'رقم' : 'Amount'}</th>
                         <th className="px-4 py-3 text-center text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'طریقہ' : 'Method'}</th>
                         <th className="px-4 py-3 text-center text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'حوالہ#' : 'Ref#'}</th>
+                        <th className="px-4 py-3 text-center text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'تاریخ' : 'Date'}</th>
+                      </>
+                    )}
+                    {dataType === 'accounting' && (
+                      <>
+                        <th className="px-4 py-3 text-start text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'تفصیل' : 'Detail'}</th>
+                        <th className="px-4 py-3 text-end text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'رقم' : 'Amount'}</th>
                         <th className="px-4 py-3 text-center text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'تاریخ' : 'Date'}</th>
                       </>
                     )}
