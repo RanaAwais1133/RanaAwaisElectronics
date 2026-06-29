@@ -12,6 +12,14 @@ interface DashboardModalProps {
 
 type DataType = 'customers' | 'products' | 'inventory' | 'installments' | 'payments' | 'unknown';
 
+// Consistent name display logic used in both print and UI
+const displayName = (item: any, isUrdu: boolean): string => {
+  if (isUrdu) {
+    return item.name_urdu || item.customer_urdu || item.customer_name || item.name || '—';
+  }
+  return item.customer_name || item.name || item.name_urdu || item.customer_urdu || '—';
+};
+
 const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClose, isUrdu }) => {
   const { t } = useTranslation();
   const [data, setData] = useState<any[]>([]);
@@ -101,8 +109,11 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
           return { headers: ['#', isUrdu ? 'نام' : 'Name', isUrdu ? 'مقدار' : 'Qty', isUrdu ? 'قیمت' : 'Price', isUrdu ? 'کل' : 'Total', isUrdu ? 'تاریخ' : 'Date'],
                    fields: ['name', 'quantity', 'price', 'total', 'date'] };
         case 'installments':
-          return { headers: ['#', isUrdu ? 'نام' : 'Name', isUrdu ? 'والد' : 'Father', isUrdu ? 'فون' : 'Phone', isUrdu ? 'قسط' : 'Inst#', isUrdu ? 'رقم' : 'Amount', isUrdu ? 'تاریخ' : 'Date', isUrdu ? 'حالت' : 'Status'],
-                   fields: ['name', 'father_name', 'phone', 'installment_no', 'amount', 'date', 'status'] };
+          return { headers: ['#', isUrdu ? 'نام' : 'Name', isUrdu ? 'والد' : 'Father', isUrdu ? 'فون' : 'Phone', isUrdu ? 'قسط' : 'Inst#', isUrdu ? 'کل رقم' : 'Total', isUrdu ? 'ادا شدہ' : 'Paid', isUrdu ? 'بقایا' : 'Pending', isUrdu ? 'تاریخ' : 'Date', isUrdu ? 'حالت' : 'Status'],
+                   fields: ['name', 'father_name', 'phone', 'installment_no', 'total_amount', 'paid_amount', 'pending_amount', 'date', 'status'] };
+        case 'payments':
+          return { headers: ['#', isUrdu ? 'گاہک' : 'Customer', isUrdu ? 'رقم' : 'Amount', isUrdu ? 'طریقہ' : 'Method', isUrdu ? 'حوالہ' : 'Ref#', isUrdu ? 'تاریخ' : 'Date'],
+                   fields: ['name', 'amount', 'method', 'reference', 'date'] };
         default:
           return { headers: ['#', isUrdu ? 'نام' : 'Name', isUrdu ? 'رقم' : 'Amount', isUrdu ? 'تاریخ' : 'Date'],
                    fields: ['name', 'amount', 'date'] };
@@ -113,7 +124,7 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
     const rows = data.map((item: any, idx: number) => {
       const vals = cols.fields.map(f => {
         switch (f) {
-          case 'name': return isUrdu ? (item.customer_urdu || item.name || item.product_name || item.item_name || '—') : (item.customer_name || item.name || item.product_name || item.item_name || '—');
+          case 'name': return displayName(item, isUrdu);
           case 'father_name': return item.father_name || '—';
           case 'phone': return item.phone || item.customer_phone || '—';
           case 'address': return isUrdu ? (item.address_urdu || item.address || '—') : (item.address || '—');
@@ -125,7 +136,12 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
           case 'quantity': return String(item.quantity ?? item.stock ?? '—');
           case 'total': return `Rs. ${Number((item.quantity || 0) * (item.purchase_price || 0)).toLocaleString()}`;
           case 'installment_no': return `${item.installment_no || '—'}/${item.total_installments || '—'}`;
+          case 'total_amount': return `Rs. ${Number(item.total_amount || item.amount || 0).toLocaleString()}`;
+          case 'paid_amount': return `Rs. ${Number(item.paid_amount || (item.paid ? item.amount : 0) || 0).toLocaleString()}`;
+          case 'pending_amount': return `Rs. ${Number(item.pending_amount || (!item.paid ? item.amount : 0) || 0).toLocaleString()}`;
           case 'status': return item.paid ? (isUrdu ? 'ادا شدہ' : 'Paid') : (isUrdu ? 'زیر التوا' : 'Pending');
+          case 'method': return item.payment_method || item.method || '—';
+          case 'reference': return item.reference_no || item.check_no || item.transaction_id || '—';
           default: return '—';
         }
       });
@@ -160,13 +176,14 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
   const renderRows = () => {
     return data.map((item: any, idx: number) => {
       switch (dataType) {
+        // ========== CUSTOMERS ==========
         case 'customers':
           return (
             <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
               <td className="px-4 py-3 text-gray-400 font-mono text-xs text-center">{idx + 1}</td>
               <td className="px-4 py-3">
                 <div className="font-semibold text-gray-800 dark:text-white text-sm">
-                  {isUrdu ? (item.name_urdu || item.name || '—') : (item.name || '—')}
+                  {displayName(item, isUrdu)}
                 </div>
                 {item.name_urdu && !isUrdu && (
                   <div className="text-[10px] text-gray-400 mt-0.5" dir="rtl">{item.name_urdu}</div>
@@ -198,6 +215,7 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
             </tr>
           );
 
+        // ========== PRODUCTS ==========
         case 'products':
           return (
             <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
@@ -228,6 +246,7 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
             </tr>
           );
 
+        // ========== INVENTORY ==========
         case 'inventory':
           return (
             <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
@@ -258,13 +277,17 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
             </tr>
           );
 
-        case 'installments':
+        // ========== INSTALLMENTS ==========
+        case 'installments': {
+          const totalAmt = item.total_amount || item.amount || 0;
+          const paidAmt = item.paid_amount || (item.paid ? item.amount : 0) || 0;
+          const pendingAmt = item.pending_amount || (!item.paid ? item.amount : 0) || 0;
           return (
             <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
               <td className="px-4 py-3 text-gray-400 font-mono text-xs text-center">{idx + 1}</td>
               <td className="px-4 py-3">
                 <div className="font-semibold text-gray-800 dark:text-white text-sm">
-                  {isUrdu ? (item.customer_urdu || item.customer_name || item.name || '—') : (item.customer_name || item.name || '—')}
+                  {displayName(item, isUrdu)}
                 </div>
                 {item.father_name && (
                   <div className="text-[10px] text-gray-400 mt-0.5">{isUrdu ? 'والد: ' : 'Father: '}{item.father_name}</div>
@@ -285,7 +308,17 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
               </td>
               <td className="px-4 py-3 text-end">
                 <span className="font-bold text-gray-800 dark:text-white text-sm whitespace-nowrap">
-                  Rs. {Number(item.amount || item.total || 0).toLocaleString()}
+                  Rs. {Number(totalAmt).toLocaleString()}
+                </span>
+              </td>
+              <td className="px-4 py-3 text-end">
+                <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                  Rs. {Number(paidAmt).toLocaleString()}
+                </span>
+              </td>
+              <td className="px-4 py-3 text-end">
+                <span className="text-xs font-semibold text-red-600 dark:text-red-400 whitespace-nowrap">
+                  Rs. {Number(pendingAmt).toLocaleString()}
                 </span>
               </td>
               <td className="px-4 py-3 text-center">
@@ -305,7 +338,45 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
               </td>
             </tr>
           );
+        }
 
+        // ========== PAYMENTS ==========
+        case 'payments':
+          return (
+            <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
+              <td className="px-4 py-3 text-gray-400 font-mono text-xs text-center">{idx + 1}</td>
+              <td className="px-4 py-3">
+                <div className="font-semibold text-gray-800 dark:text-white text-sm">
+                  {displayName(item, isUrdu)}
+                </div>
+                {item.customer_phone && (
+                  <div className="text-[10px] text-gray-400 mt-0.5">{item.customer_phone}</div>
+                )}
+              </td>
+              <td className="px-4 py-3 text-end">
+                <span className="font-bold text-gray-800 dark:text-white text-sm whitespace-nowrap">
+                  Rs. {Number(item.amount || 0).toLocaleString()}
+                </span>
+              </td>
+              <td className="px-4 py-3 text-center">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200">
+                  {item.payment_method || item.method || (isUrdu ? 'نقد' : 'Cash')}
+                </span>
+              </td>
+              <td className="px-4 py-3 text-center">
+                <span className="text-xs font-mono text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50 px-2 py-1 rounded">
+                  {item.reference_no || item.check_no || item.transaction_id || '—'}
+                </span>
+              </td>
+              <td className="px-4 py-3 text-center">
+                <span className="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50 px-2 py-1 rounded">
+                  {item.transaction_date ? new Date(item.transaction_date).toLocaleDateString() : (item.created_at ? new Date(item.created_at).toLocaleDateString() : '—')}
+                </span>
+              </td>
+            </tr>
+          );
+
+        // ========== UNKNOWN / DEFAULT ==========
         default:
           return (
             <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
@@ -439,10 +510,21 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
                         <th className="px-4 py-3 text-start text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'نام' : 'Name'}</th>
                         <th className="px-4 py-3 text-start text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'والد' : 'Father'}</th>
                         <th className="px-4 py-3 text-start text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'فون' : 'Phone'}</th>
-                        <th className="px-4 py-3 text-center text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'قسط' : 'Inst#'}</th>
-                        <th className="px-4 py-3 text-end text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'رقم' : 'Amount'}</th>
+                        <th className="px-4 py-3 text-center text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'قسط#' : 'Inst#'}</th>
+                        <th className="px-4 py-3 text-end text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'کل رقم' : 'Total'}</th>
+                        <th className="px-4 py-3 text-end text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'ادا شدہ' : 'Paid'}</th>
+                        <th className="px-4 py-3 text-end text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'بقایا' : 'Pending'}</th>
                         <th className="px-4 py-3 text-center text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'تاریخ' : 'Date'}</th>
                         <th className="px-4 py-3 text-center text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'حالت' : 'Status'}</th>
+                      </>
+                    )}
+                    {dataType === 'payments' && (
+                      <>
+                        <th className="px-4 py-3 text-start text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'نام' : 'Name'}</th>
+                        <th className="px-4 py-3 text-end text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'رقم' : 'Amount'}</th>
+                        <th className="px-4 py-3 text-center text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'طریقہ' : 'Method'}</th>
+                        <th className="px-4 py-3 text-center text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'حوالہ#' : 'Ref#'}</th>
+                        <th className="px-4 py-3 text-center text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'تاریخ' : 'Date'}</th>
                       </>
                     )}
                     {dataType === 'unknown' && (
@@ -454,7 +536,7 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
                     )}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
+                <tbody>
                   {renderRows()}
                 </tbody>
               </table>
