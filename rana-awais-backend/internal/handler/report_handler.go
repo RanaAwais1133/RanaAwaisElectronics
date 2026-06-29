@@ -7,10 +7,9 @@ import (
 
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/config"
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 )
+
 
 // ReportHandler handles all report endpoints
 type ReportHandler struct{}
@@ -313,23 +312,9 @@ func (h *ReportHandler) generateDateRangeReport(w http.ResponseWriter, r *http.R
 }
 
 // CustomerReport - returns all customers with their installment details
+// OPTIMIZED: Uses aggregation pipeline instead of N+1 queries
 func (h *ReportHandler) CustomerReport(w http.ResponseWriter, r *http.Request) {
 	db := config.DB
-	customersColl := db.Collection(config.ColCustomers)
-	installmentsColl := db.Collection(config.ColInstallments)
-
-	cursor, err := customersColl.Find(r.Context(), bson.M{}, options.Find().SetSort(bson.M{"name": 1}))
-	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "Failed to fetch customers", "گاہک نہیں لائے جا سکے")
-		return
-	}
-	defer cursor.Close(r.Context())
-
-	var customers []bson.M
-	if err = cursor.All(r.Context(), &customers); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "Failed to parse customers", "گاہک پڑھنے میں ناکامی")
-		return
-	}
 
 	type CustomerReportItem struct {
 		ID                string  `json:"id"`
@@ -348,82 +333,120 @@ func (h *ReportHandler) CustomerReport(w http.ResponseWriter, r *http.Request) {
 		Status            string  `json:"status"`
 	}
 
-	var result []CustomerReportItem
-	for _, c := range customers {
-		custID, ok := c["_id"].(primitive.ObjectID)
-		if !ok {
-			continue
-		}
-
-		planCursor, err := installmentsColl.Find(r.Context(), bson.M{"customer_id": custID})
-		if err != nil {
-			continue
-		}
-
-		var plans []bson.M
-		planCursor.All(r.Context(), &plans)
-		planCursor.Close(r.Context())
-
-		totalPlans := len(plans)
-		var totalAmount, totalPaid, totalPending float64
-		var totalInstallments, paidInstallments int
-
-		for _, plan := range plans {
-			amount, _ := plan["total_amount"].(float64)
-			totalAmount += amount
-
-			if installments, ok := plan["installments"].(bson.A); ok {
-				for _, inst := range installments {
-					if instMap, ok := inst.(bson.M); ok {
-						totalInstallments++
-						if paid, ok := instMap["paid"].(bool); ok && paid {
-							paidInstallments++
-							if amt, ok := instMap["amount"].(float64); ok {
-								totalPaid += amt
-							}
-						} else {
-							if amt, ok := instMap["amount"].(float64); ok {
-								totalPending += amt
-							}
-							if fine, ok := instMap["fine"].(float64); ok {
-								totalPending += fine
-							}
-						}
-					}
-				}
-			}
-		}
-
-		name, _ := c["name"].(string)
-		nameUrdu, _ := c["name_urdu"].(string)
-		fatherName, _ := c["father_name"].(string)
-		phone, _ := c["phone"].(string)
-		cnic, _ := c["cnic"].(string)
-		address, _ := c["address"].(string)
-
-		status := "active"
-		if totalPending == 0 && totalPlans > 0 {
-			status = "completed"
-		}
-
-		result = append(result, CustomerReportItem{
-			ID:                custID.Hex(),
-			Name:              name,
-			NameUrdu:          nameUrdu,
-			FatherName:        fatherName,
-			Phone:             phone,
-			CNIC:              cnic,
-			Address:           address,
-			TotalPlans:        totalPlans,
-			TotalAmount:       totalAmount,
-			TotalPaid:         totalPaid,
-			TotalPending:      totalPending,
-			TotalInstallments: totalInstallments,
-			PaidInstallments:  paidInstallments,
-			Status:            status,
-		})
+	// OPTIMIZED: Use aggregation with $lookup to avoid N+1 queries
+	pipeline := mongo.Pipeline{
+		{{Key: "$sort", Value: bson.M{"name": 1}}},
+		{{Key: "$lookup", Value: bson.M{
+			"from":         config.ColInstallments,
+			"localField":   "_id",
+			"foreignField": "customer_id",
+			"as":           "plans",
+		}}},
+		{{Key: "$addFields", Value: bson.M{
+			"totalPlans":        bson.M{"$size": "$plans"},
+			"totalAmount":       bson.M{"$sum": "$plans.total_amount"},
+			"totalInstallments": bson.M{"$sum": bson.M{"$map": bson.M{"input": "$plans", "as": "plan", "in": bson.M{"$size": bson.M{"$ifNull": bson.A{"$$plan.installments", bson.A{}}}}}}},
+			"paidInstallments": bson.M{"$sum": bson.M{
+				"$map": bson.M{
+					"input": "$plans",
+					"as":    "plan",
+					"in": bson.M{
+						"$size": bson.M{
+							"$filter": bson.M{
+								"input": bson.M{"$ifNull": bson.A{"$$plan.installments", bson.A{}}},
+								"as":    "inst",
+								"cond":  bson.M{"$eq": bson.A{"$$inst.paid", true}},
+							},
+						},
+					},
+				},
+			}},
+			"totalPaid": bson.M{"$sum": bson.M{
+				"$map": bson.M{
+					"input": "$plans",
+					"as":    "plan",
+					"in": bson.M{
+						"$sum": bson.M{
+							"$map": bson.M{
+								"input": bson.M{"$ifNull": bson.A{"$$plan.installments", bson.A{}}},
+								"as":    "inst",
+								"in": bson.M{
+									"$cond": bson.A{
+										bson.M{"$eq": bson.A{"$$inst.paid", true}},
+										bson.M{"$ifNull": bson.A{"$$inst.amount", 0}},
+										0,
+									},
+								},
+							},
+						},
+					},
+				},
+			}},
+			"totalPending": bson.M{"$sum": bson.M{
+				"$map": bson.M{
+					"input": "$plans",
+					"as":    "plan",
+					"in": bson.M{
+						"$sum": bson.M{
+							"$map": bson.M{
+								"input": bson.M{"$ifNull": bson.A{"$$plan.installments", bson.A{}}},
+								"as":    "inst",
+								"in": bson.M{
+									"$cond": bson.A{
+										bson.M{"$eq": bson.A{"$$inst.paid", false}},
+										bson.M{"$add": bson.A{
+											bson.M{"$ifNull": bson.A{"$$inst.amount", 0}},
+											bson.M{"$ifNull": bson.A{"$$inst.fine", 0}},
+										}},
+										0,
+									},
+								},
+							},
+						},
+					},
+				},
+			}},
+		}}},
+		{{Key: "$project", Value: bson.M{
+			"_id":               0,
+			"id":                bson.M{"$toString": "$_id"},
+			"name":              bson.M{"$ifNull": bson.A{"$name", ""}},
+			"nameUrdu":          bson.M{"$ifNull": bson.A{"$name_urdu", ""}},
+			"fatherName":        bson.M{"$ifNull": bson.A{"$father_name", ""}},
+			"phone":             bson.M{"$ifNull": bson.A{"$phone", ""}},
+			"cnic":              bson.M{"$ifNull": bson.A{"$cnic", ""}},
+			"address":           bson.M{"$ifNull": bson.A{"$address", ""}},
+			"totalPlans":        1,
+			"totalAmount":       1,
+			"totalPaid":         1,
+			"totalPending":      1,
+			"totalInstallments": 1,
+			"paidInstallments":  1,
+			"status": bson.M{
+				"$cond": bson.A{
+					bson.M{"$and": bson.A{
+						bson.M{"$eq": bson.A{"$totalPending", 0}},
+						bson.M{"$gt": bson.A{"$totalPlans", 0}},
+					}},
+					"completed",
+					"active",
+				},
+			},
+		}}},
 	}
 
+	cursor, err := db.Collection(config.ColCustomers).Aggregate(r.Context(), pipeline)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "Failed to fetch customer report", "گاہک رپورٹ نہیں آئی")
+		return
+	}
+	defer cursor.Close(r.Context())
+
+	var result []CustomerReportItem
+	if err = cursor.All(r.Context(), &result); err != nil {
+		respondError(w, r, http.StatusInternalServerError, "Failed to parse results", "نتائج پڑھنے میں ناکامی")
+		return
+	}
 	if result == nil {
 		result = []CustomerReportItem{}
 	}

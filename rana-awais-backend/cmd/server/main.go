@@ -106,6 +106,11 @@ func main() {
 	go scheduleReminders(notifSvc)
 
 	// ═══════════════════════════════════════
+	// ⏰ KEEP-ALIVE (Prevent Render free tier cold starts)
+	// ═══════════════════════════════════════
+	go middleware.StartKeepAlive(cfg.ServerPort)
+
+	// ═══════════════════════════════════════
 	// 🖥️ START SERVER
 	// ═══════════════════════════════════════
 	addr := fmt.Sprintf(":%s", cfg.ServerPort)

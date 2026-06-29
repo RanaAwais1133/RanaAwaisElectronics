@@ -36,15 +36,15 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 		err  error
 	}
 
-	ch := make(chan result, 20)
+	ch := make(chan result, 15)
 
-	// 1. Today's Collection
+	// 1. Today's Collection (also used as todayRevenue)
 	go func() {
 		total, count, err := getTodayCollection(ctx, db, todayStart, todayEnd)
 		ch <- result{"todayCollection", map[string]interface{}{"total": total, "count": count}, err}
 	}()
 
-	// 2. Total Pending Amount
+	// 2. Total Pending Amount (also used as pendingTotal)
 	go func() {
 		total, err := getTotalPending(ctx, db)
 		ch <- result{"totalPending", total, err}
@@ -62,7 +62,7 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 		ch <- result{"totalCustomers", count, err}
 	}()
 
-	// 5. Active Installments
+	// 5. Active Installments (also used as activePlans)
 	go func() {
 		count, err := db.Collection(config.ColInstallments).CountDocuments(ctx, bson.M{"status": "active"})
 		ch <- result{"activeInstallments", count, err}
@@ -128,19 +128,28 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 		ch <- result{"monthProfit", profit, err}
 	}()
 
-	// 16. Total Products Count (active plans per product)
-	go func() {
-		count, err := db.Collection(config.ColInstallments).CountDocuments(ctx, bson.M{"status": "active"})
-		ch <- result{"activePlans", count, err}
-	}()
-
-	// Collect all results
+	// Collect all results (15 goroutines - duplicates removed)
 	results := make(map[string]interface{})
-	for i := 0; i < 16; i++ {
+	for i := 0; i < 15; i++ {
 		res := <-ch
 		if res.err == nil {
 			results[res.key] = res.data
 		}
+	}
+
+	// Add aliases for frontend compatibility
+	if val, ok := results["todayCollection"]; ok {
+		if m, ok := val.(map[string]interface{}); ok {
+			if total, ok := m["total"].(float64); ok {
+				results["todayRevenue"] = total
+			}
+		}
+	}
+	if val, ok := results["totalPending"]; ok {
+		results["pendingTotal"] = val
+	}
+	if val, ok := results["activeInstallments"]; ok {
+		results["activePlans"] = val
 	}
 
 	respondJSON(w, http.StatusOK, results)
@@ -294,6 +303,31 @@ func getInventoryValue(ctx context.Context, db *mongo.Database) (float64, error)
 		}}},
 	}
 	cursor, err := db.Collection(config.ColInventory).Aggregate(ctx, pipeline)
+	if err != nil {
+		return 0, err
+	}
+	defer cursor.Close(ctx)
+
+	var results []struct {
+		Total float64 `bson:"total"`
+	}
+	if cursor.All(ctx, &results) == nil && len(results) > 0 {
+		return results[0].Total, nil
+	}
+	return 0, nil
+}
+
+func getTodayRevenue(ctx context.Context, db *mongo.Database, start, end time.Time) (float64, error) {
+	pipeline := mongo.Pipeline{
+		{{Key: "$match", Value: bson.M{
+			"transaction_date": bson.M{"$gte": start, "$lt": end},
+		}}},
+		{{Key: "$group", Value: bson.M{
+			"_id":   nil,
+			"total": bson.M{"$sum": "$amount"},
+		}}},
+	}
+	cursor, err := db.Collection(config.ColPayments).Aggregate(ctx, pipeline)
 	if err != nil {
 		return 0, err
 	}

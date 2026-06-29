@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState, useCallback } from 'react';
+﻿import React, { useEffect, useState, useCallback, lazy, Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import api from '../../utils/api';
@@ -6,7 +6,13 @@ import { APP_CONFIG } from '../../config/app';
 import DashboardCard from './DashboardCard';
 import DashboardModal from './DashboardModal';
 import DashboardSummaryModal from './DashboardSummaryModal';
-import InstallmentDetailTable from './InstallmentDetailTable';
+
+// Lazy load InstallmentDetailTable for faster initial render
+const InstallmentDetailTable = lazy(() => import('./InstallmentDetailTable'));
+
+// LocalStorage cache helpers
+const LS_CACHE_KEY = 'dashboard_summary_cache';
+const LS_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 interface DashboardSummary {
   todayCollection?: { total: number; count: number };
@@ -25,6 +31,8 @@ interface DashboardSummary {
   monthRevenue?: number;
   monthProfit?: number;
   activePlans?: number;
+  todayRevenue?: number;
+  pendingTotal?: number;
 }
 
 interface ModalState {
@@ -37,20 +45,96 @@ interface SummaryModalState {
   type: 'today' | 'pending' | 'month';
 }
 
+// Skeleton loader component for instant display
+const DashboardSkeleton: React.FC<{ isUrdu: boolean }> = ({ isUrdu }) => (
+  <div className="max-w-7xl mx-auto px-3 sm:px-4 pb-10">
+    {/* Header skeleton */}
+    <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-8 gap-4">
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 bg-gray-200 dark:bg-gray-700 rounded-xl animate-pulse" />
+        <div>
+          <div className="w-40 h-7 bg-gray-200 dark:bg-gray-700 rounded animate-pulse mb-1" />
+          <div className="w-56 h-4 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+        </div>
+      </div>
+    </div>
+
+    {/* Quick Overview skeleton */}
+    <div className="mb-8">
+      <div className="w-24 h-4 bg-gray-200 dark:bg-gray-700 rounded animate-pulse mb-4" />
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {[1, 2, 3].map(i => (
+          <div key={i} className="bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700 rounded-2xl p-5 sm:p-6">
+            <div className="flex items-start justify-between mb-4">
+              <div className="w-12 h-12 bg-gray-200 dark:bg-gray-700 rounded-xl animate-pulse" />
+              <div className="w-5 h-5 bg-gray-200 dark:bg-gray-700 rounded-full animate-pulse" />
+            </div>
+            <div className="w-28 h-3 bg-gray-200 dark:bg-gray-700 rounded animate-pulse mb-3" />
+            <div className="space-y-2">
+              <div className="flex justify-between">
+                <div className="w-16 h-4 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+                <div className="w-20 h-5 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+              </div>
+              <div className="flex justify-between">
+                <div className="w-16 h-4 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+                <div className="w-20 h-5 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+
+    {/* Cards skeleton */}
+    {[1, 2, 3].map(row => (
+      <div key={row} className="mb-8">
+        <div className="w-32 h-4 bg-gray-200 dark:bg-gray-700 rounded animate-pulse mb-4" />
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          {[1, 2, 3, 4, 5].map(card => (
+            <div key={card} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-4">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 bg-gray-200 dark:bg-gray-700 rounded-xl animate-pulse" />
+                <div className="flex-1">
+                  <div className="w-20 h-3 bg-gray-200 dark:bg-gray-700 rounded animate-pulse mb-1" />
+                  <div className="w-16 h-5 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    ))}
+  </div>
+);
+
 const DashboardPage: React.FC = () => {
   const { t, i18n } = useTranslation();
   const isUrdu = i18n.language === 'ur';
-  const [summary, setSummary] = useState<DashboardSummary>({});
-  const [loading, setLoading] = useState(true);
+  const [summary, setSummary] = useState<DashboardSummary>(() => {
+    // Try to load from localStorage cache immediately
+    try {
+      const cached = localStorage.getItem(LS_CACHE_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Date.now() - parsed.timestamp < LS_CACHE_TTL) {
+          return parsed.data;
+        }
+      }
+    } catch {}
+    return {};
+  });
+  // If we have cached data, don't show skeleton - show data immediately
+  const hasCachedData = Object.keys(summary).length > 0;
+  const [loading, setLoading] = useState(!hasCachedData);
   const [modal, setModal] = useState<ModalState | null>(null);
   const [summaryModal, setSummaryModal] = useState<SummaryModalState | null>(null);
 
-  // Quick stats data
-  const [todayRevenue, setTodayRevenue] = useState<number | null>(null);
-  const [todayProfit, setTodayProfit] = useState<number | null>(null);
-  const [monthRevenue, setMonthRevenue] = useState<number | null>(null);
-  const [monthProfit, setMonthProfit] = useState<number | null>(null);
-  const [pendingTotal, setPendingTotal] = useState<number | null>(null);
+  // Quick stats data - derive from summary if available
+  const todayRevenue = summary.todayRevenue ?? null;
+  const todayProfit = summary.todayProfit ?? null;
+  const monthRevenue = summary.monthRevenue ?? null;
+  const monthProfit = summary.monthProfit ?? null;
+  const pendingTotal = summary.pendingTotal ?? summary.totalPending ?? null;
 
   useEffect(() => {
     document.title = `${t('dashboard')} | ${APP_CONFIG.companyName}`;
@@ -60,40 +144,28 @@ const DashboardPage: React.FC = () => {
     let cancelled = false;
     setLoading(true);
     
-    // Set a timeout to force loading to false after 8 seconds max
+    // Set a timeout to force loading to false after 5 seconds max (reduced from 8)
     const forceTimeout = setTimeout(() => {
       if (!cancelled) {
         console.warn('⚠️ Dashboard loading timeout - forcing display');
         setLoading(false);
       }
-    }, 8000);
+    }, 5000);
     
-    // Use Promise.allSettled so one failure doesn't block others
-    Promise.allSettled([
-      api.get('/dashboard/summary'),
-      api.get('/accounting/today'),
-      api.get('/accounting/month'),
-      api.get('/accounting/pending-total'),
-    ])
-      .then((results) => {
+    // Now only make ONE API call - /dashboard/summary includes all data
+    api.get('/dashboard/summary')
+      .then((res) => {
         if (cancelled) return;
+        const data = res.data || {};
+        setSummary(data);
         
-        const [summaryRes, todayRes, monthRes, pendingRes] = results;
-        
-        if (summaryRes.status === 'fulfilled') {
-          setSummary(summaryRes.value.data || {});
-        }
-        if (todayRes.status === 'fulfilled') {
-          setTodayRevenue(todayRes.value.data.revenue ?? null);
-          setTodayProfit(todayRes.value.data.profit ?? null);
-        }
-        if (monthRes.status === 'fulfilled') {
-          setMonthRevenue(monthRes.value.data.revenue ?? null);
-          setMonthProfit(monthRes.value.data.profit ?? null);
-        }
-        if (pendingRes.status === 'fulfilled') {
-          setPendingTotal(pendingRes.value.data.pending_total ?? null);
-        }
+        // Cache in localStorage
+        try {
+          localStorage.setItem(LS_CACHE_KEY, JSON.stringify({
+            data,
+            timestamp: Date.now()
+          }));
+        } catch {}
       })
       .finally(() => {
         if (!cancelled) {
@@ -455,7 +527,16 @@ const DashboardPage: React.FC = () => {
             {isUrdu ? 'آج کی واجب الادا اقساط' : "Today's Due Installments"}
           </h2>
         </div>
-        <InstallmentDetailTable type="today-due" isUrdu={isUrdu} />
+        <Suspense fallback={
+          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm p-8 flex items-center justify-center">
+            <div className="flex flex-col items-center gap-3">
+              <div className="w-8 h-8 border-4 border-gray-900 dark:border-white border-t-transparent rounded-full animate-spin" />
+              <p className="text-sm text-gray-400">{isUrdu ? 'لوڈ ہو رہا ہے...' : 'Loading...'}</p>
+            </div>
+          </div>
+        }>
+          <InstallmentDetailTable type="today-due" isUrdu={isUrdu} />
+        </Suspense>
       </div>
 
       {/* Row 5: Overdue Installments - Professional Detail Table */}
@@ -466,7 +547,16 @@ const DashboardPage: React.FC = () => {
             {isUrdu ? 'تاخیر شدہ اقساط' : 'Overdue Installments'}
           </h2>
         </div>
-        <InstallmentDetailTable type="overdue" isUrdu={isUrdu} />
+        <Suspense fallback={
+          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm p-8 flex items-center justify-center">
+            <div className="flex flex-col items-center gap-3">
+              <div className="w-8 h-8 border-4 border-gray-900 dark:border-white border-t-transparent rounded-full animate-spin" />
+              <p className="text-sm text-gray-400">{isUrdu ? 'لوڈ ہو رہا ہے...' : 'Loading...'}</p>
+            </div>
+          </div>
+        }>
+          <InstallmentDetailTable type="overdue" isUrdu={isUrdu} />
+        </Suspense>
       </div>
 
       {/* Modals */}
