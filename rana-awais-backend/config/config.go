@@ -3,6 +3,7 @@ package config
 import (
 	"log"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -89,8 +90,22 @@ type Config struct {
 
 // Load reads configuration from environment variables (or a .env file).
 func Load() *Config {
-	// Try loading .env file first
-	if err := godotenv.Load(); err != nil {
+	// Try loading .env file from multiple locations
+	envPaths := []string{
+		".env",
+		filepath.Join("rana-awais-backend", ".env"),
+		filepath.Join(filepath.Dir(os.Args[0]), ".env"),
+		filepath.Join(filepath.Dir(os.Args[0]), "..", "..", ".env"),
+	}
+	loaded := false
+	for _, path := range envPaths {
+		if err := godotenv.Load(path); err == nil {
+			log.Printf("✅ Loaded .env from: %s", path)
+			loaded = true
+			break
+		}
+	}
+	if !loaded {
 		log.Println("ℹ️  No .env file found, using system environment variables...")
 	}
 

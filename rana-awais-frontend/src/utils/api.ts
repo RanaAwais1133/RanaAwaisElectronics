@@ -29,8 +29,12 @@ export interface PaginatedResponse<T = any> {
 }
 
 // ✅ Base URL Configuration
+// IMPORTANT: REACT_APP_API_URL should be the FULL backend URL including /api
+// Example: http://localhost:8080/api  OR  https://your-backend.com/api
+// Do NOT include trailing slash
 const rawBaseURL = process.env.REACT_APP_API_URL || 'http://localhost:8080';
-const baseURL = rawBaseURL.endsWith('/api') ? rawBaseURL : `${rawBaseURL.replace(/\/+$/, '')}/api`;
+// Remove trailing slash if present, then ensure /api is appended
+const baseURL = rawBaseURL.endsWith('/api') ? rawBaseURL.replace(/\/+$/, '') : `${rawBaseURL.replace(/\/+$/, '')}/api`;
 
 // ✅ Create axios instance
 const api: AxiosInstance = axios.create({

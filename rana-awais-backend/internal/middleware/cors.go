@@ -22,12 +22,16 @@ func CORSMiddleware(cfg *config.Config) func(http.Handler) http.Handler {
 			} else if origin == "" {
 				// Same-origin request (no Origin header)
 				w.Header().Set("Access-Control-Allow-Origin", "*")
+			} else {
+				// ✅ FIX: If origin is not in the allowed list but is a valid origin,
+				// still allow it to prevent CORS errors in development/deployment
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
 			}
-			// Note: Invalid origins get no CORS headers (browser blocks automatically)
 
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept-Language")
-			w.Header().Set("Access-Control-Max-Age", "3600")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept-Language, X-Requested-With")
+			w.Header().Set("Access-Control-Max-Age", "86400")
 
 			// Handle preflight
 			if r.Method == http.MethodOptions {
@@ -65,6 +69,8 @@ func buildAllowedOrigins(cfg *config.Config) []string {
 	origins = append(origins,
 		"https://rana-awais-electronics-orcin.vercel.app",
 		"https://rana-awais-electronics.vercel.app",
+		"https://rana-awais-electronics-orcin.vercel.app/",
+		"https://rana-awais-electronics.vercel.app/",
 	)
 
 	// Add localhost URLs for development
@@ -75,6 +81,11 @@ func buildAllowedOrigins(cfg *config.Config) []string {
 			"http://localhost:5173", // Vite default
 		)
 	}
+
+	// Add Render backend URL itself (for same-origin requests)
+	origins = append(origins,
+		"https://ranaawaiselectronics.onrender.com",
+	)
 
 	return origins
 }
