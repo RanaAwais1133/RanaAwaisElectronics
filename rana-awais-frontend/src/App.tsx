@@ -73,7 +73,6 @@ const AppContent: React.FC = () => {
 
       <BrowserRouter
         future={{
-          v7_startTransition: true,
           v7_relativeSplatPath: true,
         }}
       >
