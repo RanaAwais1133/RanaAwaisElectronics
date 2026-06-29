@@ -45,7 +45,7 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
     if (first.product_name || first.item_name || first.category || first.stock !== undefined || first.quantity !== undefined) {
       if (first.phone === undefined && first.customer_name === undefined) return 'products';
     }
-    if (first.customer_name || first.name_urdu || first.father_name) return 'customers';
+    if (first.customer_name || first.name_urdu || first.father_name || first.fatherName) return 'customers';
     if (first.installment_no !== undefined || first.plan_id) return 'installments';
     if (first.transaction_date || first.payment_method) return 'payments';
     if (first.quantity !== undefined || first.purchase_price) return 'inventory';
@@ -163,13 +163,13 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
       const vals = cols.fields.map(f => {
         switch (f) {
           case 'name': return displayName(item, isUrdu);
-          case 'father_name': return item.father_name || '—';
+          case 'father_name': return item.father_name || item.fatherName || '—';
           case 'phone': return item.phone || item.customer_phone || '—';
           case 'address': return isUrdu ? (item.address_urdu || item.address || '—') : (item.address || '—');
           case 'amount': return `Rs. ${Number(item.amount || item.total || item.pending_amount || item.price || item.purchase_price || 0).toLocaleString()}`;
-          case 'date': return item.due_date ? new Date(item.due_date).toLocaleDateString() : item.date || item.created_at ? new Date(item.created_at).toLocaleDateString() : '—';
+          case 'date': return item.due_date ? new Date(item.due_date).toLocaleDateString() : item.date || item.createdAt || item.created_at ? new Date(item.createdAt || item.created_at || item.date).toLocaleDateString() : '—';
           case 'category': return item.category || '—';
-          case 'stock': return String(item.stock ?? item.quantity ?? item.current_stock ?? '—');
+          case 'stock': return String(item.stockCount ?? item.stock ?? item.quantity ?? item.current_stock ?? '—');
           case 'price': return `Rs. ${Number(item.price || item.purchase_price || item.selling_price || 0).toLocaleString()}`;
           case 'quantity': return String(item.quantity ?? item.stock ?? '—');
           case 'total': return `Rs. ${Number((item.quantity || 0) * (item.purchase_price || 0)).toLocaleString()}`;
@@ -228,7 +228,7 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
                 )}
               </td>
               <td className="px-4 py-3">
-                <span className="text-xs text-gray-600 dark:text-gray-300">{item.father_name || '—'}</span>
+                <span className="text-xs text-gray-600 dark:text-gray-300">{item.father_name || item.fatherName || '—'}</span>
               </td>
               <td className="px-4 py-3">
                 <span className="font-mono text-xs text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-700/50 px-2 py-1 rounded">
@@ -247,7 +247,7 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
               </td>
               <td className="px-4 py-3 text-center">
                 <span className="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50 px-2 py-1 rounded">
-                  {item.created_at ? new Date(item.created_at).toLocaleDateString() : '—'}
+                  {item.created_at || item.createdAt ? new Date(item.created_at || item.createdAt).toLocaleDateString() : '—'}
                 </span>
               </td>
             </tr>
@@ -267,8 +267,8 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
                 <span className="text-xs text-gray-600 dark:text-gray-300">{item.category || '—'}</span>
               </td>
               <td className="px-4 py-3 text-center">
-                <span className={`text-xs font-semibold px-2 py-1 rounded ${(item.stock ?? item.quantity ?? 0) <= 5 ? 'text-red-600 bg-red-50 dark:bg-red-900/30' : 'text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30'}`}>
-                  {item.stock ?? item.quantity ?? item.current_stock ?? '—'}
+                <span className={`text-xs font-semibold px-2 py-1 rounded ${(item.stockCount ?? item.stock ?? item.quantity ?? 0) <= 5 ? 'text-red-600 bg-red-50 dark:bg-red-900/30' : 'text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30'}`}>
+                  {item.stockCount ?? item.stock ?? item.quantity ?? item.current_stock ?? '—'}
                 </span>
               </td>
               <td className="px-4 py-3 text-end">
@@ -278,7 +278,7 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
               </td>
               <td className="px-4 py-3 text-center">
                 <span className="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50 px-2 py-1 rounded">
-                  {item.created_at ? new Date(item.created_at).toLocaleDateString() : '—'}
+                  {item.createdAt || item.created_at ? new Date(item.createdAt || item.created_at).toLocaleDateString() : '—'}
                 </span>
               </td>
             </tr>
@@ -309,7 +309,7 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
               </td>
               <td className="px-4 py-3 text-center">
                 <span className="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50 px-2 py-1 rounded">
-                  {item.created_at ? new Date(item.created_at).toLocaleDateString() : '—'}
+                  {item.createdAt || item.created_at ? new Date(item.createdAt || item.created_at).toLocaleDateString() : '—'}
                 </span>
               </td>
             </tr>
@@ -361,7 +361,7 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
               </td>
               <td className="px-4 py-3 text-center">
                 <span className="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50 px-2 py-1 rounded">
-                  {item.due_date ? new Date(item.due_date).toLocaleDateString() : (item.created_at ? new Date(item.created_at).toLocaleDateString() : '—')}
+                  {item.due_date ? new Date(item.due_date).toLocaleDateString() : (item.createdAt || item.created_at ? new Date(item.createdAt || item.created_at).toLocaleDateString() : '—')}
                 </span>
               </td>
               <td className="px-4 py-3 text-center">
@@ -458,7 +458,7 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
               </td>
               <td className="px-4 py-3 text-center">
                 <span className="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50 px-2 py-1 rounded">
-                  {item.transaction_date ? new Date(item.transaction_date).toLocaleDateString() : (item.created_at ? new Date(item.created_at).toLocaleDateString() : '—')}
+                  {item.transaction_date ? new Date(item.transaction_date).toLocaleDateString() : (item.createdAt || item.created_at ? new Date(item.createdAt || item.created_at).toLocaleDateString() : '—')}
                 </span>
               </td>
             </tr>
@@ -481,7 +481,7 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
               </td>
               <td className="px-4 py-3 text-center">
                 <span className="text-xs text-gray-500 dark:text-gray-400">
-                  {item.created_at ? new Date(item.created_at).toLocaleDateString() : '—'}
+                  {item.createdAt || item.created_at ? new Date(item.createdAt || item.created_at).toLocaleDateString() : '—'}
                 </span>
               </td>
             </tr>
