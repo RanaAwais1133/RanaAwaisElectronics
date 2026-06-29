@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
-import api from '../../utils/api';
+import api, { changePassword } from '../../utils/api';
 import UserManagement from '../users/userManagement';
 import { APP_CONFIG } from '../../config/app';
 import { useAuthStore } from '../../store/useAuthStore';
@@ -15,6 +15,15 @@ const SettingsPage: React.FC = () => {
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
+  
+  // ✅ Password change state
+  const [showPasswordForm, setShowPasswordForm] = useState(false);
+  const [oldPassword, setOldPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState('');
+
 
   // ✅ Page title
   useEffect(() => {
@@ -101,8 +110,46 @@ const SettingsPage: React.FC = () => {
     localStorage.setItem('theme', isDark ? 'dark' : 'light');
   }, []);
 
+  // ✅ Handle password change
+  const handlePasswordChange = useCallback(async () => {
+    // Reset error
+    setPasswordError('');
+
+    // Validate
+    if (!oldPassword || !newPassword || !confirmPassword) {
+      setPasswordError(isUrdu ? 'براہ کرم تمام فیلڈز پُر کریں' : 'Please fill in all fields');
+      return;
+    }
+    if (newPassword.length < 4) {
+      setPasswordError(isUrdu ? 'نیا پاس ورڈ کم از کم 4 حروف کا ہو' : 'New password must be at least 4 characters');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError(isUrdu ? 'نیا پاس ورڈ اور تصدیق مماثل نہیں ہیں' : 'New passwords do not match');
+      return;
+    }
+
+    setIsChangingPassword(true);
+    try {
+      await changePassword(oldPassword, newPassword);
+      toast.success(isUrdu ? 'پاس ورڈ کامیابی سے تبدیل ہو گیا' : 'Password changed successfully');
+      // Reset form
+      setOldPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setShowPasswordForm(false);
+    } catch (err: any) {
+      const errorMsg = err.response?.data?.error || err.response?.data?.message || 
+                       (isUrdu ? 'پاس ورڈ تبدیل نہیں ہو سکا' : 'Failed to change password');
+      setPasswordError(errorMsg);
+    } finally {
+      setIsChangingPassword(false);
+    }
+  }, [oldPassword, newPassword, confirmPassword, isUrdu]);
+
   // ✅ Check if user is admin
   const isAdmin = currentUser?.role === 'admin';
+
 
   return (
     <div className="min-h-screen flex flex-col justify-center max-w-4xl mx-auto space-y-6 px-3 sm:px-4 py-6">
@@ -202,8 +249,114 @@ const SettingsPage: React.FC = () => {
         </div>
       </div>
 
+      {/* ✅ Password Change Card */}
+      <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-sm border border-gray-200/60 dark:border-gray-700/60 overflow-hidden">
+        <div className="p-6">
+          <div className="flex items-start gap-4">
+            <div className="p-3 bg-amber-100 dark:bg-amber-900/30 rounded-xl">
+              <svg className="w-6 h-6 text-amber-600 dark:text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+            </div>
+            <div className="flex-1">
+              <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-800 dark:text-white">
+                    {isUrdu ? 'پاس ورڈ تبدیل کریں' : 'Change Password'}
+                  </h2>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                    {isUrdu ? 'اپنا پاس ورڈ تبدیل کریں' : 'Update your account password'}
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowPasswordForm(!showPasswordForm);
+                    setPasswordError('');
+                  }}
+                  className="px-5 py-2.5 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white rounded-2xl text-sm font-semibold shadow-lg shadow-amber-500/25 transition-all active:scale-95 whitespace-nowrap"
+                >
+                  {showPasswordForm ? (isUrdu ? 'منسوخ کریں' : 'Cancel') : (isUrdu ? 'پاس ورڈ تبدیل کریں' : 'Change Password')}
+                </button>
+              </div>
+
+              {showPasswordForm && (
+                <div className="mt-5 border-t border-gray-200 dark:border-gray-700 pt-5">
+                  <div className="space-y-4 max-w-md">
+                    {/* Old Password */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        {isUrdu ? 'پرانا پاس ورڈ' : 'Old Password'}
+                      </label>
+                      <input
+                        type="password"
+                        value={oldPassword}
+                        onChange={(e) => setOldPassword(e.target.value)}
+                        placeholder={isUrdu ? 'پرانا پاس ورڈ درج کریں' : 'Enter old password'}
+                        className="w-full px-4 py-2.5 rounded-2xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:ring-2 focus:ring-amber-500 focus:border-transparent outline-none transition-all text-sm"
+                      />
+                    </div>
+
+                    {/* New Password */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        {isUrdu ? 'نیا پاس ورڈ' : 'New Password'}
+                      </label>
+                      <input
+                        type="password"
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        placeholder={isUrdu ? 'نیا پاس ورڈ درج کریں' : 'Enter new password'}
+                        className="w-full px-4 py-2.5 rounded-2xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:ring-2 focus:ring-amber-500 focus:border-transparent outline-none transition-all text-sm"
+                      />
+                    </div>
+
+                    {/* Confirm New Password */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        {isUrdu ? 'نیا پاس ورڈ کی تصدیق کریں' : 'Confirm New Password'}
+                      </label>
+                      <input
+                        type="password"
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        placeholder={isUrdu ? 'نیا پاس ورڈ دوبارہ درج کریں' : 'Re-enter new password'}
+                        className="w-full px-4 py-2.5 rounded-2xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:ring-2 focus:ring-amber-500 focus:border-transparent outline-none transition-all text-sm"
+                      />
+                    </div>
+
+                    {/* Error message */}
+                    {passwordError && (
+                      <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-2xl">
+                        <p className="text-sm text-red-600 dark:text-red-400">{passwordError}</p>
+                      </div>
+                    )}
+
+                    {/* Submit button */}
+                    <button
+                      onClick={handlePasswordChange}
+                      disabled={isChangingPassword}
+                      className="w-full px-6 py-3 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 disabled:from-amber-400 disabled:to-amber-400 text-white rounded-2xl text-sm font-semibold shadow-lg shadow-amber-500/25 transition-all active:scale-95 disabled:cursor-not-allowed"
+                    >
+                      {isChangingPassword ? (
+                        <span className="flex items-center justify-center gap-2">
+                          <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                          {isUrdu ? 'ہو رہا ہے...' : 'Changing...'}
+                        </span>
+                      ) : (
+                        isUrdu ? 'پاس ورڈ تبدیل کریں' : 'Update Password'
+                      )}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* ✅ Backup & Restore Card */}
       <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-sm border border-gray-200/60 dark:border-gray-700/60 overflow-hidden">
+
         <div className="p-6">
           <div className="flex items-start gap-4">
             <div className="p-3 bg-emerald-100 dark:bg-emerald-900/30 rounded-xl">

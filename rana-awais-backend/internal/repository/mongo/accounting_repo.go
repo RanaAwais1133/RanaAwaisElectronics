@@ -101,40 +101,50 @@ func (r *AccountingRepository) GetSoldItems(ctx context.Context, start, end time
 	return items, nil
 }
 
-// GetRevenueAndProfit calculates revenue and profit from actual data
+// GetRevenueAndProfit calculates revenue and profit from actual data using MongoDB aggregation
 func (r *AccountingRepository) GetRevenueAndProfit(ctx context.Context, start, end time.Time) (revenue float64, profit float64, err error) {
-	// Get all payments in date range
-	filter := bson.M{
-		"transaction_date": bson.M{
-			"$gte": start,
-			"$lte": end,
-		},
+	// Use aggregation to sum payments in one query
+	payPipeline := mongo.Pipeline{
+		{{Key: "$match", Value: bson.M{
+			"transaction_date": bson.M{
+				"$gte": start,
+				"$lte": end,
+			},
+		}}},
+		{{Key: "$group", Value: bson.M{
+			"_id":   nil,
+			"total": bson.M{"$sum": "$amount"},
+		}}},
 	}
-	cursor, err := r.payColl.Find(ctx, filter)
+	payCursor, err := r.payColl.Aggregate(ctx, payPipeline)
 	if err != nil {
 		return 0, 0, err
 	}
-	defer cursor.Close(ctx)
+	defer payCursor.Close(ctx)
 
-	var payments []domain.Payment
-	if err = cursor.All(ctx, &payments); err != nil {
-		return 0, 0, err
+	var payResults []struct {
+		Total float64 `bson:"total"`
+	}
+	if payCursor.All(ctx, &payResults) == nil && len(payResults) > 0 {
+		revenue = payResults[0].Total
 	}
 
-	// Calculate revenue (sum of all payments)
-	for _, p := range payments {
-		revenue += p.Amount
+	// Use aggregation to calculate profit from sold items in one query
+	soldPipeline := mongo.Pipeline{
+		{{Key: "$match", Value: bson.M{
+			"status": "sold",
+			"sold_date": bson.M{
+				"$gte": start,
+				"$lte": end,
+			},
+		}}},
+		{{Key: "$group", Value: bson.M{
+			"_id":          nil,
+			"totalCost":    bson.M{"$sum": "$purchase_price"},
+			"totalSelling": bson.M{"$sum": "$selling_price"},
+		}}},
 	}
-
-	// Calculate profit from sold items (actual purchase vs selling price)
-	soldFilter := bson.M{
-		"status": "sold",
-		"sold_date": bson.M{
-			"$gte": start,
-			"$lte": end,
-		},
-	}
-	soldCursor, err := r.invColl.Find(ctx, soldFilter)
+	soldCursor, err := r.invColl.Aggregate(ctx, soldPipeline)
 	if err != nil {
 		// Fallback: if can't get cost, assume 30% margin
 		profit = revenue * 0.30
@@ -142,28 +152,17 @@ func (r *AccountingRepository) GetRevenueAndProfit(ctx context.Context, start, e
 	}
 	defer soldCursor.Close(ctx)
 
-	var soldItems []domain.InventoryItem
-	if err = soldCursor.All(ctx, &soldItems); err != nil || len(soldItems) == 0 {
-		profit = revenue * 0.30
-		return revenue, profit, nil
+	var soldResults []struct {
+		TotalCost    float64 `bson:"totalCost"`
+		TotalSelling float64 `bson:"totalSelling"`
 	}
-
-	// Calculate actual profit: selling price - purchase price
-	var totalCost float64
-	var totalSelling float64
-	for _, item := range soldItems {
-		if item.PurchasePrice > 0 {
-			totalCost += item.PurchasePrice
+	if soldCursor.All(ctx, &soldResults) == nil && len(soldResults) > 0 {
+		if soldResults[0].TotalSelling > 0 && soldResults[0].TotalCost > 0 {
+			profit = soldResults[0].TotalSelling - soldResults[0].TotalCost
+		} else {
+			profit = revenue * 0.30
 		}
-		if item.SellingPrice > 0 {
-			totalSelling += item.SellingPrice
-		}
-	}
-
-	if totalSelling > 0 && totalCost > 0 {
-		profit = totalSelling - totalCost
 	} else {
-		// Fallback if prices not set
 		profit = revenue * 0.30
 	}
 

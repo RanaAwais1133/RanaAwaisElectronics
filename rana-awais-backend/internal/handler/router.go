@@ -1,14 +1,12 @@
 package handler
 
 import (
-	"fmt"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/config"
-	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/domain"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/middleware"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/service"
 	"go.mongodb.org/mongo-driver/bson"
@@ -67,7 +65,7 @@ func SetupRouter(
 	// Password change (any authenticated user)
 	protected.HandleFunc("/auth/change-password", userH.ChangePassword).Methods("POST")
 
-	// Audit logs
+	// Audit logs - OPTIMIZED: Use aggregation with $lookup instead of N+1 queries
 	protected.HandleFunc("/audit-logs", func(w http.ResponseWriter, r *http.Request) {
 		db := config.DB
 		coll := db.Collection(config.ColAuditLogs)
@@ -86,49 +84,49 @@ func SetupRouter(
 		totalCount, _ := coll.CountDocuments(r.Context(), bson.M{})
 
 		skip := int64((page - 1) * limit)
-		cursor, err := coll.Find(r.Context(), bson.M{}, options.Find().SetSort(bson.M{"timestamp": -1}).SetSkip(skip).SetLimit(int64(limit)))
+
+		// OPTIMIZED: Use aggregation with $lookup instead of N+1 queries
+		pipeline := mongo.Pipeline{
+			{{Key: "$sort", Value: bson.M{"timestamp": -1}}},
+			{{Key: "$skip", Value: skip}},
+			{{Key: "$limit", Value: int64(limit)}},
+			{{Key: "$lookup", Value: bson.M{
+				"from":         config.ColUsers,
+				"localField":   "user_id",
+				"foreignField": "_id",
+				"as":           "user",
+			}}},
+			{{Key: "$addFields", Value: bson.M{
+				"user_name": bson.M{
+					"$cond": bson.M{
+						"if": bson.M{"$gt": bson.A{bson.M{"$size": "$user"}, 0}},
+						"then": bson.M{"$ifNull": bson.A{
+							bson.M{"$arrayElemAt": bson.A{"$user.display_name", 0}},
+							bson.M{"$arrayElemAt": bson.A{"$user.username", 0}},
+						}},
+						"else": "",
+					},
+				},
+			}}},
+			{{Key: "$project", Value: bson.M{"user": 0}}},
+		}
+
+		cursor, err := coll.Aggregate(r.Context(), pipeline)
 		if err != nil {
 			respondError(w, r, http.StatusInternalServerError, "Failed to load logs", "لاگز لوڈ نہیں ہوئے")
 			return
 		}
-		var rawLogs []bson.M
-		if err = cursor.All(r.Context(), &rawLogs); err != nil {
+		defer cursor.Close(r.Context())
+
+		var enriched []bson.M
+		if err = cursor.All(r.Context(), &enriched); err != nil {
 			respondError(w, r, http.StatusInternalServerError, "Failed to load logs", "لاگز لوڈ نہیں ہوئے")
 			return
 		}
-
-		userColl := db.Collection(config.ColUsers)
-		var enriched []map[string]interface{}
-		for _, log := range rawLogs {
-			userId := ""
-			switch v := log["user_id"].(type) {
-			case string:
-				userId = v
-			case primitive.ObjectID:
-				userId = v.Hex()
-			default:
-				if v != nil {
-					userId = fmt.Sprintf("%v", v)
-				}
-			}
-			userName := ""
-			if userId != "" {
-				if oid, err := primitive.ObjectIDFromHex(userId); err == nil {
-					var user domain.User
-					if userColl.FindOne(r.Context(), bson.M{"_id": oid}).Decode(&user) == nil {
-						userName = user.DisplayName
-						if userName == "" {
-							userName = user.Username
-						}
-					}
-				}
-			}
-			if userName == "" && userId != "" {
-				userName = userId[:8] + "..."
-			}
-			log["user_name"] = userName
-			enriched = append(enriched, log)
+		if enriched == nil {
+			enriched = []bson.M{}
 		}
+
 		respondJSON(w, http.StatusOK, map[string]interface{}{
 			"logs":  enriched,
 			"total": totalCount,
@@ -696,8 +694,8 @@ func SetupRouter(
 	protected.HandleFunc("/receipts/print/{payment_id}", receiptH.PrintReceipt).Methods("POST")
 	protected.HandleFunc("/receipts/download/{plan_id}", receiptH.DownloadReceipt).Methods("GET")
 
-	// Dashboard
-	protected.HandleFunc("/dashboard/summary", dashboardH.Summary).Methods("GET")
+	// Dashboard - with caching
+	protected.Handle("/dashboard/summary", middleware.DashboardCache.CacheResponse(http.HandlerFunc(dashboardH.Summary))).Methods("GET")
 	protected.HandleFunc("/dashboard/overdue", dashboardH.OverdueDetails).Methods("GET")
 	protected.HandleFunc("/dashboard/today-due", dashboardH.TodayDueDetails).Methods("GET")
 	protected.HandleFunc("/dashboard/low-stock", dashboardH.LowStockDetails).Methods("GET")

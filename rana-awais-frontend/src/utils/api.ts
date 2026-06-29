@@ -6,6 +6,10 @@ const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 2000; // Start with 2 seconds, will increase exponentially
 const RETRYABLE_STATUSES = [429, 503, 502];
 
+// ✅ Response cache - caches GET responses to avoid redundant network calls
+const responseCache = new Map<string, { data: any; timestamp: number }>();
+const CACHE_TTL_MS = 30000; // 30 seconds cache lifetime
+
 // ✅ Request deduplication - prevents the same in-flight request from being made multiple times
 const pendingRequests = new Map<string, Promise<any>>();
 
@@ -46,7 +50,7 @@ const api: AxiosInstance = axios.create({
   },
 });
 
-// ✅ Request Interceptor - Attach JWT token and deduplicate GET requests
+// ✅ Request Interceptor - Attach JWT token, check cache, and deduplicate GET requests
 api.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
     // Try multiple storage keys for compatibility
@@ -59,9 +63,23 @@ api.interceptors.request.use(
     const lang = localStorage.getItem('i18nextLng') || localStorage.getItem('language') || 'ur';
     config.headers['Accept-Language'] = lang;
     
-    // ✅ Deduplicate GET requests - if the same GET request is already in-flight, return the existing promise
+    // ✅ Check response cache for GET requests
     if (config.method?.toLowerCase() === 'get') {
       const key = getRequestKey(config);
+      const cached = responseCache.get(key);
+      if (cached && (Date.now() - cached.timestamp) < CACHE_TTL_MS) {
+        // Return cached response as a resolved promise
+        return Promise.resolve({
+          ...config,
+          data: cached.data,
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          config,
+        } as any);
+      }
+      
+      // ✅ Deduplicate GET requests - if the same GET request is already in-flight, return the existing promise
       const pending = pendingRequests.get(key);
       if (pending) {
         // Cancel this duplicate request and return the existing promise
@@ -92,14 +110,15 @@ api.request = function(config: any) {
   return originalRequest(config);
 } as typeof api.request;
 
-// ✅ Response Interceptor - Handle errors with retry for 429, cleanup pending requests
+// ✅ Response Interceptor - Cache GET responses, handle errors with retry for 429, cleanup pending requests
 api.interceptors.response.use(
   (response) => {
-    // ✅ Cleanup pending request after successful response
+    // ✅ Cache successful GET responses
     const config = response.config as any;
     if (config.method?.toLowerCase() === 'get') {
       const key = getRequestKey(config);
       pendingRequests.delete(key);
+      responseCache.set(key, { data: response.data, timestamp: Date.now() });
     }
     return response;
   },
@@ -177,6 +196,9 @@ export const logout = () =>
 
 export const getCurrentUser = () =>
   api.get('/auth/me').then(res => res.data);
+
+export const changePassword = (oldPassword: string, newPassword: string) =>
+  api.post('/auth/change-password', { oldPassword, newPassword }).then(res => res.data);
 
 // ============================================================
 // ✅ CUSTOMERS

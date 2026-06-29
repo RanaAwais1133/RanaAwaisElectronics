@@ -1,23 +1,25 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { Routes, Route, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import Navbar from './Navbar';
 import Sidebar from './Sidebar';
-import DashboardPage from '../../features/dashboard/DashboardPage';
-import CustomerList from '../../features/customers/CustomerList';
-import ProductList from '../../features/products/ProductList';
-import InstallmentList from '../../features/installments/InstallmentList';
-import InstallmentCreate from '../../features/installments/InstallmentCreate';
-import GuarantorList from '../../features/guarantors/GuarantorList';
-import ReportsPage from '../../features/reports/ReportsPage';
-import NotificationPage from '../../features/notifications/NotificationPage';
-import ReminderPage from '../../features/reminders/ReminderPage';
-import SettingsPage from '../../features/settings/SettingPage';
-import AuditLogsPage from '../../features/audit/AuditLogsPage';
-import NotFoundPage from '../../pages/NotFoundPage';
 import RequireRole from '../auth/RequireRole';
 import { useShortcuts } from '../../hooks/useShortcuts';
 import { APP_CONFIG } from '../../config/app';
+
+// ✅ Lazy load all page components for code splitting
+const DashboardPage = lazy(() => import('../../features/dashboard/DashboardPage'));
+const CustomerList = lazy(() => import('../../features/customers/CustomerList'));
+const ProductList = lazy(() => import('../../features/products/ProductList'));
+const InstallmentList = lazy(() => import('../../features/installments/InstallmentList'));
+const InstallmentCreate = lazy(() => import('../../features/installments/InstallmentCreate'));
+const GuarantorList = lazy(() => import('../../features/guarantors/GuarantorList'));
+const ReportsPage = lazy(() => import('../../features/reports/ReportsPage'));
+const NotificationPage = lazy(() => import('../../features/notifications/NotificationPage'));
+const ReminderPage = lazy(() => import('../../features/reminders/ReminderPage'));
+const SettingsPage = lazy(() => import('../../features/settings/SettingPage'));
+const AuditLogsPage = lazy(() => import('../../features/audit/AuditLogsPage'));
+const NotFoundPage = lazy(() => import('../../pages/NotFoundPage'));
 
 const MainLayout: React.FC = () => {
   useShortcuts();
@@ -83,6 +85,11 @@ const MainLayout: React.FC = () => {
       <div className="flex flex-1">
         <Sidebar isOpen={sidebarOpen} onClose={closeSidebar} />
         <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-screen-2xl mx-auto w-full overflow-x-hidden">
+          <Suspense fallback={
+            <div className="flex items-center justify-center h-64">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+            </div>
+          }>
           <Routes>
             <Route path="/" element={<DashboardPage />} />
             <Route path="/customers" element={
@@ -133,6 +140,7 @@ const MainLayout: React.FC = () => {
             } />
             <Route path="*" element={<NotFoundPage />} />
           </Routes>
+          </Suspense>
         </main>
       </div>
     </div>

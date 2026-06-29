@@ -8,6 +8,7 @@ import (
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/config"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 // DashboardHandler handles dashboard summary endpoints
@@ -523,7 +524,9 @@ func (h *DashboardHandler) RecentActivities(w http.ResponseWriter, r *http.Reque
 	db := config.DB
 	ctx := r.Context()
 
-	cursor, err := db.Collection(config.ColAuditLogs).Find(ctx, bson.M{}, nil)
+	// Sort by timestamp descending, limit to 50 most recent
+	findOptions := options.Find().SetSort(bson.M{"timestamp": -1}).SetLimit(50)
+	cursor, err := db.Collection(config.ColAuditLogs).Find(ctx, bson.M{}, findOptions)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "Failed to fetch activities", "ناکام")
 		return

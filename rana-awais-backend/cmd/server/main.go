@@ -72,6 +72,9 @@ func main() {
 	r.Use(middleware.LanguageMiddleware)
 	r.Use(middleware.LoggerMiddleware)
 
+	// Gzip compression for faster response times (up to 80% size reduction)
+	r.Use(middleware.GzipCompressionMiddleware)
+
 	// Rate limiting
 	rateLimitRequests := cfg.RateLimitRequests
 	if rateLimitRequests <= 0 {
