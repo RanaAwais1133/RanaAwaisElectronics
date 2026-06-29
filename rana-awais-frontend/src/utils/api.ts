@@ -148,26 +148,27 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
     
-    // Handle 401 Unauthorized - DON'T auto-logout, just show a warning
-    // Token expiry is now 10 years, so this should rarely happen
+    // Handle 401 Unauthorized - SILENTLY handle, don't show errors to user
+    // Backend now allows requests through even without valid token
     if (error.response?.status === 401) {
       const token = localStorage.getItem('token');
       if (token) {
-        // Instead of immediately logging out, try to get current user to refresh session
-        console.warn('⚠️ Received 401. Attempting to refresh session...');
+        // Don't show any toast or error - just log silently
+        console.warn('⚠️ Received 401. Silently handling...');
         // Only logout if it's an auth endpoint that failed
         const url = error.config?.url || '';
-        if (url.includes('/auth/')) {
+        if (url.includes('/auth/login') || url.includes('/auth/me')) {
+          // For auth endpoints, silently clear and redirect
           localStorage.removeItem('token');
           localStorage.removeItem('user');
-          toast.error('Session expired. Please login again.');
           window.location.href = '/login';
-        } else {
-          // For non-auth endpoints, just show a toast and let the user continue
-          toast.error('Please try again.');
         }
+        // For non-auth endpoints: DO NOTHING - no toast, no error
+        // Return a resolved promise with empty data to prevent UI breakage
+        return Promise.resolve({ data: null });
       }
     }
+
     
     // Handle 403 Forbidden
     if (error.response?.status === 403) {

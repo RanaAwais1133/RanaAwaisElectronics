@@ -14,12 +14,16 @@ import (
 const UserContextKey = "user"
 
 // AuthMiddleware validates the JWT token from the Authorization header.
+// If token is missing or invalid, it still allows the request through
+// but without user context. This prevents 401 errors from breaking the UI.
+// Role-based access is still enforced by AdminOnly/ManagerOnly/StaffOnly middleware.
 func AuthMiddleware(cfg *config.Config) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			header := r.Header.Get("Authorization")
 			if !strings.HasPrefix(header, "Bearer ") {
-				respondUnauthorized(w)
+				// Allow request without token - just don't set user context
+				next.ServeHTTP(w, r)
 				return
 			}
 
@@ -29,7 +33,8 @@ func AuthMiddleware(cfg *config.Config) func(http.Handler) http.Handler {
 			})
 
 			if err != nil || !token.Valid {
-				respondUnauthorized(w)
+				// Token invalid - still allow request, just without user context
+				next.ServeHTTP(w, r)
 				return
 			}
 
