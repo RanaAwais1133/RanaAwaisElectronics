@@ -79,9 +79,9 @@ type Config struct {
 	// ═══════════════════════════════════════
 	// 💰 FINE SETTINGS
 	// ═══════════════════════════════════════
-	FinePerDay      float64 `env:"FINE_PER_DAY" envDefault:"100"`
-	FineMaxPercent  float64 `env:"FINE_MAX_PERCENT" envDefault:"50"`
-	GracePeriodDays int     `env:"GRACE_PERIOD_DAYS" envDefault:"3"`
+	FinePerDay      float64 `env:"FINE_PER_DAY" envDefault:"0"`
+	FineMaxPercent  float64 `env:"FINE_MAX_PERCENT" envDefault:"0"`
+	GracePeriodDays int     `env:"GRACE_PERIOD_DAYS" envDefault:"0"`
 }
 
 // ═══════════════════════════════════════
@@ -160,9 +160,9 @@ func Load() *Config {
 		ThermalEndpoint: getEnv("THERMAL_ENDPOINT", ""),
 
 		// Fine Settings
-		FinePerDay:      getEnvAsFloat("FINE_PER_DAY", 100),
-		FineMaxPercent:  getEnvAsFloat("FINE_MAX_PERCENT", 50),
-		GracePeriodDays: getEnvAsInt("GRACE_PERIOD_DAYS", 3),
+		FinePerDay:      getEnvAsFloat("FINE_PER_DAY", 0),
+		FineMaxPercent:  getEnvAsFloat("FINE_MAX_PERCENT", 0),
+		GracePeriodDays: getEnvAsInt("GRACE_PERIOD_DAYS", 0),
 	}
 
 	// ✅ Set global instance
