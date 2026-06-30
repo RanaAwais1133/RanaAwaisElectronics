@@ -114,8 +114,9 @@ const InstallmentCreate: React.FC = () => {
   useEffect(() => {
     const total = parseFloat(totalAmount) || 0;
     const down = parseFloat(downPayment) || 0;
+    const adv = parseFloat(advanceAmount) || 0;
     const perMonth = parseFloat(perMonthInstallment) || 0;
-    const remaining = total - down;
+    const remaining = total - down - adv;
     
     if (remaining > 0 && perMonth > 0) {
       const calculatedMonths = Math.ceil(remaining / perMonth);
@@ -123,7 +124,7 @@ const InstallmentCreate: React.FC = () => {
     } else if (remaining <= 0) {
       setMonths(0);
     }
-  }, [totalAmount, downPayment, perMonthInstallment]);
+  }, [totalAmount, downPayment, advanceAmount, perMonthInstallment]);
 
   const calculateSchedule = useCallback(() => {
     if (!totalAmount) {

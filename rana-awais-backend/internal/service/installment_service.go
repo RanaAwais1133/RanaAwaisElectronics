@@ -88,8 +88,12 @@ func (s *InstallmentService) CreatePlan(ctx context.Context, plan *domain.Instal
 	if plan.DownPayment > plan.TotalAmount {
 		return errors.New("down payment cannot exceed total amount")
 	}
+	if plan.AdvanceAmount < 0 {
+		plan.AdvanceAmount = 0
+	}
+	// Remaining = Total - DownPayment - AdvanceAmount
 	if plan.RemainingAmount <= 0 {
-		plan.RemainingAmount = plan.TotalAmount - plan.DownPayment
+		plan.RemainingAmount = plan.TotalAmount - plan.DownPayment - plan.AdvanceAmount
 	}
 	if plan.RemainingAmount < 0 {
 		return errors.New("remaining amount cannot be negative")

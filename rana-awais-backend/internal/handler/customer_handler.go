@@ -182,12 +182,6 @@ func (h *CustomerHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if input.ProcessNo != "" {
 		existing.ProcessNo = input.ProcessNo
 	}
-	if input.ReprAsCost != "" {
-		existing.ReprAsCost = input.ReprAsCost
-	}
-	if input.ReprAsGar != "" {
-		existing.ReprAsGar = input.ReprAsGar
-	}
 	if input.PrepAC != "" {
 		existing.PrepAC = input.PrepAC
 	}

@@ -346,7 +346,6 @@ func getTodayProfit(ctx context.Context, db *mongo.Database, start, end time.Tim
 	pipeline := mongo.Pipeline{
 		{{Key: "$match", Value: bson.M{
 			"transaction_date": bson.M{"$gte": start, "$lt": end},
-			"type":             "installment",
 		}}},
 		{{Key: "$group", Value: bson.M{
 			"_id":   nil,

@@ -38,7 +38,7 @@ func (s *RescheduleService) CheckAndReschedule(ctx context.Context, planID primi
 		newPlan.StartDate = now
 		newPlan.EndDate = plan.EndDate.AddDate(0, 2, 0)
 		newPlan.NumberOfInstallments = plan.NumberOfInstallments + 2
-		newPlan.RemainingAmount = newPlan.TotalAmount - newPlan.DownPayment
+		newPlan.RemainingAmount = newPlan.TotalAmount - newPlan.DownPayment - newPlan.AdvanceAmount
 		newPlan.Installments = nil
 		newPlan.Status = "active"
 		return s.planRepo.Create(ctx, &newPlan)
