@@ -8,23 +8,13 @@ import { APP_CONFIG } from '../../config/app';
 import { useAuthStore } from '../../store/useAuthStore';
 
 interface PendingItem {
-  id: string;
+  customer_id: string;
   customer_name: string;
-  customer_urdu: string;
+  customer_name_urdu: string;
   father_name: string;
   phone: string;
-  product_name: string;
-  product_name_urdu: string;
-  total_amount: number;
-  down_payment: number;
-  remaining_amount: number;
-  num_installments: number;
-  installment_no: number;
-  due_date: string;
-  amount: number;
-  paid: boolean;
-  partial_paid: number;
-  status: string;
+  pending_amount: number;
+  installment_count: number;
 }
 
 const PendingReport: React.FC = () => {
@@ -52,24 +42,15 @@ const PendingReport: React.FC = () => {
     setLoading(true);
     setError('');
     try {
-      // Fetch pending total and overdue details in parallel
-      const [pendingRes, overdueRes] = await Promise.all([
-        api.get('/accounting/pending-total'),
-        api.get('/dashboard/overdue'),
-      ]);
+      // Fetch pending total with customer details
+      const res = await api.get('/accounting/pending-total');
 
-      setPendingTotal(pendingRes.data.pending_total || 0);
+      setPendingTotal(res.data.pending_total || 0);
 
-      const d = overdueRes.data;
+      const customers = res.data.customers;
       let list: PendingItem[] = [];
-      if (Array.isArray(d)) {
-        list = d;
-      } else if (d?.data && Array.isArray(d.data)) {
-        list = d.data;
-      } else if (d?.results && Array.isArray(d.results)) {
-        list = d.results;
-      } else if (d?.installments && Array.isArray(d.installments)) {
-        list = d.installments;
+      if (Array.isArray(customers)) {
+        list = customers;
       }
 
       setItems(list);
@@ -85,14 +66,13 @@ const PendingReport: React.FC = () => {
     const q = search.toLowerCase();
     return items.filter(i =>
       (i.customer_name || '').toLowerCase().includes(q) ||
-      (i.customer_urdu || '').includes(q) ||
-      (i.phone || '').includes(q) ||
-      (i.product_name || '').toLowerCase().includes(q)
+      (i.customer_name_urdu || '').includes(q) ||
+      (i.phone || '').includes(q)
     );
   }, [items, search]);
 
   const totalPendingAmount = useMemo(() => {
-    return filteredItems.reduce((sum, item) => sum + (item.amount || 0), 0);
+    return filteredItems.reduce((sum, item) => sum + (item.pending_amount || 0), 0);
   }, [filteredItems]);
 
   const downloadPDF = useCallback(async () => {
@@ -140,14 +120,10 @@ const PendingReport: React.FC = () => {
     const rows = filteredItems.map((item, idx) => `
       <tr>
         <td style="border:1px solid #e5e7eb;padding:6px;text-align:center;">${idx + 1}</td>
-        <td style="border:1px solid #e5e7eb;padding:6px;">${isUrdu && item.customer_urdu ? item.customer_urdu : item.customer_name || '—'}</td>
+        <td style="border:1px solid #e5e7eb;padding:6px;">${isUrdu && item.customer_name_urdu ? item.customer_name_urdu : item.customer_name || '—'}</td>
         <td style="border:1px solid #e5e7eb;padding:6px;">${item.phone || '—'}</td>
-        <td style="border:1px solid #e5e7eb;padding:6px;">${isUrdu && item.product_name_urdu ? item.product_name_urdu : item.product_name || '—'}</td>
-        <td style="border:1px solid #e5e7eb;padding:6px;text-align:center;">${item.installment_no || '—'}/${item.num_installments || '—'}</td>
-        <td style="border:1px solid #e5e7eb;padding:6px;text-align:right;">Rs. ${(item.amount || 0).toLocaleString()}</td>
-        <td style="border:1px solid #e5e7eb;padding:6px;text-align:right;">Rs. ${(item.partial_paid || 0).toLocaleString()}</td>
-        <td style="border:1px solid #e5e7eb;padding:6px;text-align:right;">Rs. ${((item.amount || 0) - (item.partial_paid || 0)).toLocaleString()}</td>
-        <td style="border:1px solid #e5e7eb;padding:6px;text-align:center;">${item.due_date ? new Date(item.due_date).toLocaleDateString() : '—'}</td>
+        <td style="border:1px solid #e5e7eb;padding:6px;text-align:center;">${item.installment_count || 0}</td>
+        <td style="border:1px solid #e5e7eb;padding:6px;text-align:right;">Rs. ${(item.pending_amount || 0).toLocaleString()}</td>
       </tr>
     `).join('');
 
@@ -174,15 +150,14 @@ const PendingReport: React.FC = () => {
         <div class="subtitle">${isUrdu ? 'زیر التواء رپورٹ' : 'Pending Report'} — ${new Date().toLocaleDateString()}</div>
         <div class="summary">
           <div class="summary-item"><div class="label">${isUrdu ? 'کل زیر التواء' : 'Total Pending'}</div><div class="value">Rs. ${pendingTotal.toLocaleString()}</div></div>
-          <div class="summary-item"><div class="label">${isUrdu ? 'زیر التواء اقساط' : 'Pending Installments'}</div><div class="value">${filteredItems.length}</div></div>
-          <div class="summary-item"><div class="label">${isUrdu ? 'فوری رقم' : 'Due Amount'}</div><div class="value">Rs. ${totalPendingAmount.toLocaleString()}</div></div>
+          <div class="summary-item"><div class="label">${isUrdu ? 'گاہک' : 'Customers'}</div><div class="value">${filteredItems.length}</div></div>
+          <div class="summary-item"><div class="label">${isUrdu ? 'کل بقایا' : 'Due Amount'}</div><div class="value">Rs. ${totalPendingAmount.toLocaleString()}</div></div>
         </div>
         <table>
           <thead><tr>
             <th>#</th><th>${isUrdu ? 'گاہک' : 'Customer'}</th><th>${isUrdu ? 'فون' : 'Phone'}</th>
-            <th>${isUrdu ? 'پروڈکٹ' : 'Product'}</th><th>${isUrdu ? 'قسط' : 'Inst.'}</th>
-            <th>${isUrdu ? 'رقم' : 'Amount'}</th><th>${isUrdu ? 'ادا شدہ' : 'Paid'}</th>
-            <th>${isUrdu ? 'باقی' : 'Remaining'}</th><th>${isUrdu ? 'تاریخ' : 'Due Date'}</th>
+            <th>${isUrdu ? 'اقساط' : 'Inst.'}</th>
+            <th>${isUrdu ? 'بقایا رقم' : 'Pending Amount'}</th>
           </tr></thead>
           <tbody>${rows}</tbody>
         </table>
@@ -252,13 +227,13 @@ const PendingReport: React.FC = () => {
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
           <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-            {isUrdu ? 'زیر التواء اقساط' : 'Pending Installments'}
+            {isUrdu ? 'گاہک' : 'Customers'}
           </p>
           <p className="text-2xl font-bold text-amber-600 dark:text-amber-400 mt-1">{items.length}</p>
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
           <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-            {isUrdu ? 'فوری واجب الادا' : 'Due Amount'}
+            {isUrdu ? 'کل بقایا' : 'Due Amount'}
           </p>
           <p className="text-2xl font-bold text-red-600 dark:text-red-400 mt-1">
             Rs. {totalPendingAmount.toLocaleString()}
@@ -272,7 +247,7 @@ const PendingReport: React.FC = () => {
           type="text"
           value={search}
           onChange={e => setSearch(e.target.value)}
-          placeholder={isUrdu ? 'گاہک، فون، پروڈکٹ تلاش کریں...' : 'Search customer, phone, product...'}
+          placeholder={isUrdu ? 'گاہک، فون تلاش کریں...' : 'Search customer, phone...'}
           className="w-full px-4 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none transition-colors"
         />
       </div>
@@ -323,78 +298,45 @@ const PendingReport: React.FC = () => {
                   <th className="px-4 py-3.5 text-start text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                     {isUrdu ? 'فون' : 'Phone'}
                   </th>
-                  <th className="px-4 py-3.5 text-start text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    {isUrdu ? 'پروڈکٹ' : 'Product'}
-                  </th>
                   <th className="px-4 py-3.5 text-center text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    {isUrdu ? 'قسط' : 'Inst.'}
+                    {isUrdu ? 'اقساط' : 'Inst.'}
                   </th>
                   <th className="px-4 py-3.5 text-end text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    {isUrdu ? 'رقم' : 'Amount'}
-                  </th>
-                  <th className="px-4 py-3.5 text-end text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    {isUrdu ? 'ادا شدہ' : 'Paid'}
-                  </th>
-                  <th className="px-4 py-3.5 text-end text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    {isUrdu ? 'باقی' : 'Remaining'}
-                  </th>
-                  <th className="px-4 py-3.5 text-center text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    {isUrdu ? 'تاریخ' : 'Due Date'}
+                    {isUrdu ? 'بقایا رقم' : 'Pending Amount'}
                   </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
-                {filteredItems.map((item, idx) => {
-                  const remaining = (item.amount || 0) - (item.partial_paid || 0);
-                  return (
-                    <tr key={item.id || idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
-                      <td className="px-4 py-3 text-gray-400 font-mono text-xs">{String(idx + 1).padStart(2, '0')}</td>
-                      <td className="px-4 py-3">
-                        <span className="font-semibold text-gray-800 dark:text-white">
-                          {isUrdu && item.customer_urdu ? item.customer_urdu : item.customer_name || '—'}
-                        </span>
-                        {item.father_name && (
-                          <div className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">
-                            {isUrdu ? 'والد: ' : 'F: '}{item.father_name}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="font-mono text-xs text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-700/50 px-2 py-1 rounded-md">
-                          {item.phone || '—'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-gray-600 dark:text-gray-300">
-                        {isUrdu && item.product_name_urdu ? item.product_name_urdu : item.product_name || '—'}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className="text-xs font-semibold text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-700/50 px-2 py-1 rounded-md">
-                          {item.installment_no || '—'}/{item.num_installments || '—'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-end">
-                        <span className="font-semibold text-gray-800 dark:text-white">
-                          Rs. {(item.amount || 0).toLocaleString()}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-end">
-                        <span className="font-semibold text-emerald-600 dark:text-emerald-400">
-                          Rs. {(item.partial_paid || 0).toLocaleString()}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-end">
-                        <span className={`font-bold ${remaining > 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
-                          Rs. {remaining.toLocaleString()}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50 px-2 py-1 rounded-md">
-                          {item.due_date ? new Date(item.due_date).toLocaleDateString() : '—'}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
+                {filteredItems.map((item, idx) => (
+                  <tr key={item.customer_id || idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
+                    <td className="px-4 py-3 text-gray-400 font-mono text-xs">{String(idx + 1).padStart(2, '0')}</td>
+                    <td className="px-4 py-3">
+                      <span className="font-semibold text-gray-800 dark:text-white">
+                        {isUrdu && item.customer_name_urdu ? item.customer_name_urdu : item.customer_name || '—'}
+                      </span>
+                      {item.father_name && (
+                        <div className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">
+                          {isUrdu ? 'والد: ' : 'F: '}{item.father_name}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="font-mono text-xs text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-700/50 px-2 py-1 rounded-md">
+                        {item.phone || '—'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <span className="text-xs font-semibold text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-700/50 px-2 py-1 rounded-md">
+                        {item.installment_count || 0}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-end">
+                      <span className="font-bold text-red-600 dark:text-red-400">
+                        Rs. {(item.pending_amount || 0).toLocaleString()}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>

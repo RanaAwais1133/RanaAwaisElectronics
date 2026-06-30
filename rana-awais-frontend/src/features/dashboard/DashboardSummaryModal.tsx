@@ -14,12 +14,24 @@ interface DashboardSummaryModalProps {
 interface DetailItem {
   label: string;
   value: string;
+  rawValue?: number;
   isNegative?: boolean;
+}
+
+interface CustomerPending {
+  customer_id: string;
+  customer_name: string;
+  customer_name_urdu: string;
+  father_name: string;
+  phone: string;
+  pending_amount: number;
+  installment_count: number;
 }
 
 const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, type, onClose, isUrdu }) => {
   const currentUser = useAuthStore((state) => state.user);
   const [details, setDetails] = useState<DetailItem[]>([]);
+  const [customers, setCustomers] = useState<CustomerPending[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -39,31 +51,41 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
 
         if (type === 'today' || type === 'month') {
           const prefix = type === 'today' ? (isUrdu ? 'آج' : 'Today') : (isUrdu ? 'ماہ' : 'Month');
+          const revenue = d.revenue || 0;
+          const profit = d.profit || 0;
           items.push({
             label: isUrdu ? `${prefix} کی کل آمدنی` : `${prefix} Total Revenue`,
-            value: `Rs. ${(d.revenue || 0).toLocaleString()}`,
+            value: `Rs. ${revenue.toLocaleString()}`,
+            rawValue: revenue,
           });
           items.push({
             label: isUrdu ? `${prefix} کا کل منافع` : `${prefix} Total Profit`,
-            value: `Rs. ${(d.profit || 0).toLocaleString()}`,
-            isNegative: (d.profit || 0) < 0,
+            value: `Rs. ${profit.toLocaleString()}`,
+            rawValue: profit,
+            isNegative: profit < 0,
           });
           if (d.total_collected != null) {
+            const collected = d.total_collected || 0;
             items.push({
               label: isUrdu ? `${prefix} کی وصولی` : `${prefix} Collection`,
-              value: `Rs. ${(d.total_collected || 0).toLocaleString()}`,
+              value: `Rs. ${collected.toLocaleString()}`,
+              rawValue: collected,
             });
           }
           if (d.total_sales != null) {
+            const sales = d.total_sales || 0;
             items.push({
               label: isUrdu ? `${prefix} کی فروخت` : `${prefix} Sales`,
-              value: `Rs. ${(d.total_sales || 0).toLocaleString()}`,
+              value: `Rs. ${sales.toLocaleString()}`,
+              rawValue: sales,
             });
           }
           if (d.expenses != null) {
+            const expenses = d.expenses || 0;
             items.push({
               label: isUrdu ? `${prefix} کے اخراجات` : `${prefix} Expenses`,
-              value: `Rs. ${(d.expenses || 0).toLocaleString()}`,
+              value: `Rs. ${expenses.toLocaleString()}`,
+              rawValue: expenses,
               isNegative: true,
             });
           }
@@ -71,43 +93,24 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
             items.push({
               label: isUrdu ? 'لین دین کی تعداد' : 'Transactions',
               value: `${d.transaction_count}`,
+              rawValue: d.transaction_count,
             });
           }
         } else {
-          // Pending type
+          // Pending type - show total and customer-wise list
+          const pendingTotal = d.pending_total || 0;
           items.push({
             label: isUrdu ? 'کل بقایا رقم' : 'Total Pending Amount',
-            value: `Rs. ${(d.pending_total || 0).toLocaleString()}`,
+            value: `Rs. ${pendingTotal.toLocaleString()}`,
+            rawValue: pendingTotal,
           });
-          if (d.overdue_count != null) {
-            items.push({
-              label: isUrdu ? 'تاخیر شدہ اقساط' : 'Overdue Installments',
-              value: `${d.overdue_count}`,
-            });
-          }
-          if (d.total_installments != null) {
-            items.push({
-              label: isUrdu ? 'کل اقساط' : 'Total Installments',
-              value: `${d.total_installments}`,
-            });
-          }
-          if (d.paid_installments != null) {
-            items.push({
-              label: isUrdu ? 'ادا شدہ اقساط' : 'Paid Installments',
-              value: `${d.paid_installments}`,
-            });
-          }
-          if (d.pending_installments != null) {
-            items.push({
-              label: isUrdu ? 'زیر التواء اقساط' : 'Pending Installments',
-              value: `${d.pending_installments}`,
-            });
-          }
-          if (d.total_customers != null) {
+          if (d.customers && Array.isArray(d.customers)) {
             items.push({
               label: isUrdu ? 'متاثرہ گاہک' : 'Affected Customers',
-              value: `${d.total_customers}`,
+              value: `${d.customers.length}`,
+              rawValue: d.customers.length,
             });
+            setCustomers(d.customers);
           }
         }
 
@@ -131,15 +134,13 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
       </tr>
     `).join('');
 
-    // Calculate total: for today/month summaries, only sum revenue (profit is derived, not additive)
-    // For pending summaries, sum all items as they are distinct
+    // Calculate total using raw numeric values (skip profit items to avoid double-counting)
     const totalValue = details.reduce((sum, item) => {
       // Skip profit items in total calculation since profit is already part of revenue
       if (item.label.toLowerCase().includes('profit') || item.label.toLowerCase().includes('منافع')) {
         return sum;
       }
-      const num = parseFloat(item.value.replace(/[^0-9.-]/g, ''));
-      return sum + (isNaN(num) ? 0 : num);
+      return sum + (item.rawValue || 0);
     }, 0);
 
     printWindow.document.write(`
@@ -317,11 +318,50 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
                     if (item.label.toLowerCase().includes('profit') || item.label.toLowerCase().includes('منافع')) {
                       return sum;
                     }
-                    const num = parseFloat(item.value.replace(/[^0-9.-]/g, ''));
-                    return sum + (isNaN(num) ? 0 : num);
+                    return sum + (item.rawValue || 0);
                   }, 0).toLocaleString()}
                 </span>
               </div>
+
+              {/* Customer-wise pending list for pending type */}
+              {type === 'pending' && customers.length > 0 && (
+                <div className="mt-6">
+                  <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-3 uppercase tracking-wider">
+                    {isUrdu ? 'گاہک کے لحاظ سے بقایا جات' : 'Customer-wise Pending'}
+                  </h3>
+                  <div className="space-y-3">
+                    {customers.map((cust, idx) => (
+                      <div
+                        key={cust.customer_id}
+                        className="p-4 bg-white dark:bg-gray-700 rounded-xl border border-gray-200 dark:border-gray-600 shadow-sm"
+                      >
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <div className="w-7 h-7 rounded-full bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center text-xs font-bold text-amber-600 dark:text-amber-400">
+                              {idx + 1}
+                            </div>
+                            <div>
+                              <p className="text-sm font-bold text-gray-900 dark:text-white">
+                                {isUrdu && cust.customer_name_urdu ? cust.customer_name_urdu : cust.customer_name}
+                              </p>
+                              <p className="text-xs text-gray-500 dark:text-gray-400">
+                                {cust.father_name ? `${isUrdu ? 'والد کا نام' : 'Father'}: ${cust.father_name}` : ''}
+                              </p>
+                            </div>
+                          </div>
+                          <span className="text-base font-extrabold text-amber-600 dark:text-amber-400">
+                            Rs. {(cust.pending_amount || 0).toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400 mt-2 pt-2 border-t border-gray-100 dark:border-gray-600">
+                          <span>{isUrdu ? 'فون' : 'Phone'}: {cust.phone || '—'}</span>
+                          <span>{isUrdu ? 'اقساط' : 'Installments'}: {cust.installment_count || 0}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

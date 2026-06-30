@@ -129,6 +129,11 @@ func (r *AccountingRepository) GetRevenueAndProfit(ctx context.Context, start, e
 		revenue = payResults[0].Total
 	}
 
+	// If revenue is 0, profit must also be 0
+	if revenue == 0 {
+		return 0, 0, nil
+	}
+
 	// Calculate profit as: Revenue - Cost of Goods Sold
 	// COGS = sum of purchase_price of inventory items sold in this period
 	soldPipeline := mongo.Pipeline{
@@ -171,6 +176,11 @@ func (r *AccountingRepository) GetRevenueAndProfit(ctx context.Context, start, e
 	} else {
 		// No sold items found in this period
 		profit = 0
+	}
+
+	// Profit cannot exceed revenue
+	if profit > revenue {
+		profit = revenue
 	}
 
 	return revenue, profit, nil

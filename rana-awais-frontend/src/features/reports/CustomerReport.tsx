@@ -409,7 +409,7 @@ const CustomerReport: React.FC = () => {
 
       // Call the real API endpoint
       const res = await api.get(endpoint, { params });
-      const response = res.data?.data || res.data;
+      const response = res.data;
 
       setReportData(response);
       toast.success(isUrdu ? 'رپورٹ تیار ہو گئی' : 'Report generated successfully');

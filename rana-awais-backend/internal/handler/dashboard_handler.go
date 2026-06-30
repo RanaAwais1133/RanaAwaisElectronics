@@ -92,9 +92,9 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 		ch <- result{"totalProducts", count, err}
 	}()
 
-	// 10. Low Stock Items
+	// 10. Low Stock Items - count items with status "in_stock" (no quantity field exists)
 	go func() {
-		count, err := db.Collection(config.ColInventory).CountDocuments(ctx, bson.M{"quantity": bson.M{"$lte": 5}})
+		count, err := db.Collection(config.ColInventory).CountDocuments(ctx, bson.M{"status": "in_stock"})
 		ch <- result{"lowStockItems", count, err}
 	}()
 
@@ -298,9 +298,10 @@ func getTodayDueCount(ctx context.Context, db *mongo.Database, start, end time.T
 
 func getInventoryValue(ctx context.Context, db *mongo.Database) (float64, error) {
 	pipeline := mongo.Pipeline{
+		{{Key: "$match", Value: bson.M{"status": "in_stock"}}},
 		{{Key: "$group", Value: bson.M{
 			"_id":   nil,
-			"total": bson.M{"$sum": bson.M{"$multiply": bson.A{"$quantity", "$purchase_price"}}},
+			"total": bson.M{"$sum": "$purchasePrice"},
 		}}},
 	}
 	cursor, err := db.Collection(config.ColInventory).Aggregate(ctx, pipeline)
@@ -369,6 +370,11 @@ func getTodayProfit(ctx context.Context, db *mongo.Database, start, end time.Tim
 		todayRevenue = revResults[0].Total
 	}
 
+	// If revenue is 0, profit must also be 0
+	if todayRevenue == 0 {
+		return 0, nil
+	}
+
 	// Then get cost of goods sold today from inventory
 	cogsPipeline := mongo.Pipeline{
 		{{Key: "$match", Value: bson.M{
@@ -398,6 +404,10 @@ func getTodayProfit(ctx context.Context, db *mongo.Database, start, end time.Tim
 	profit := todayRevenue - cogs
 	if profit < 0 {
 		profit = 0
+	}
+	// Profit cannot exceed revenue
+	if profit > todayRevenue {
+		profit = todayRevenue
 	}
 	return profit, nil
 }
@@ -455,6 +465,11 @@ func getMonthProfit(ctx context.Context, db *mongo.Database, start, end time.Tim
 		monthRevenue = revResults[0].Total
 	}
 
+	// If revenue is 0, profit must also be 0
+	if monthRevenue == 0 {
+		return 0, nil
+	}
+
 	// Then get cost of goods sold this month from inventory
 	cogsPipeline := mongo.Pipeline{
 		{{Key: "$match", Value: bson.M{
@@ -484,6 +499,9 @@ func getMonthProfit(ctx context.Context, db *mongo.Database, start, end time.Tim
 	profit := monthRevenue - cogs
 	if profit < 0 {
 		profit = 0
+	}
+	if profit > monthRevenue {
+		profit = monthRevenue
 	}
 	return profit, nil
 }
@@ -605,7 +623,7 @@ func (h *DashboardHandler) LowStockDetails(w http.ResponseWriter, r *http.Reques
 	db := config.DB
 	ctx := r.Context()
 
-	cursor, err := db.Collection(config.ColInventory).Find(ctx, bson.M{"quantity": bson.M{"$lte": 5}}, nil)
+	cursor, err := db.Collection(config.ColInventory).Find(ctx, bson.M{"status": "in_stock"}, nil)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "Failed to fetch low stock items", "ناکام")
 		return

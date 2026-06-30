@@ -399,7 +399,7 @@ const DashboardPage: React.FC = () => {
             value={fmt(summary.totalPending)}
             icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
             loading={loading}
-            onClick={() => openModal(isUrdu ? 'بقایا رقم' : 'Pending Amount', '/dashboard/overdue-full')}
+          onClick={() => openModal(isUrdu ? 'بقایا رقم' : 'Pending Amount', '/accounting/pending-total')}
           />
           <DashboardCard
             title={isUrdu ? 'کل ادا شدہ' : 'Total Paid'}
@@ -446,14 +446,14 @@ const DashboardPage: React.FC = () => {
             value={fmtCount(summary.activeInstallments)}
             icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>}
             loading={loading}
-            onClick={() => openModal(isUrdu ? 'فعال اقساط' : 'Active Installments', '/dashboard/overdue')}
+            onClick={() => openModal(isUrdu ? 'فعال اقساط' : 'Active Installments', '/accounting/pending-total')}
           />
           <DashboardCard
             title={isUrdu ? 'مکمل اقساط' : 'Completed Plans'}
             value={fmtCount(summary.completedInstallments)}
             icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
             loading={loading}
-            onClick={() => openModal(isUrdu ? 'مکمل اقساط' : 'Completed Plans', '/dashboard/today-due')}
+            onClick={() => openModal(isUrdu ? 'مکمل اقساط' : 'Completed Plans', '/accounting/pending-total')}
           />
           <DashboardCard
             title={isUrdu ? 'تاخیر شدہ گاہک' : 'Overdue Customers'}
@@ -493,7 +493,7 @@ const DashboardPage: React.FC = () => {
             value={fmtCount(summary.activePlans)}
             icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>}
             loading={loading}
-            onClick={() => openModal(isUrdu ? 'فعال پلانز' : 'Active Plans', '/dashboard/overdue')}
+            onClick={() => openModal(isUrdu ? 'فعال پلانز' : 'Active Plans', '/accounting/pending-total')}
           />
           <DashboardCard
             title={isUrdu ? 'کم اسٹاک' : 'Low Stock Items'}

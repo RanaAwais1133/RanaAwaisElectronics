@@ -44,7 +44,7 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
       // Auto-detect from fields - check installment-related fields first
       if (first.installment_no !== undefined || first.plan_id || first.due_date) return 'installments';
       if (first.customer_name || first.name_urdu || first.father_name || first.fatherName) return 'customers';
-      if (first.product_name || first.item_name || first.category || first.stock !== undefined || first.quantity !== undefined) {
+      if (first.product_name || first.item_name || first.category || first.stock !== undefined || first.quantity !== undefined || first.purchasePrice !== undefined) {
         if (first.phone === undefined && first.customer_name === undefined) return 'products';
       }
       if (first.transaction_date || first.payment_method) return 'payments';
@@ -311,21 +311,26 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
             <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
               <td className="px-4 py-3 text-gray-400 font-mono text-xs text-center">{idx + 1}</td>
               <td className="px-4 py-3">
-                <div className="font-semibold text-gray-800 dark:text-white text-sm">{item.name || item.item_name || '—'}</div>
+                <div className="font-semibold text-gray-800 dark:text-white text-sm">
+                  {isUrdu ? (item.product_urdu || item.product_name || item.name || item.item_name || '—') : (item.product_name || item.name || item.item_name || '—')}
+                </div>
+                {item.product_urdu && !isUrdu && (
+                  <div className="text-[10px] text-gray-400 mt-0.5" dir="rtl">{item.product_urdu}</div>
+                )}
               </td>
               <td className="px-4 py-3 text-center">
-                <span className={`text-xs font-semibold px-2 py-1 rounded ${(item.quantity ?? 0) <= 5 ? 'text-red-600 bg-red-50 dark:bg-red-900/30' : 'text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30'}`}>
-                  {item.quantity ?? item.stock ?? '—'}
+                <span className="text-xs font-semibold text-gray-700 dark:text-gray-200 px-2 py-1 rounded bg-gray-50 dark:bg-gray-700/50">
+                  {item.status === 'in_stock' ? (isUrdu ? 'اسٹاک میں' : 'In Stock') : (isUrdu ? 'فروخت شدہ' : 'Sold')}
                 </span>
               </td>
               <td className="px-4 py-3 text-end">
                 <span className="text-xs text-gray-600 dark:text-gray-300 whitespace-nowrap">
-                  Rs. {Number(item.purchase_price || 0).toLocaleString()}
+                  Rs. {Number(item.purchasePrice || item.purchase_price || 0).toLocaleString()}
                 </span>
               </td>
               <td className="px-4 py-3 text-end">
                 <span className="font-bold text-gray-800 dark:text-white text-sm whitespace-nowrap">
-                  Rs. {Number((item.quantity || 0) * (item.purchase_price || 0)).toLocaleString()}
+                  Rs. {Number(item.purchasePrice || item.purchase_price || 0).toLocaleString()}
                 </span>
               </td>
               <td className="px-4 py-3 text-center">

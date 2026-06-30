@@ -570,7 +570,8 @@ func SetupRouter(
 		db := config.DB
 		installmentsColl := db.Collection(config.ColInstallments)
 
-		pipeline := mongo.Pipeline{
+		// First get the total pending amount
+		totalPipeline := mongo.Pipeline{
 			{{Key: "$match", Value: bson.M{"status": "active"}}},
 			{{Key: "$unwind", Value: "$installments"}},
 			{{Key: "$match", Value: bson.M{"installments.paid": false}}},
@@ -587,30 +588,88 @@ func SetupRouter(
 			}}},
 		}
 
-		cursor, err := installmentsColl.Aggregate(r.Context(), pipeline)
+		totalCursor, err := installmentsColl.Aggregate(r.Context(), totalPipeline)
 		if err != nil {
 			respondError(w, r, http.StatusInternalServerError, "Failed to calculate pending total", "ناکام")
 			return
 		}
-		defer cursor.Close(r.Context())
+		defer totalCursor.Close(r.Context())
 
-		var results []struct {
+		var totalResults []struct {
 			PendingTotal float64 `bson:"pending_total"`
 		}
-		if err = cursor.All(r.Context(), &results); err != nil {
+		if err = totalCursor.All(r.Context(), &totalResults); err != nil {
 			respondError(w, r, http.StatusInternalServerError, "Failed to parse results", "ناکام")
 			return
 		}
 
 		total := 0.0
-		if len(results) > 0 {
-			total = results[0].PendingTotal
+		if len(totalResults) > 0 {
+			total = totalResults[0].PendingTotal
 			if total < 0 {
 				total = 0
 			}
 		}
 
-		respondJSON(w, http.StatusOK, map[string]interface{}{"pending_total": total})
+		// Now get customer-wise pending details
+		customerPipeline := mongo.Pipeline{
+			{{Key: "$match", Value: bson.M{"status": "active"}}},
+			{{Key: "$unwind", Value: "$installments"}},
+			{{Key: "$match", Value: bson.M{"installments.paid": false}}},
+			{{Key: "$group", Value: bson.M{
+				"_id": "$customer_id",
+				"pending_amount": bson.M{
+					"$sum": bson.M{
+						"$subtract": bson.A{
+							bson.M{"$add": bson.A{"$installments.amount", "$installments.fine"}},
+							"$installments.partial_paid",
+						},
+					},
+				},
+				"installment_count": bson.M{"$sum": 1},
+			}}},
+			{{Key: "$lookup", Value: bson.M{
+				"from":         config.ColCustomers,
+				"localField":   "_id",
+				"foreignField": "_id",
+				"as":           "customer",
+			}}},
+			{{Key: "$unwind", Value: bson.M{"path": "$customer", "preserveNullAndEmptyArrays": true}}},
+			{{Key: "$project", Value: bson.M{
+				"customer_id":      bson.M{"$toString": "$_id"},
+				"customer_name":    "$customer.name",
+				"customer_name_urdu": "$customer.name_urdu",
+				"father_name":      "$customer.father_name",
+				"phone":            "$customer.phone",
+				"pending_amount":   1,
+				"installment_count": 1,
+			}}},
+			{{Key: "$sort", Value: bson.M{"pending_amount": -1}}},
+		}
+
+		custCursor, err := installmentsColl.Aggregate(r.Context(), customerPipeline)
+		if err != nil {
+			// If customer-wise fails, still return total
+			respondJSON(w, http.StatusOK, map[string]interface{}{
+				"pending_total": total,
+				"customers":     []bson.M{},
+			})
+			return
+		}
+		defer custCursor.Close(r.Context())
+
+		var customers []bson.M
+		if err = custCursor.All(r.Context(), &customers); err != nil {
+			customers = []bson.M{}
+		}
+		if customers == nil {
+			customers = []bson.M{}
+		}
+
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"pending_total": total,
+			"customers":     customers,
+		})
 	}).Methods("GET")
 	protected.HandleFunc("/accounting/summary", func(w http.ResponseWriter, r *http.Request) {
 		basis := r.URL.Query().Get("basis")
