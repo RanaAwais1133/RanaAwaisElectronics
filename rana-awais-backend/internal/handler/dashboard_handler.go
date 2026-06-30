@@ -110,23 +110,24 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 		ch <- result{"ageingStock", count, err}
 	}()
 
-	// 13. Today's Profit (Cash Flow)
+	// 13. Today's Profit (Revenue - Estimated COGS, ~30% margin approximation)
 	go func() {
 		profit, err := getTodayProfit(ctx, db, todayStart, todayEnd)
 		ch <- result{"todayProfit", profit, err}
 	}()
 
-	// 14. Month Revenue
+	// 14. Month Revenue (sum of payments this month)
 	go func() {
 		revenue, err := getMonthRevenue(ctx, db, monthStart, monthEnd)
 		ch <- result{"monthRevenue", revenue, err}
 	}()
 
-	// 15. Month Profit
+	// 15. Month Profit (Revenue - Estimated COGS, ~30% margin approximation)
 	go func() {
 		profit, err := getMonthProfit(ctx, db, monthStart, monthEnd)
 		ch <- result{"monthProfit", profit, err}
 	}()
+
 
 	// Collect all results (15 goroutines - duplicates removed)
 	results := make(map[string]interface{})
@@ -343,6 +344,67 @@ func getTodayRevenue(ctx context.Context, db *mongo.Database, start, end time.Ti
 }
 
 func getTodayProfit(ctx context.Context, db *mongo.Database, start, end time.Time) (float64, error) {
+	// Profit = Today's Revenue - Cost of Goods Sold
+	// First get today's total revenue from payments
+	revenuePipeline := mongo.Pipeline{
+		{{Key: "$match", Value: bson.M{
+			"transaction_date": bson.M{"$gte": start, "$lt": end},
+		}}},
+		{{Key: "$group", Value: bson.M{
+			"_id":   nil,
+			"total": bson.M{"$sum": "$amount"},
+		}}},
+	}
+	revCursor, err := db.Collection(config.ColPayments).Aggregate(ctx, revenuePipeline)
+	if err != nil {
+		return 0, err
+	}
+	defer revCursor.Close(ctx)
+
+	var revResults []struct {
+		Total float64 `bson:"total"`
+	}
+	todayRevenue := 0.0
+	if revCursor.All(ctx, &revResults) == nil && len(revResults) > 0 {
+		todayRevenue = revResults[0].Total
+	}
+
+	// Then get cost of goods sold today from inventory
+	cogsPipeline := mongo.Pipeline{
+		{{Key: "$match", Value: bson.M{
+			"status": "sold",
+			"sold_date": bson.M{"$gte": start, "$lt": end},
+		}}},
+		{{Key: "$group", Value: bson.M{
+			"_id":   nil,
+			"total": bson.M{"$sum": "$purchase_price"},
+		}}},
+	}
+	cogsCursor, err := db.Collection(config.ColInventory).Aggregate(ctx, cogsPipeline)
+	if err != nil {
+		// If can't get COGS, estimate profit as 30% of revenue
+		return todayRevenue * 0.30, nil
+	}
+	defer cogsCursor.Close(ctx)
+
+	var cogsResults []struct {
+		Total float64 `bson:"total"`
+	}
+	cogs := 0.0
+	if cogsCursor.All(ctx, &cogsResults) == nil && len(cogsResults) > 0 {
+		cogs = cogsResults[0].Total
+	}
+
+	profit := todayRevenue - cogs
+	if profit < 0 {
+		profit = 0
+	}
+	return profit, nil
+}
+
+
+func getMonthRevenue(ctx context.Context, db *mongo.Database, start, end time.Time) (float64, error) {
+	// Month Revenue = sum of all payments made this month
 	pipeline := mongo.Pipeline{
 		{{Key: "$match", Value: bson.M{
 			"transaction_date": bson.M{"$gte": start, "$lt": end},
@@ -353,31 +415,6 @@ func getTodayProfit(ctx context.Context, db *mongo.Database, start, end time.Tim
 		}}},
 	}
 	cursor, err := db.Collection(config.ColPayments).Aggregate(ctx, pipeline)
-	if err != nil {
-		return 0, err
-	}
-	defer cursor.Close(ctx)
-
-	var results []struct {
-		Total float64 `bson:"total"`
-	}
-	if cursor.All(ctx, &results) == nil && len(results) > 0 {
-		return results[0].Total, nil
-	}
-	return 0, nil
-}
-
-func getMonthRevenue(ctx context.Context, db *mongo.Database, start, end time.Time) (float64, error) {
-	pipeline := mongo.Pipeline{
-		{{Key: "$match", Value: bson.M{
-			"created_at": bson.M{"$gte": start, "$lt": end},
-		}}},
-		{{Key: "$group", Value: bson.M{
-			"_id":   nil,
-			"total": bson.M{"$sum": "$total_amount"},
-		}}},
-	}
-	cursor, err := db.Collection(config.ColInstallments).Aggregate(ctx, pipeline)
 	if err != nil {
 		return 0, err
 	}
@@ -393,7 +430,9 @@ func getMonthRevenue(ctx context.Context, db *mongo.Database, start, end time.Ti
 }
 
 func getMonthProfit(ctx context.Context, db *mongo.Database, start, end time.Time) (float64, error) {
-	pipeline := mongo.Pipeline{
+	// Month Profit = Month Revenue - Cost of Goods Sold for items sold this month
+	// First get month's total revenue from payments
+	revenuePipeline := mongo.Pipeline{
 		{{Key: "$match", Value: bson.M{
 			"transaction_date": bson.M{"$gte": start, "$lt": end},
 		}}},
@@ -402,20 +441,53 @@ func getMonthProfit(ctx context.Context, db *mongo.Database, start, end time.Tim
 			"total": bson.M{"$sum": "$amount"},
 		}}},
 	}
-	cursor, err := db.Collection(config.ColPayments).Aggregate(ctx, pipeline)
+	revCursor, err := db.Collection(config.ColPayments).Aggregate(ctx, revenuePipeline)
 	if err != nil {
 		return 0, err
 	}
-	defer cursor.Close(ctx)
+	defer revCursor.Close(ctx)
 
-	var results []struct {
+	var revResults []struct {
 		Total float64 `bson:"total"`
 	}
-	if cursor.All(ctx, &results) == nil && len(results) > 0 {
-		return results[0].Total, nil
+	monthRevenue := 0.0
+	if revCursor.All(ctx, &revResults) == nil && len(revResults) > 0 {
+		monthRevenue = revResults[0].Total
 	}
-	return 0, nil
+
+	// Then get cost of goods sold this month from inventory
+	cogsPipeline := mongo.Pipeline{
+		{{Key: "$match", Value: bson.M{
+			"status": "sold",
+			"sold_date": bson.M{"$gte": start, "$lt": end},
+		}}},
+		{{Key: "$group", Value: bson.M{
+			"_id":   nil,
+			"total": bson.M{"$sum": "$purchase_price"},
+		}}},
+	}
+	cogsCursor, err := db.Collection(config.ColInventory).Aggregate(ctx, cogsPipeline)
+	if err != nil {
+		// If can't get COGS, estimate profit as 30% of revenue
+		return monthRevenue * 0.30, nil
+	}
+	defer cogsCursor.Close(ctx)
+
+	var cogsResults []struct {
+		Total float64 `bson:"total"`
+	}
+	cogs := 0.0
+	if cogsCursor.All(ctx, &cogsResults) == nil && len(cogsResults) > 0 {
+		cogs = cogsResults[0].Total
+	}
+
+	profit := monthRevenue - cogs
+	if profit < 0 {
+		profit = 0
+	}
+	return profit, nil
 }
+
 
 // OverdueDetails returns detailed overdue customer info
 func (h *DashboardHandler) OverdueDetails(w http.ResponseWriter, r *http.Request) {

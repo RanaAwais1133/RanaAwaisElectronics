@@ -129,7 +129,8 @@ func (r *AccountingRepository) GetRevenueAndProfit(ctx context.Context, start, e
 		revenue = payResults[0].Total
 	}
 
-	// Use aggregation to calculate profit from sold items in one query
+	// Calculate profit as: Revenue - Cost of Goods Sold
+	// COGS = sum of purchase_price of inventory items sold in this period
 	soldPipeline := mongo.Pipeline{
 		{{Key: "$match", Value: bson.M{
 			"status": "sold",
@@ -146,7 +147,7 @@ func (r *AccountingRepository) GetRevenueAndProfit(ctx context.Context, start, e
 	}
 	soldCursor, err := r.invColl.Aggregate(ctx, soldPipeline)
 	if err != nil {
-		// Fallback: if can't get cost, assume 30% margin
+		// Fallback: if can't get cost data, estimate profit as 30% of revenue
 		profit = revenue * 0.30
 		return revenue, profit, nil
 	}
@@ -158,12 +159,18 @@ func (r *AccountingRepository) GetRevenueAndProfit(ctx context.Context, start, e
 	}
 	if soldCursor.All(ctx, &soldResults) == nil && len(soldResults) > 0 {
 		if soldResults[0].TotalSelling > 0 && soldResults[0].TotalCost > 0 {
+			// Actual profit from sold items = selling_price - purchase_price
 			profit = soldResults[0].TotalSelling - soldResults[0].TotalCost
+		} else if soldResults[0].TotalSelling > 0 {
+			// Items sold but no purchase price recorded, estimate 30% margin
+			profit = soldResults[0].TotalSelling * 0.30
 		} else {
-			profit = revenue * 0.30
+			// No items sold in this period, profit = 0
+			profit = 0
 		}
 	} else {
-		profit = revenue * 0.30
+		// No sold items found in this period
+		profit = 0
 	}
 
 	return revenue, profit, nil

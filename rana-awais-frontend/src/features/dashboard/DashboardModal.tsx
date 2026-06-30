@@ -26,32 +26,32 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // Auto-detect data type based on endpoint and data fields
-  const dataType: DataType = useMemo(() => {
-    if (data.length === 0) return 'unknown';
-    const first = data[0];
-    
-    // Check for accounting data first (revenue/profit objects)
-    if (first._type === 'accounting') return 'accounting';
-    
-    // Check endpoint first
-    if (endpoint.includes('/products')) return 'products';
-    if (endpoint.includes('/inventory')) return 'inventory';
-    if (endpoint.includes('/customers')) return 'customers';
-    if (endpoint.includes('/installments') || endpoint.includes('/dashboard/today-due') || endpoint.includes('/dashboard/overdue')) return 'installments';
-    if (endpoint.includes('/payments')) return 'payments';
-    
-    // Auto-detect from fields
-    if (first.product_name || first.item_name || first.category || first.stock !== undefined || first.quantity !== undefined) {
-      if (first.phone === undefined && first.customer_name === undefined) return 'products';
-    }
-    if (first.customer_name || first.name_urdu || first.father_name || first.fatherName) return 'customers';
-    if (first.installment_no !== undefined || first.plan_id) return 'installments';
-    if (first.transaction_date || first.payment_method) return 'payments';
-    if (first.quantity !== undefined || first.purchase_price) return 'inventory';
-    
-    return 'unknown';
-  }, [data, endpoint]);
+    // Auto-detect data type based on endpoint and data fields
+    const dataType: DataType = useMemo(() => {
+      if (data.length === 0) return 'unknown';
+      const first = data[0];
+      
+      // Check for accounting data first (revenue/profit objects)
+      if (first._type === 'accounting') return 'accounting';
+      
+      // Check endpoint first
+      if (endpoint.includes('/products')) return 'products';
+      if (endpoint.includes('/inventory')) return 'inventory';
+      if (endpoint.includes('/customers')) return 'customers';
+      if (endpoint.includes('/installments') || endpoint.includes('/dashboard/today-due') || endpoint.includes('/dashboard/overdue')) return 'installments';
+      if (endpoint.includes('/payments')) return 'payments';
+      
+      // Auto-detect from fields - check installment-related fields first
+      if (first.installment_no !== undefined || first.plan_id || first.due_date) return 'installments';
+      if (first.customer_name || first.name_urdu || first.father_name || first.fatherName) return 'customers';
+      if (first.product_name || first.item_name || first.category || first.stock !== undefined || first.quantity !== undefined) {
+        if (first.phone === undefined && first.customer_name === undefined) return 'products';
+      }
+      if (first.transaction_date || first.payment_method) return 'payments';
+      if (first.quantity !== undefined || first.purchase_price) return 'inventory';
+      
+      return 'unknown';
+    }, [data, endpoint]);
 
   useEffect(() => {
     setLoading(true);
@@ -152,9 +152,30 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
         case 'payments':
           return { headers: ['#', isUrdu ? 'گاہک' : 'Customer', isUrdu ? 'رقم' : 'Amount', isUrdu ? 'طریقہ' : 'Method', isUrdu ? 'حوالہ' : 'Ref#', isUrdu ? 'تاریخ' : 'Date'],
                    fields: ['name', 'amount', 'method', 'reference', 'date'] };
-        default:
-          return { headers: ['#', isUrdu ? 'نام' : 'Name', isUrdu ? 'رقم' : 'Amount', isUrdu ? 'تاریخ' : 'Date'],
-                   fields: ['name', 'amount', 'date'] };
+        default: {
+          // For unknown type, dynamically detect available fields from data
+          const sampleFields = data.length > 0 ? Object.keys(data[0]) : [];
+          const hasFather = sampleFields.some(f => f.includes('father'));
+          const hasPhone = sampleFields.some(f => f === 'phone' || f === 'customer_phone');
+          const hasAddress = sampleFields.some(f => f.includes('address'));
+          const hasStatus = sampleFields.some(f => f === 'paid' || f === 'status');
+          const hasQty = sampleFields.some(f => f === 'quantity' || f === 'stock' || f === 'stockCount');
+          const hasCategory = sampleFields.some(f => f === 'category');
+          
+          const headers = ['#', isUrdu ? 'نام' : 'Name'];
+          const fields = ['name'];
+          
+          if (hasCategory) { headers.push(isUrdu ? 'زمرہ' : 'Category'); fields.push('category'); }
+          if (hasFather) { headers.push(isUrdu ? 'والد' : 'Father'); fields.push('father_name'); }
+          if (hasPhone) { headers.push(isUrdu ? 'فون' : 'Phone'); fields.push('phone'); }
+          if (hasAddress) { headers.push(isUrdu ? 'پتہ' : 'Address'); fields.push('address'); }
+          if (hasQty) { headers.push(isUrdu ? 'مقدار' : 'Qty'); fields.push('quantity'); }
+          headers.push(isUrdu ? 'رقم' : 'Amount'); fields.push('amount');
+          if (hasStatus) { headers.push(isUrdu ? 'حالت' : 'Status'); fields.push('status'); }
+          headers.push(isUrdu ? 'تاریخ' : 'Date'); fields.push('date');
+          
+          return { headers, fields };
+        }
       }
     };
 

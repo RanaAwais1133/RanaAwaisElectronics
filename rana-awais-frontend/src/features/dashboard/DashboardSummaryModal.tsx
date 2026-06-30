@@ -131,7 +131,13 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
       </tr>
     `).join('');
 
+    // Calculate total: for today/month summaries, only sum revenue (profit is derived, not additive)
+    // For pending summaries, sum all items as they are distinct
     const totalValue = details.reduce((sum, item) => {
+      // Skip profit items in total calculation since profit is already part of revenue
+      if (item.label.toLowerCase().includes('profit') || item.label.toLowerCase().includes('منافع')) {
+        return sum;
+      }
       const num = parseFloat(item.value.replace(/[^0-9.-]/g, ''));
       return sum + (isNaN(num) ? 0 : num);
     }, 0);
@@ -300,13 +306,17 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
                 </div>
               ))}
 
-              {/* Total */}
+              {/* Total - skip profit items to avoid double-counting */}
               <div className="flex items-center justify-between p-4 bg-gray-900 dark:bg-white rounded-xl mt-4">
                 <span className="text-sm font-bold text-white dark:text-gray-900 uppercase tracking-wider">
                   {isUrdu ? 'کل' : 'Total'}
                 </span>
                 <span className="text-lg font-extrabold text-white dark:text-gray-900">
                   Rs. {details.reduce((sum, item) => {
+                    // Skip profit items in total since profit is derived from revenue
+                    if (item.label.toLowerCase().includes('profit') || item.label.toLowerCase().includes('منافع')) {
+                      return sum;
+                    }
                     const num = parseFloat(item.value.replace(/[^0-9.-]/g, ''));
                     return sum + (isNaN(num) ? 0 : num);
                   }, 0).toLocaleString()}
