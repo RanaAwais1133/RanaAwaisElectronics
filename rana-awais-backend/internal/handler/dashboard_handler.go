@@ -2,7 +2,7 @@ package handler
 
 import (
 	"context"
-	"net/http"
+	"net/http
 	"time"
 
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/config"
@@ -758,54 +758,17 @@ func (h *DashboardHandler) OverdueFull(w http.ResponseWriter, r *http.Request) {
 			"as":           "customer",
 		}}},
 		{{Key: "$unwind", Value: bson.M{"path": "$customer", "preserveNullAndEmptyArrays": true}}},
-		{{Key: "$lookup", Value: bson.M{
-			"from":         config.ColProducts,
-			"localField":   "product_id",
-			"foreignField": "_id",
-			"as":           "product",
-		}}},
-		{{Key: "$unwind", Value: bson.M{"path": "$product", "preserveNullAndEmptyArrays": true}}},
-		{{Key: "$addFields", Value: bson.M{
-			"paid_count": bson.M{
-				"$size": bson.M{
-					"$filter": bson.M{
-						"input": "$installments",
-						"as":    "inst",
-						"cond":  bson.M{"$eq": bson.A{"$$inst.paid", true}},
-					},
-				},
-			},
-			"total_installments": "$num_installments",
-		}}},
 		{{Key: "$project", Value: bson.M{
-			"plan_id":            bson.M{"$toString": "$_id"},
-			"customer_id":        bson.M{"$toString": "$customer_id"},
-			"customer_name":      "$customer.name",
-			"customer_urdu":      "$customer.name_urdu",
-			"father_name":        "$customer.father_name",
-			"phone":              "$customer.phone",
-			"cnic":               "$customer.cnic",
-			"address":            "$customer.address",
-			"address_urdu":       "$customer.address_urdu",
-			"product_name":       "$product.name",
-			"product_name_urdu":  "$product.name_urdu",
-			"installment_no":     "$installments.installment_no",
-			"due_date":           bson.M{"$dateToString": bson.M{"format": "%Y-%m-%d", "date": "$installments.due_date"}},
-			"amount":             "$installments.amount",
-			"fine":               "$installments.fine",
-			"partial_paid":       "$installments.partial_paid",
-			"paid":               "$installments.paid",
-			"paid_date": bson.M{"$cond": bson.A{
-				bson.M{"$ifNull": bson.A{"$installments.paid_date", false}},
-				bson.M{"$dateToString": bson.M{"format": "%Y-%m-%d", "date": "$installments.paid_date"}},
-				"",
-			}},
-			"paid_count":         1,
-			"total_installments": 1,
-			"remaining":          bson.M{"$subtract": bson.A{"$num_installments", bson.M{"$size": bson.M{"$filter": bson.M{"input": "$installments", "as": "inst", "cond": bson.M{"$eq": bson.A{"$$inst.paid", true}}}}}}},
-			"total_amount":       "$total_amount",
-			"down_payment":       "$down_payment",
-			"remaining_amount":   "$remaining_amount",
+			"id":             bson.M{"$toString": "$_id"},
+			"customer_name":  "$customer.name",
+			"customer_urdu":  "$customer.name_urdu",
+			"father_name":    "$customer.father_name",
+			"phone":          "$customer.phone",
+			"installment_no": "$installments.installment_no",
+			"due_date":       bson.M{"$dateToString": bson.M{"format": "%Y-%m-%d", "date": "$installments.due_date"}},
+			"amount":         "$installments.amount",
+			"fine":           "$installments.fine",
+			"partial_paid":   "$installments.partial_paid",
 		}}},
 		{{Key: "$sort", Value: bson.M{"due_date": 1}}},
 	}
