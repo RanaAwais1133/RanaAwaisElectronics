@@ -2,7 +2,7 @@ package handler
 
 import (
 	"context"
-	"net/http
+	"net/http"
 	"time"
 
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/config"
@@ -127,7 +127,6 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 		profit, err := getMonthProfit(ctx, db, monthStart, monthEnd)
 		ch <- result{"monthProfit", profit, err}
 	}()
-
 
 	// Collect all results (15 goroutines - duplicates removed)
 	results := make(map[string]interface{})
@@ -378,12 +377,12 @@ func getTodayProfit(ctx context.Context, db *mongo.Database, start, end time.Tim
 	// Then get cost of goods sold today from inventory
 	cogsPipeline := mongo.Pipeline{
 		{{Key: "$match", Value: bson.M{
-			"status": "sold",
-			"sold_date": bson.M{"$gte": start, "$lt": end},
+			"status":   "sold",
+			"soldDate": bson.M{"$gte": start, "$lt": end},
 		}}},
 		{{Key: "$group", Value: bson.M{
 			"_id":   nil,
-			"total": bson.M{"$sum": "$purchase_price"},
+			"total": bson.M{"$sum": "$purchasePrice"},
 		}}},
 	}
 	cogsCursor, err := db.Collection(config.ColInventory).Aggregate(ctx, cogsPipeline)
@@ -411,7 +410,6 @@ func getTodayProfit(ctx context.Context, db *mongo.Database, start, end time.Tim
 	}
 	return profit, nil
 }
-
 
 func getMonthRevenue(ctx context.Context, db *mongo.Database, start, end time.Time) (float64, error) {
 	// Month Revenue = sum of all payments made this month
@@ -473,12 +471,12 @@ func getMonthProfit(ctx context.Context, db *mongo.Database, start, end time.Tim
 	// Then get cost of goods sold this month from inventory
 	cogsPipeline := mongo.Pipeline{
 		{{Key: "$match", Value: bson.M{
-			"status": "sold",
-			"sold_date": bson.M{"$gte": start, "$lt": end},
+			"status":   "sold",
+			"soldDate": bson.M{"$gte": start, "$lt": end},
 		}}},
 		{{Key: "$group", Value: bson.M{
 			"_id":   nil,
-			"total": bson.M{"$sum": "$purchase_price"},
+			"total": bson.M{"$sum": "$purchasePrice"},
 		}}},
 	}
 	cogsCursor, err := db.Collection(config.ColInventory).Aggregate(ctx, cogsPipeline)
@@ -505,7 +503,6 @@ func getMonthProfit(ctx context.Context, db *mongo.Database, start, end time.Tim
 	}
 	return profit, nil
 }
-
 
 // OverdueDetails returns detailed overdue customer info
 func (h *DashboardHandler) OverdueDetails(w http.ResponseWriter, r *http.Request) {
@@ -653,6 +650,32 @@ func (h *DashboardHandler) TodayDueFull(w http.ResponseWriter, r *http.Request) 
 
 	pipeline := mongo.Pipeline{
 		{{Key: "$match", Value: bson.M{"status": "active"}}},
+		// Compute plan-level statistics BEFORE unwinding
+		{{Key: "$addFields", Value: bson.M{
+			"paid_count": bson.M{
+				"$size": bson.M{
+					"$filter": bson.M{
+						"input": "$installments",
+						"as":    "inst",
+						"cond":  bson.M{"$eq": bson.A{"$$inst.paid", true}},
+					},
+				},
+			},
+			"remaining": bson.M{
+				"$subtract": bson.A{
+					"$num_installments",
+					bson.M{
+						"$size": bson.M{
+							"$filter": bson.M{
+								"input": "$installments",
+								"as":    "inst",
+								"cond":  bson.M{"$eq": bson.A{"$$inst.paid", true}},
+							},
+						},
+					},
+				},
+			},
+		}}},
 		{{Key: "$unwind", Value: "$installments"}},
 		{{Key: "$match", Value: bson.M{
 			"installments.paid":     false,
@@ -672,44 +695,32 @@ func (h *DashboardHandler) TodayDueFull(w http.ResponseWriter, r *http.Request) 
 			"as":           "product",
 		}}},
 		{{Key: "$unwind", Value: bson.M{"path": "$product", "preserveNullAndEmptyArrays": true}}},
-		{{Key: "$addFields", Value: bson.M{
-			"paid_count": bson.M{
-				"$size": bson.M{
-					"$filter": bson.M{
-						"input": "$installments",
-						"as":    "inst",
-						"cond":  bson.M{"$eq": bson.A{"$$inst.paid", true}},
-					},
-				},
-			},
-			"total_installments": "$num_installments",
-		}}},
 		{{Key: "$project", Value: bson.M{
-			"plan_id":            bson.M{"$toString": "$_id"},
-			"customer_id":        bson.M{"$toString": "$customer_id"},
-			"customer_name":      "$customer.name",
-			"customer_urdu":      "$customer.name_urdu",
-			"father_name":        "$customer.father_name",
-			"phone":              "$customer.phone",
-			"cnic":               "$customer.cnic",
-			"address":            "$customer.address",
-			"address_urdu":       "$customer.address_urdu",
-			"product_name":       "$product.name",
-			"product_name_urdu":  "$product.name_urdu",
-			"installment_no":     "$installments.installment_no",
-			"due_date":           bson.M{"$dateToString": bson.M{"format": "%Y-%m-%d", "date": "$installments.due_date"}},
-			"amount":             "$installments.amount",
-			"fine":               "$installments.fine",
-			"partial_paid":       "$installments.partial_paid",
-			"paid":               "$installments.paid",
+			"plan_id":           bson.M{"$toString": "$_id"},
+			"customer_id":       bson.M{"$toString": "$customer_id"},
+			"customer_name":     "$customer.name",
+			"customer_urdu":     "$customer.name_urdu",
+			"father_name":       "$customer.father_name",
+			"phone":             "$customer.phone",
+			"cnic":              "$customer.cnic",
+			"address":           "$customer.address",
+			"address_urdu":      "$customer.address_urdu",
+			"product_name":      "$product.name",
+			"product_name_urdu": "$product.name_urdu",
+			"installment_no":    "$installments.installment_no",
+			"due_date":          bson.M{"$dateToString": bson.M{"format": "%Y-%m-%d", "date": "$installments.due_date"}},
+			"amount":            "$installments.amount",
+			"fine":              "$installments.fine",
+			"partial_paid":      "$installments.partial_paid",
+			"paid":              "$installments.paid",
 			"paid_date": bson.M{"$cond": bson.A{
 				bson.M{"$ifNull": bson.A{"$installments.paid_date", false}},
 				bson.M{"$dateToString": bson.M{"format": "%Y-%m-%d", "date": "$installments.paid_date"}},
 				"",
 			}},
-			"paid_count":         1,
-			"total_installments": 1,
-			"remaining":          bson.M{"$subtract": bson.A{"$num_installments", bson.M{"$size": bson.M{"$filter": bson.M{"input": "$installments", "as": "inst", "cond": bson.M{"$eq": bson.A{"$$inst.paid", true}}}}}}},
+			"paid_count":         "$paid_count",       // from addFields
+			"total_installments": "$num_installments", // original field
+			"remaining":          "$remaining",        // from addFields
 			"total_amount":       "$total_amount",
 			"down_payment":       "$down_payment",
 			"remaining_amount":   "$remaining_amount",
