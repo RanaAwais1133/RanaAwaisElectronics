@@ -26,16 +26,16 @@ var Client *mongo.Client
 // ═══════════════════════════════════════
 
 const (
-	ColCustomers    = "customers"
-	ColGuarantors   = "guarantors"
-	ColProducts     = "products"
-	ColInventory    = "inventory"
-	ColInstallments = "installments"
-	ColPayments     = "payments"
-	ColAuditLogs    = "audit_logs"
+	ColCustomers     = "customers"
+	ColGuarantors    = "guarantors"
+	ColProducts      = "products"
+	ColInventory     = "inventory"
+	ColInstallments  = "installments"
+	ColPayments      = "payments"
+	ColAuditLogs     = "audit_logs"
 	ColNotifications = "notifications"
-	ColAccounting   = "accounting"
-	ColUsers        = "users"
+	ColAccounting    = "accounting"
+	ColUsers         = "users"
 )
 
 // ═══════════════════════════════════════
@@ -167,13 +167,16 @@ func createIndexes() {
 	// ═══════════════════════════════════════
 	// PRODUCTS INDEXES
 	// ═══════════════════════════════════════
+	// Drop old unique SKU index if it exists (migration from unique to non-unique)
+	prodColl := DB.Collection(ColProducts)
+	if _, err := prodColl.Indexes().DropOne(ctx, "sku_1"); err != nil {
+		// Index might not exist, that's fine
+	}
+
 	productIndexes := []mongo.IndexModel{
 		{Keys: bson.D{{Key: "name", Value: 1}}},
 		{Keys: bson.D{{Key: "category", Value: 1}}},
-		{
-			Keys:    bson.D{{Key: "sku", Value: 1}},
-			Options: options.Index().SetUnique(true),
-		},
+		{Keys: bson.D{{Key: "sku", Value: 1}}},
 		{Keys: bson.D{{Key: "serial_number", Value: 1}}},
 	}
 	c, e = createCollectionIndexes(ctx, ColProducts, productIndexes)

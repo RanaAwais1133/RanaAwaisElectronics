@@ -416,18 +416,9 @@ const CustomerReport: React.FC = () => {
 
     } catch (err: any) {
       console.error('Report fetch error:', err);
-      // If API fails, use mock data for demo
-      try {
-        const mockData = await generateMockReport(reportType, { 
-          startDate: startDate || new Date().toISOString().split('T')[0], 
-          endDate: endDate || new Date().toISOString().split('T')[0] 
-        });
-        setReportData(mockData);
-        toast.success(isUrdu ? 'مثال رپورٹ تیار ہو گئی' : 'Sample report generated');
-      } catch {
-        setError(isUrdu ? 'رپورٹ بنانے میں ناکامی' : 'Failed to generate report');
-        toast.error(isUrdu ? 'رپورٹ نہیں بن سکی' : 'Report generation failed');
-      }
+      const errorMsg = err?.response?.data?.error || err?.message || (isUrdu ? 'رپورٹ بنانے میں ناکامی' : 'Failed to generate report');
+      setError(errorMsg);
+      toast.error(errorMsg);
     } finally {
       setLoading(false);
     }

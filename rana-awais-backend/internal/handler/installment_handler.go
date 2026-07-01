@@ -50,8 +50,7 @@ func (h *InstallmentHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Color                string   `json:"color,omitempty"`
 		Company              string   `json:"company,omitempty"`
 		CreatedBy            string   `json:"createdBy,omitempty"`
-		AdvanceAmount        float64  `json:"advanceAmount,omitempty"`
-		AdvanceReceived      int      `json:"advanceReceived,omitempty"`
+		InstallmentDate      int      `json:"installmentDate,omitempty"`
 		ProcessFee           float64  `json:"processFee,omitempty"`
 		Discount             float64  `json:"discount,omitempty"`
 		SalaryIncome         float64  `json:"salaryIncome,omitempty"`
@@ -151,8 +150,7 @@ func (h *InstallmentHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Color:                payload.Color,
 		Company:              payload.Company,
 		CreatedBy:            payload.CreatedBy,
-		AdvanceAmount:        payload.AdvanceAmount,
-		AdvanceReceived:      payload.AdvanceReceived,
+		InstallmentDate:      payload.InstallmentDate,
 		ProcessFee:           payload.ProcessFee,
 		Discount:             payload.Discount,
 		SalaryIncome:         payload.SalaryIncome,

@@ -88,13 +88,11 @@ func (s *InstallmentService) CreatePlan(ctx context.Context, plan *domain.Instal
 	if plan.DownPayment > plan.TotalAmount {
 		return errors.New("down payment cannot exceed total amount")
 	}
-	if plan.AdvanceAmount < 0 {
-		plan.AdvanceAmount = 0
-	}
-	// Remaining = Total - DownPayment - AdvanceAmount
+	// Remaining = Total - DownPayment
 	if plan.RemainingAmount <= 0 {
-		plan.RemainingAmount = plan.TotalAmount - plan.DownPayment - plan.AdvanceAmount
+		plan.RemainingAmount = plan.TotalAmount - plan.DownPayment
 	}
+
 	if plan.RemainingAmount < 0 {
 		return errors.New("remaining amount cannot be negative")
 	}
@@ -210,8 +208,23 @@ func (s *InstallmentService) generateSchedule(plan *domain.InstallmentPlan) []do
 	}
 	totalUsingPerMonth := amountPerInstallment * float64(plan.NumberOfInstallments)
 	adjustment := plan.RemainingAmount - totalUsingPerMonth
+
+	// Determine installment due day: use InstallmentDate if set (1-31), otherwise use start date day
+	installmentDay := plan.StartDate.Day()
+	if plan.InstallmentDate >= 1 && plan.InstallmentDate <= 31 {
+		installmentDay = plan.InstallmentDate
+	}
+
 	for i := 1; i <= plan.NumberOfInstallments; i++ {
-		dueDate := plan.StartDate.AddDate(0, i, 0)
+		// Start from the first month after start date
+		dueDate := time.Date(plan.StartDate.Year(), plan.StartDate.Month(), installmentDay, 0, 0, 0, 0, plan.StartDate.Location())
+		dueDate = dueDate.AddDate(0, i, 0)
+
+		// Handle month overflow (e.g., day 31 in February)
+		for dueDate.Day() != installmentDay && installmentDay > 28 {
+			dueDate = dueDate.AddDate(0, 0, -1)
+		}
+
 		amt := amountPerInstallment
 		if i == plan.NumberOfInstallments {
 			amt += adjustment
@@ -229,6 +242,7 @@ func (s *InstallmentService) generateSchedule(plan *domain.InstallmentPlan) []do
 	}
 	return schedule
 }
+
 
 // ============================================================
 // RECORD PAYMENT (UPDATED with collectedById and remarks)

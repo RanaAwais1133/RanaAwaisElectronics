@@ -48,11 +48,11 @@ const InstallmentCreate: React.FC = () => {
   const [color, setColor] = useState('');
   const [company, setCompany] = useState('');
 
-  // ✅ NEW: Additional Plan Fields
-  const [advanceAmount, setAdvanceAmount] = useState('');
-  const [advanceReceived, setAdvanceReceived] = useState('');
+  // ✅ Fields
+  const [installmentDate, setInstallmentDate] = useState('');
   const [processFee, setProcessFee] = useState('');
   const [discount, setDiscount] = useState('');
+  const [paymentType, setPaymentType] = useState('installments'); // ✅ NEW: "cash" or "installments"
 
   const [createdBy, setCreatedBy] = useState(currentUser?.displayName || currentUser?.username || '');
   const [savedPlanId, setSavedPlanId] = useState<string | null>(null);
@@ -114,9 +114,8 @@ const InstallmentCreate: React.FC = () => {
   useEffect(() => {
     const total = parseFloat(totalAmount) || 0;
     const down = parseFloat(downPayment) || 0;
-    const adv = parseFloat(advanceAmount) || 0;
     const perMonth = parseFloat(perMonthInstallment) || 0;
-    const remaining = total - down - adv;
+    const remaining = total - down;
     
     if (remaining > 0 && perMonth > 0) {
       const calculatedMonths = Math.ceil(remaining / perMonth);
@@ -124,7 +123,7 @@ const InstallmentCreate: React.FC = () => {
     } else if (remaining <= 0) {
       setMonths(0);
     }
-  }, [totalAmount, downPayment, advanceAmount, perMonthInstallment]);
+  }, [totalAmount, downPayment, perMonthInstallment]);
 
   const calculateSchedule = useCallback(() => {
     if (!totalAmount) {
@@ -162,9 +161,18 @@ const InstallmentCreate: React.FC = () => {
     const start = new Date(startDate);
     let totalAllocated = 0;
     
+    // ✅ Use installment date if provided (day of month), otherwise use start date day
+    const installDateDay = parseInt(installmentDate) || start.getDate();
+    
     for (let i = 0; i < calculatedMonths; i++) {
       const d = new Date(start);
       d.setMonth(d.getMonth() + i + 1);
+      
+      // ✅ Set to installment date (day of month)
+      // Handle edge case: if day > max days in month, use last day of month
+      const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+      d.setDate(Math.min(installDateDay, lastDay));
+      
       let amt = perMonth;
       if (i === calculatedMonths - 1) {
         amt = remaining - totalAllocated;
@@ -180,7 +188,7 @@ const InstallmentCreate: React.FC = () => {
     setSchedule(arr);
     setMonths(calculatedMonths);
     toast.success(isUrdu ? 'قسط کا شیڈول تیار' : t('schedule_calculated'));
-  }, [totalAmount, downPayment, perMonthInstallment, months, startDate, t, isUrdu]);
+  }, [totalAmount, downPayment, perMonthInstallment, months, startDate, installmentDate, t, isUrdu]);
 
   const handleSave = useCallback(async () => {
     if (!customerId) {
@@ -221,11 +229,10 @@ const InstallmentCreate: React.FC = () => {
         model: model || '',
         color: color || '',
         company: company || '',
-        // ✅ NEW: Additional fields
-        advanceAmount: parseFloat(advanceAmount) || 0,
-        advanceReceived: parseFloat(advanceReceived) || 0,
+        installmentDate: installmentDate ? parseInt(installmentDate) : 0,
         processFee: parseFloat(processFee) || 0,
         discount: parseFloat(discount) || 0,
+        paymentType: paymentType || 'installments', // ✅ NEW: Payment type (cash or installments)
         createdBy: createdBy || currentUser?.displayName || currentUser?.username || ''
       };
 
@@ -253,8 +260,7 @@ const InstallmentCreate: React.FC = () => {
       setModel('');
       setColor('');
       setCompany('');
-      setAdvanceAmount('');
-      setAdvanceReceived('');
+      setInstallmentDate('');
       setProcessFee('');
       setDiscount('');
       
@@ -268,7 +274,7 @@ const InstallmentCreate: React.FC = () => {
   }, [
     customerId, productId, schedule, totalAmount, downPayment, months, perMonthInstallment,
     startDate, graceDays, finePerDay, serialNumber, imei, engineNo, chassisNo, model, color, company,
-    advanceAmount, advanceReceived, processFee, discount, createdBy, currentUser, t, isUrdu
+    installmentDate, processFee, discount, paymentType, createdBy, currentUser, t, isUrdu
   ]);
 
   if (savedPlanId) {
@@ -377,12 +383,11 @@ const InstallmentCreate: React.FC = () => {
           </div>
         </div>
 
-        {/* ✅ NEW: Additional Plan Fields */}
+        {/* ✅ Additional Plan Fields */}
         <div className="bg-teal-50 dark:bg-teal-900/20 rounded-2xl p-4 sm:p-5 border border-teal-200 dark:border-teal-800">
           <h3 className="text-sm font-bold text-teal-700 dark:text-teal-300 mb-3">{t('additional_plan_fields') || 'Additional Plan Fields'} ({t('optional')})</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div><label className="block text-xs font-medium mb-1">{t('advance_amount') || 'Advance Amount'}</label><input type="number" min="0" step="0.01" value={advanceAmount} onChange={e => setAdvanceAmount(e.target.value)} className="w-full border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-sm" /></div>
-            <div><label className="block text-xs font-medium mb-1">{t('advance_received') || 'Advance Received'}</label><input type="number" min="0" step="0.01" value={advanceReceived} onChange={e => setAdvanceReceived(e.target.value)} className="w-full border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-sm" /></div>
+            <div><label className="block text-xs font-medium mb-1">{t('installment_date') || 'Installment Date'}</label><input type="number" min="1" max="31" value={installmentDate} onChange={e => setInstallmentDate(e.target.value)} className="w-full border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-sm" placeholder={isUrdu ? 'مثلاً 15' : 'e.g. 15'} /></div>
             <div><label className="block text-xs font-medium mb-1">{t('process_fee') || 'Process Fee'}</label><input type="number" min="0" step="0.01" value={processFee} onChange={e => setProcessFee(e.target.value)} className="w-full border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-sm" /></div>
             <div><label className="block text-xs font-medium mb-1">{t('discount') || 'Discount'}</label><input type="number" min="0" step="0.01" value={discount} onChange={e => setDiscount(e.target.value)} className="w-full border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-sm" /></div>
           </div>
@@ -446,6 +451,41 @@ const InstallmentCreate: React.FC = () => {
                 <p className="text-sm text-gray-500 italic">{isUrdu ? 'اس پلان پر کوئی جرمانہ نہیں لگے گا' : 'No fine will be applied to this plan'}</p>
               </div>
             )}
+          </div>
+        </div>
+
+        {/* ✅ Payment Type Selection */}
+        <div className="bg-indigo-50 dark:bg-indigo-900/20 rounded-2xl p-4 sm:p-5 border border-indigo-200 dark:border-indigo-800">
+          <h3 className="text-sm font-bold text-indigo-700 dark:text-indigo-300 mb-3">{isUrdu ? 'ادائیگی کی قسم' : 'Payment Type'}</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label className="flex items-center cursor-pointer">
+              <input
+                type="radio"
+                name="paymentType"
+                value="installments"
+                checked={paymentType === 'installments'}
+                onChange={e => setPaymentType(e.target.value)}
+                className="w-4 h-4 text-blue-600 rounded-full"
+              />
+              <span className="ml-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+                {isUrdu ? 'قسطوں میں ادا کریں' : 'Installments'}
+              </span>
+              <span className="ml-auto text-xs text-gray-500">({isUrdu ? 'ماہانہ' : 'Monthly'})</span>
+            </label>
+            <label className="flex items-center cursor-pointer">
+              <input
+                type="radio"
+                name="paymentType"
+                value="cash"
+                checked={paymentType === 'cash'}
+                onChange={e => setPaymentType(e.target.value)}
+                className="w-4 h-4 text-emerald-600 rounded-full"
+              />
+              <span className="ml-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+                {isUrdu ? 'نقد رقم' : 'Cash'}
+              </span>
+              <span className="ml-auto text-xs text-gray-500">({isUrdu ? 'فوری' : 'Immediate'})</span>
+            </label>
           </div>
         </div>
 
