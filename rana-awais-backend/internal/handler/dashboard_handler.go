@@ -68,11 +68,6 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 		ch <- result{"activeInstallments", count, err}
 	}()
 
-	// 6. Completed Installments
-	go func() {
-		count, err := db.Collection(config.ColInstallments).CountDocuments(ctx, bson.M{"status": "completed"})
-		ch <- result{"completedInstallments", count, err}
-	}()
 
 	// 7. Overdue Customers
 	go func() {
@@ -92,9 +87,9 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 		ch <- result{"totalProducts", count, err}
 	}()
 
-	// 10. Low Stock Items - count items with status "in_stock" (no quantity field exists)
+	// 10. Low Stock Items - count items with low quantity (threshold: <5)
 	go func() {
-		count, err := db.Collection(config.ColInventory).CountDocuments(ctx, bson.M{"status": "in_stock"})
+		count, err := db.Collection(config.ColInventory).CountDocuments(ctx, bson.M{"status": "in_stock", "quantity": bson.M{"$lt": 5}})
 		ch <- result{"lowStockItems", count, err}
 	}()
 
@@ -377,12 +372,12 @@ func getTodayProfit(ctx context.Context, db *mongo.Database, start, end time.Tim
 	// Then get cost of goods sold today from inventory
 	cogsPipeline := mongo.Pipeline{
 		{{Key: "$match", Value: bson.M{
-			"status":   "sold",
-			"soldDate": bson.M{"$gte": start, "$lt": end},
+			"status":    "sold",
+			"sold_date": bson.M{"$gte": start, "$lt": end},
 		}}},
 		{{Key: "$group", Value: bson.M{
 			"_id":   nil,
-			"total": bson.M{"$sum": "$purchasePrice"},
+			"total": bson.M{"$sum": "$purchase_price"},
 		}}},
 	}
 	cogsCursor, err := db.Collection(config.ColInventory).Aggregate(ctx, cogsPipeline)
@@ -620,7 +615,7 @@ func (h *DashboardHandler) LowStockDetails(w http.ResponseWriter, r *http.Reques
 	db := config.DB
 	ctx := r.Context()
 
-	cursor, err := db.Collection(config.ColInventory).Find(ctx, bson.M{"status": "in_stock"}, nil)
+	cursor, err := db.Collection(config.ColInventory).Find(ctx, bson.M{"status": "in_stock", "quantity": bson.M{"$lt": 5}}, nil)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "Failed to fetch low stock items", "ناکام")
 		return
@@ -651,6 +646,31 @@ func (h *DashboardHandler) TodayDueFull(w http.ResponseWriter, r *http.Request) 
 	pipeline := mongo.Pipeline{
 		{{Key: "$match", Value: bson.M{"status": "active"}}},
 		// Compute plan-level statistics BEFORE unwinding
+		{{Key: "$addFields", Value: bson.M{
+			"paid_count": bson.M{
+				"$size": bson.M{
+					"$filter": bson.M{
+						"input": "$installments",
+						"as":    "inst",
+						"cond":  bson.M{"$eq": bson.A{"$$inst.paid", true}},
+					},
+				},
+			},
+			"remaining": bson.M{
+				"$subtract": bson.A{
+					"$num_installments",
+					bson.M{
+						"$size": bson.M{
+							"$filter": bson.M{
+								"input": "$installments",
+								"as":    "inst",
+								"cond":  bson.M{"$eq": bson.A{"$$inst.paid", true}},
+							},
+						},
+					},
+				},
+			},
+		}}},
 		{{Key: "$addFields", Value: bson.M{
 			"paid_count": bson.M{
 				"$size": bson.M{
