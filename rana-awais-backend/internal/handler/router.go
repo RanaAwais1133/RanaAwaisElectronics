@@ -5,10 +5,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/gorilla/mux"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/config"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/middleware"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/service"
+	"github.com/gorilla/mux"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -636,13 +636,13 @@ func SetupRouter(
 			}}},
 			{{Key: "$unwind", Value: bson.M{"path": "$customer", "preserveNullAndEmptyArrays": true}}},
 			{{Key: "$project", Value: bson.M{
-				"customer_id":      bson.M{"$toString": "$_id"},
-				"customer_name":    "$customer.name",
+				"customer_id":        bson.M{"$toString": "$_id"},
+				"customer_name":      "$customer.name",
 				"customer_name_urdu": "$customer.name_urdu",
-				"father_name":      "$customer.father_name",
-				"phone":            "$customer.phone",
-				"pending_amount":   1,
-				"installment_count": 1,
+				"father_name":        "$customer.father_name",
+				"phone":              "$customer.phone",
+				"pending_amount":     1,
+				"installment_count":  1,
 			}}},
 			{{Key: "$sort", Value: bson.M{"pending_amount": -1}}},
 		}
@@ -758,6 +758,7 @@ func SetupRouter(
 	protected.HandleFunc("/dashboard/overdue", dashboardH.OverdueDetails).Methods("GET")
 	protected.HandleFunc("/dashboard/today-due", dashboardH.TodayDueDetails).Methods("GET")
 	protected.HandleFunc("/dashboard/low-stock", dashboardH.LowStockDetails).Methods("GET")
+	protected.HandleFunc("/dashboard/monthly-due", dashboardH.MonthlyDueDetails).Methods("GET")
 	protected.HandleFunc("/dashboard/activities", dashboardH.RecentActivities).Methods("GET")
 	// Full detail endpoints for professional tables - with caching
 	protected.Handle("/dashboard/today-due-full", middleware.DashboardCache.CacheResponse(http.HandlerFunc(dashboardH.TodayDueFull))).Methods("GET")

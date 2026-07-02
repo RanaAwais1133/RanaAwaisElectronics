@@ -69,28 +69,28 @@ const InstallmentDetailTable: React.FC<InstallmentDetailTableProps> = ({ type, i
     if (!printWindow) return;
 
     const rows = data.map((item, idx) => {
-      const name = isUrdu ? (item.customer_urdu || item.customer_name) : item.customer_name;
+      const name = isUrdu ? (item.customer_urdu || item.customer_name || '—') : (item.customer_name || '—');
       const father = item.father_name || '—';
       const phone = item.phone || '—';
       const address = isUrdu ? (item.address_urdu || item.address || '—') : (item.address || '—');
       const product = isUrdu ? (item.product_name_urdu || item.product_name || '—') : (item.product_name || '—');
+      const dueDate = item.due_date || '—';
       const status = item.paid
         ? (isUrdu ? 'ادا شدہ' : 'Paid')
-        : new Date(item.due_date) < new Date()
-          ? (isUrdu ? 'تاخیر شدہ' : 'Overdue')
-          : (isUrdu ? 'زیر التوا' : 'Pending');
-      const statusColor = item.paid ? '#059669' : (new Date(item.due_date) < new Date() ? '#dc2626' : '#d97706');
+        : (item.due_date && new Date(item.due_date) < new Date() ? (isUrdu ? 'تاخیر شدہ' : 'Overdue') : (isUrdu ? 'زیر التوا' : 'Pending'));
+      const statusColor = item.paid ? '#059669' : (item.due_date && new Date(item.due_date) < new Date() ? '#dc2626' : '#d97706');
+      const installmentDisplay = `${item.installment_no ?? '—'}/${item.total_installments ?? '—'}`;
 
       return `<tr>
         <td style="border:1px solid #e5e7eb;padding:6px 4px;text-align:center;font-size:11px;">${idx + 1}</td>
-        <td style="border:1px solid #e5e7eb;padding:6px 4px;font-size:11px;white-space:nowrap;">${name || '—'}</td>
+        <td style="border:1px solid #e5e7eb;padding:6px 4px;font-size:11px;white-space:nowrap;">${name}</td>
         <td style="border:1px solid #e5e7eb;padding:6px 4px;font-size:11px;white-space:nowrap;">${father}</td>
         <td style="border:1px solid #e5e7eb;padding:6px 4px;font-size:11px;white-space:nowrap;">${phone}</td>
         <td style="border:1px solid #e5e7eb;padding:6px 4px;font-size:11px;white-space:nowrap;">${address}</td>
         <td style="border:1px solid #e5e7eb;padding:6px 4px;font-size:11px;white-space:nowrap;">${product}</td>
-        <td style="border:1px solid #e5e7eb;padding:6px 4px;text-align:center;font-size:11px;">${item.installment_no}/${item.total_installments}</td>
-        <td style="border:1px solid #e5e7eb;padding:6px 4px;text-align:right;font-size:11px;white-space:nowrap;">Rs. ${Number(item.amount).toLocaleString()}</td>
-        <td style="border:1px solid #e5e7eb;padding:6px 4px;text-align:center;font-size:11px;white-space:nowrap;">${item.due_date || '—'}</td>
+        <td style="border:1px solid #e5e7eb;padding:6px 4px;text-align:center;font-size:11px;">${installmentDisplay}</td>
+        <td style="border:1px solid #e5e7eb;padding:6px 4px;text-align:right;font-size:11px;white-space:nowrap;">Rs. ${Number(item.amount || 0).toLocaleString()}</td>
+        <td style="border:1px solid #e5e7eb;padding:6px 4px;text-align:center;font-size:11px;white-space:nowrap;">${dueDate}</td>
         <td style="border:1px solid #e5e7eb;padding:6px 4px;text-align:center;font-size:11px;color:${statusColor};font-weight:600;">${status}</td>
         <td style="border:1px solid #e5e7eb;padding:6px 4px;text-align:right;font-size:11px;">Rs. ${Number(item.fine || 0).toLocaleString()}</td>
       </tr>`;
@@ -276,7 +276,7 @@ const InstallmentDetailTable: React.FC<InstallmentDetailTableProps> = ({ type, i
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
               {data.map((item, idx) => {
-                const isOverdue = !item.paid && new Date(item.due_date) < new Date();
+                const isOverdue = !item.paid && item.due_date && new Date(item.due_date) < new Date();
                 const statusText = item.paid
                   ? (isUrdu ? 'ادا شدہ' : 'Paid')
                   : isOverdue
@@ -319,12 +319,12 @@ const InstallmentDetailTable: React.FC<InstallmentDetailTableProps> = ({ type, i
                     </td>
                     <td className="px-2 py-2.5 text-center">
                       <span className="inline-flex items-center gap-0.5 text-xs font-semibold text-gray-700 dark:text-gray-200">
-                        <span className="text-gray-900 dark:text-white">{item.installment_no}</span>
+                        <span className="text-gray-900 dark:text-white">{item.installment_no ?? '—'}</span>
                         <span className="text-gray-400">/</span>
-                        <span className="text-gray-500">{item.total_installments}</span>
+                        <span className="text-gray-500">{item.total_installments ?? '—'}</span>
                       </span>
                       <div className="text-[9px] text-gray-400 mt-0.5">
-                        {isUrdu ? 'ادا:' : 'Paid:'} {item.paid_count || 0}
+                        {isUrdu ? 'ادا:' : 'Paid:'} {item.paid_count ?? 0}
                       </div>
                     </td>
                     <td className="px-2 py-2.5 text-end">

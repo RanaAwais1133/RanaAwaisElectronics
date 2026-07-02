@@ -20,7 +20,6 @@ interface DailyReportData {
   bankDeposit: number;
   recoveryRate: number;
   outstanding: number;
-  // Detailed transactions
   transactions: Array<{
     id: string;
     customerName: string;
@@ -34,7 +33,6 @@ interface DailyReportData {
     status: 'paid' | 'pending' | 'partial';
     date: string;
   }>;
-  // Summary breakdowns
   cashSales: number;
   cashSalesReturn: number;
   installmentSales: number;
@@ -42,18 +40,15 @@ interface DailyReportData {
   advancePayments: number;
   fineReceived: number;
   processingFee: number;
-  // Account details
   openAccounts: number;
   closedAccounts: number;
   netAccounts: number;
-  // Outstanding details
   freshOutstanding: number;
   regularOutstanding: number;
   totalOutstanding: number;
 }
 
 // ==================== COMPONENTS ====================
-
 const ReportHeader: React.FC<{ 
   title: string; 
   subtitle?: string; 
@@ -157,7 +152,6 @@ const ReportSummaryCards: React.FC<{
     'date-range': isUrdu ? 'تاریخ سے تاریخ' : 'Date to Date',
   };
 
-  // Safe number formatter - handles undefined/null values
   const fmt = (val: any): string => {
     const num = Number(val);
     return isNaN(num) ? '0' : num.toLocaleString();
@@ -165,7 +159,6 @@ const ReportSummaryCards: React.FC<{
 
   return (
     <>
-      {/* Header Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
         <div className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-900/30 rounded-xl p-3 border border-blue-200 dark:border-blue-800">
           <p className="text-xs font-semibold text-blue-600 dark:text-blue-400">{isUrdu ? 'کل فروخت' : 'Total Sales'}</p>
@@ -189,7 +182,6 @@ const ReportSummaryCards: React.FC<{
         </div>
       </div>
 
-      {/* Account Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
         <div className="bg-gradient-to-br from-cyan-50 to-cyan-100 dark:from-cyan-900/20 dark:to-cyan-900/30 rounded-xl p-3 border border-cyan-200 dark:border-cyan-800">
           <p className="text-xs font-semibold text-cyan-600 dark:text-cyan-400">{isUrdu ? 'کھلے اکاؤنٹس' : 'Open Accounts'}</p>
@@ -208,31 +200,11 @@ const ReportSummaryCards: React.FC<{
           <p className="text-lg font-extrabold text-rose-800 dark:text-rose-200">Rs. {fmt(data.totalOutstanding)}</p>
         </div>
       </div>
-
-      {/* Breakdown Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
-        <div className="bg-white dark:bg-gray-800 rounded-lg p-2 border border-gray-200 dark:border-gray-700 text-center">
-          <p className="text-[10px] font-semibold text-gray-500 dark:text-gray-400">{isUrdu ? 'نقد فروخت' : 'Cash Sales'}</p>
-          <p className="text-sm font-bold text-gray-800 dark:text-gray-200">Rs. {fmt(data.cashSales)}</p>
-        </div>
-        <div className="bg-white dark:bg-gray-800 rounded-lg p-2 border border-gray-200 dark:border-gray-700 text-center">
-          <p className="text-[10px] font-semibold text-gray-500 dark:text-gray-400">{isUrdu ? 'قسط فروخت' : 'Installment Sales'}</p>
-          <p className="text-sm font-bold text-gray-800 dark:text-gray-200">Rs. {fmt(data.installmentSales)}</p>
-        </div>
-        <div className="bg-white dark:bg-gray-800 rounded-lg p-2 border border-gray-200 dark:border-gray-700 text-center">
-          <p className="text-[10px] font-semibold text-gray-500 dark:text-gray-400">{isUrdu ? 'قسط وصولی' : 'Inst. Collections'}</p>
-          <p className="text-sm font-bold text-gray-800 dark:text-gray-200">Rs. {fmt(data.installmentCollections)}</p>
-        </div>
-        <div className="bg-white dark:bg-gray-800 rounded-lg p-2 border border-gray-200 dark:border-gray-700 text-center">
-          <p className="text-[10px] font-semibold text-gray-500 dark:text-gray-400">{isUrdu ? 'ایڈوانس' : 'Advance Payments'}</p>
-          <p className="text-sm font-bold text-gray-800 dark:text-gray-200">Rs. {fmt(data.advancePayments)}</p>
-        </div>
-      </div>
     </>
   );
 };
 
-// ==================== MAIN REPORT TABLE ====================
+// ==================== TRANSACTION TABLE ====================
 const TransactionTable: React.FC<{
   transactions: DailyReportData['transactions'];
   isUrdu: boolean;
@@ -248,7 +220,6 @@ const TransactionTable: React.FC<{
 
   return (
     <>
-      {/* ✅ Mobile Card View */}
       <div className="sm:hidden space-y-3">
         {transactions.map((t, idx) => (
           <div key={t.id} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-3 space-y-2 shadow-sm">
@@ -273,60 +244,31 @@ const TransactionTable: React.FC<{
           </div>
         ))}
       </div>
-      {/* ✅ Desktop Table View */}
       <div className="hidden sm:block overflow-x-auto">
         <table className="w-full min-w-[900px] text-sm border-collapse">
           <thead>
             <tr className="bg-gradient-to-r from-blue-600 to-blue-700 text-white">
-              <th className="px-3 py-2.5 text-start text-xs font-bold uppercase tracking-wider border border-blue-800">
-                {isUrdu ? 'گاہک کا نام' : 'Customer Name'}
-              </th>
-              <th className="px-3 py-2.5 text-start text-xs font-bold uppercase tracking-wider border border-blue-800">
-                {isUrdu ? 'والد کا نام' : 'Father Name'}
-              </th>
-              <th className="px-3 py-2.5 text-start text-xs font-bold uppercase tracking-wider border border-blue-800">
-                {isUrdu ? 'فون' : 'Phone'}
-              </th>
-              <th className="px-3 py-2.5 text-start text-xs font-bold uppercase tracking-wider border border-blue-800">
-                {isUrdu ? 'پروڈکٹ' : 'Product'}
-              </th>
-              <th className="px-3 py-2.5 text-center text-xs font-bold uppercase tracking-wider border border-blue-800">
-                {isUrdu ? 'قسم' : 'Type'}
-              </th>
-              <th className="px-3 py-2.5 text-end text-xs font-bold uppercase tracking-wider border border-blue-800">
-                {isUrdu ? 'رقم' : 'Amount'}
-              </th>
-              <th className="px-3 py-2.5 text-center text-xs font-bold uppercase tracking-wider border border-blue-800">
-                {isUrdu ? 'حالت' : 'Status'}
-              </th>
-              <th className="px-3 py-2.5 text-center text-xs font-bold uppercase tracking-wider border border-blue-800">
-                {isUrdu ? 'تاریخ' : 'Date'}
-              </th>
+              <th className="px-3 py-2.5 text-start text-xs font-bold uppercase tracking-wider border border-blue-800">{isUrdu ? 'گاہک کا نام' : 'Customer Name'}</th>
+              <th className="px-3 py-2.5 text-start text-xs font-bold uppercase tracking-wider border border-blue-800">{isUrdu ? 'والد کا نام' : 'Father Name'}</th>
+              <th className="px-3 py-2.5 text-start text-xs font-bold uppercase tracking-wider border border-blue-800">{isUrdu ? 'فون' : 'Phone'}</th>
+              <th className="px-3 py-2.5 text-start text-xs font-bold uppercase tracking-wider border border-blue-800">{isUrdu ? 'پروڈکٹ' : 'Product'}</th>
+              <th className="px-3 py-2.5 text-center text-xs font-bold uppercase tracking-wider border border-blue-800">{isUrdu ? 'قسم' : 'Type'}</th>
+              <th className="px-3 py-2.5 text-end text-xs font-bold uppercase tracking-wider border border-blue-800">{isUrdu ? 'رقم' : 'Amount'}</th>
+              <th className="px-3 py-2.5 text-center text-xs font-bold uppercase tracking-wider border border-blue-800">{isUrdu ? 'حالت' : 'Status'}</th>
+              <th className="px-3 py-2.5 text-center text-xs font-bold uppercase tracking-wider border border-blue-800">{isUrdu ? 'تاریخ' : 'Date'}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
             {transactions.map((t, idx) => (
               <tr key={t.id} className={`${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-blue-50 transition-colors`}>
-                <td className="px-3 py-2 font-semibold text-gray-800 border border-gray-200">
-                  {isUrdu ? t.customerUrdu || t.customerName : t.customerName}
-                </td>
+                <td className="px-3 py-2 font-semibold text-gray-800 border border-gray-200">{isUrdu ? t.customerUrdu || t.customerName : t.customerName}</td>
                 <td className="px-3 py-2 text-gray-600 border border-gray-200">{t.fatherName || '—'}</td>
                 <td className="px-3 py-2 text-gray-600 font-mono text-xs border border-gray-200" dir="ltr">{t.phone || '—'}</td>
-                <td className="px-3 py-2 text-gray-600 border border-gray-200">
-                  {isUrdu ? t.productNameUrdu || t.productName : t.productName}
-                </td>
-                <td className="px-3 py-2 text-center border border-gray-200">
-                  <StatusBadge status={t.type} isUrdu={isUrdu} />
-                </td>
-                <td className="px-3 py-2 text-end font-semibold border border-gray-200">
-                  Rs. {t.amount.toLocaleString()}
-                </td>
-                <td className="px-3 py-2 text-center border border-gray-200">
-                  <StatusBadge status={t.status} isUrdu={isUrdu} />
-                </td>
-                <td className="px-3 py-2 text-center font-mono text-xs border border-gray-200">
-                  {t.date ? new Date(t.date).toLocaleDateString(isUrdu ? 'ur-PK' : 'en-PK') : '—'}
-                </td>
+                <td className="px-3 py-2 text-gray-600 border border-gray-200">{isUrdu ? t.productNameUrdu || t.productName : t.productName}</td>
+                <td className="px-3 py-2 text-center border border-gray-200"><StatusBadge status={t.type} isUrdu={isUrdu} /></td>
+                <td className="px-3 py-2 text-end font-semibold border border-gray-200">Rs. {t.amount.toLocaleString()}</td>
+                <td className="px-3 py-2 text-center border border-gray-200"><StatusBadge status={t.status} isUrdu={isUrdu} /></td>
+                <td className="px-3 py-2 text-center font-mono text-xs border border-gray-200">{t.date ? new Date(t.date).toLocaleDateString(isUrdu ? 'ur-PK' : 'en-PK') : '—'}</td>
               </tr>
             ))}
           </tbody>
@@ -351,19 +293,13 @@ const CustomerReport: React.FC = () => {
   const reportRef = useRef<HTMLDivElement>(null);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
 
-  // Set default dates
   useEffect(() => {
     const today = new Date();
-    const weekAgo = new Date(today);
-    weekAgo.setDate(today.getDate() - 7);
-    const monthAgo = new Date(today);
-    monthAgo.setMonth(today.getMonth() - 1);
-    
     setStartDate(today.toISOString().split('T')[0]);
     setEndDate(today.toISOString().split('T')[0]);
   }, []);
 
-  // ==================== API CALLS ====================
+  // ✅ FIX: Real API endpoints using existing accounting endpoints
   const fetchReport = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -372,48 +308,198 @@ const CustomerReport: React.FC = () => {
     try {
       const today = new Date();
       const todayStr = today.toISOString().split('T')[0];
+      let response;
 
-      // Build query params based on report type
-      let params: Record<string, string> = {};
-      let endpoint = '';
-      let weekAgo: Date;
-      let monthAgo: Date;
-      
       switch (reportType) {
-        case 'daily':
-          endpoint = '/reports/daily';
-          params = { date: todayStr };
+        case 'daily': {
+          // Use /accounting/today for daily report
+          const res = await api.get('/accounting/today');
+          const d = res.data;
+          // Transform to DailyReportData format
+          const transactions = d.transactions || [];
+          response = {
+            date: todayStr,
+            dayName: today.toLocaleDateString(isUrdu ? 'ur-PK' : 'en-PK', { weekday: 'long' }),
+            totalSales: d.total_sales || 0,
+            totalInstallments: transactions.filter((t: any) => t.type === 'installment').length || 0,
+            totalCollected: d.revenue || 0,
+            totalPending: d.pending || 0,
+            totalCustomers: d.customers || 0,
+            cashInHand: d.cash_in_hand || 0,
+            bankDeposit: d.bank_deposit || 0,
+            recoveryRate: d.recovery_rate || 0,
+            outstanding: d.outstanding || 0,
+            transactions: transactions.map((t: any) => ({
+              id: t.id || `txn-${Date.now()}`,
+              customerName: t.customer_name || 'Unknown',
+              customerUrdu: t.customer_urdu || '',
+              fatherName: t.father_name || '',
+              phone: t.phone || '',
+              productName: t.product_name || '',
+              productNameUrdu: t.product_name_urdu || '',
+              amount: t.amount || 0,
+              type: t.type || 'sale',
+              status: t.status || 'pending',
+              date: t.date || todayStr,
+            })),
+            cashSales: d.cash_sales || 0,
+            cashSalesReturn: d.cash_sales_return || 0,
+            installmentSales: d.installment_sales || 0,
+            installmentCollections: d.installment_collections || 0,
+            advancePayments: d.advance_payments || 0,
+            fineReceived: d.fine_received || 0,
+            processingFee: d.processing_fee || 0,
+            openAccounts: d.open_accounts || 0,
+            closedAccounts: d.closed_accounts || 0,
+            netAccounts: d.net_accounts || 0,
+            freshOutstanding: d.fresh_outstanding || 0,
+            regularOutstanding: d.regular_outstanding || 0,
+            totalOutstanding: d.total_outstanding || 0,
+          };
           break;
-        case 'weekly':
-          endpoint = '/reports/weekly';
-          weekAgo = new Date(today);
-          weekAgo.setDate(today.getDate() - 7);
-          params = { startDate: weekAgo.toISOString().split('T')[0], endDate: todayStr };
+        }
+        case 'monthly': {
+          const res = await api.get('/accounting/month');
+          const d = res.data;
+          const monthAgo = new Date();
+          monthAgo.setMonth(monthAgo.getMonth() - 1);
+          response = {
+            date: todayStr,
+            dayName: today.toLocaleDateString(isUrdu ? 'ur-PK' : 'en-PK', { weekday: 'long' }),
+            totalSales: d.total_sales || 0,
+            totalInstallments: 0,
+            totalCollected: d.revenue || 0,
+            totalPending: d.pending || 0,
+            totalCustomers: d.customers || 0,
+            cashInHand: d.cash_in_hand || 0,
+            bankDeposit: d.bank_deposit || 0,
+            recoveryRate: d.recovery_rate || 0,
+            outstanding: d.outstanding || 0,
+            transactions: [],
+            cashSales: 0,
+            cashSalesReturn: 0,
+            installmentSales: 0,
+            installmentCollections: 0,
+            advancePayments: 0,
+            fineReceived: 0,
+            processingFee: 0,
+            openAccounts: 0,
+            closedAccounts: 0,
+            netAccounts: 0,
+            freshOutstanding: 0,
+            regularOutstanding: 0,
+            totalOutstanding: 0,
+          };
           break;
-        case 'monthly':
-          endpoint = '/reports/monthly';
-          monthAgo = new Date(today);
-          monthAgo.setMonth(today.getMonth() - 1);
-          params = { startDate: monthAgo.toISOString().split('T')[0], endDate: todayStr };
-          break;
-        case 'date-range':
-          endpoint = '/reports/date-range';
+        }
+        case 'date-range': {
           if (!startDate || !endDate) {
             setError(isUrdu ? 'تاریخ کی حد منتخب کریں' : 'Please select date range');
             setLoading(false);
             return;
           }
-          params = { startDate, endDate };
+          // Use /accounting/profit-loss/cash for date range
+          const res = await api.get(`/accounting/profit-loss/cash?start=${startDate}&end=${endDate}`);
+          const d = res.data;
+          response = {
+            date: todayStr,
+            dayName: today.toLocaleDateString(isUrdu ? 'ur-PK' : 'en-PK', { weekday: 'long' }),
+            totalSales: d.total_sales || 0,
+            totalInstallments: 0,
+            totalCollected: d.revenue || 0,
+            totalPending: d.pending || 0,
+            totalCustomers: d.customers || 0,
+            cashInHand: d.cash_in_hand || 0,
+            bankDeposit: d.bank_deposit || 0,
+            recoveryRate: d.recovery_rate || 0,
+            outstanding: d.outstanding || 0,
+            transactions: [],
+            cashSales: 0,
+            cashSalesReturn: 0,
+            installmentSales: 0,
+            installmentCollections: 0,
+            advancePayments: 0,
+            fineReceived: 0,
+            processingFee: 0,
+            openAccounts: 0,
+            closedAccounts: 0,
+            netAccounts: 0,
+            freshOutstanding: 0,
+            regularOutstanding: 0,
+            totalOutstanding: 0,
+          };
           break;
+        }
+        case 'weekly': {
+          // Weekly = last 7 days using date-range endpoint
+          const weekAgo = new Date();
+          weekAgo.setDate(weekAgo.getDate() - 7);
+          const start = weekAgo.toISOString().split('T')[0];
+          const end = todayStr;
+          const res = await api.get(`/accounting/profit-loss/cash?start=${start}&end=${end}`);
+          const d = res.data;
+          response = {
+            date: todayStr,
+            dayName: today.toLocaleDateString(isUrdu ? 'ur-PK' : 'en-PK', { weekday: 'long' }),
+            totalSales: d.total_sales || 0,
+            totalInstallments: 0,
+            totalCollected: d.revenue || 0,
+            totalPending: d.pending || 0,
+            totalCustomers: d.customers || 0,
+            cashInHand: d.cash_in_hand || 0,
+            bankDeposit: d.bank_deposit || 0,
+            recoveryRate: d.recovery_rate || 0,
+            outstanding: d.outstanding || 0,
+            transactions: [],
+            cashSales: 0,
+            cashSalesReturn: 0,
+            installmentSales: 0,
+            installmentCollections: 0,
+            advancePayments: 0,
+            fineReceived: 0,
+            processingFee: 0,
+            openAccounts: 0,
+            closedAccounts: 0,
+            netAccounts: 0,
+            freshOutstanding: 0,
+            regularOutstanding: 0,
+            totalOutstanding: 0,
+          };
+          break;
+        }
+        default: {
+          response = {
+            date: todayStr,
+            dayName: today.toLocaleDateString(isUrdu ? 'ur-PK' : 'en-PK', { weekday: 'long' }),
+            totalSales: 0,
+            totalInstallments: 0,
+            totalCollected: 0,
+            totalPending: 0,
+            totalCustomers: 0,
+            cashInHand: 0,
+            bankDeposit: 0,
+            recoveryRate: 0,
+            outstanding: 0,
+            transactions: [],
+            cashSales: 0,
+            cashSalesReturn: 0,
+            installmentSales: 0,
+            installmentCollections: 0,
+            advancePayments: 0,
+            fineReceived: 0,
+            processingFee: 0,
+            openAccounts: 0,
+            closedAccounts: 0,
+            netAccounts: 0,
+            freshOutstanding: 0,
+            regularOutstanding: 0,
+            totalOutstanding: 0,
+          };
+        }
       }
-
-      // Call the real API endpoint
-      const res = await api.get(endpoint, { params });
-      const response = res.data;
 
       setReportData(response);
       toast.success(isUrdu ? 'رپورٹ تیار ہو گئی' : 'Report generated successfully');
-
     } catch (err: any) {
       console.error('Report fetch error:', err);
       const errorMsg = err?.response?.data?.error || err?.message || (isUrdu ? 'رپورٹ بنانے میں ناکامی' : 'Failed to generate report');
@@ -424,67 +510,6 @@ const CustomerReport: React.FC = () => {
     }
   }, [reportType, startDate, endDate, isUrdu]);
 
-  // ==================== MOCK DATA GENERATOR (Fallback) ====================
-  const generateMockReport = async (type: string, params: Record<string, string>): Promise<DailyReportData> => {
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    const today = new Date();
-    const start = params.startDate ? new Date(params.startDate) : today;
-    const end = params.endDate ? new Date(params.endDate) : today;
-
-    const random = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
-    const totalSales = random(50000, 200000);
-    const totalCollected = random(30000, 150000);
-    const totalPending = totalSales - totalCollected;
-    const totalInstallments = random(5, 30);
-    const totalCustomers = random(2, 15);
-    const cashInHand = random(20000, 100000);
-    const bankDeposit = random(10000, 50000);
-    const recoveryRate = Math.round((totalCollected / totalSales) * 100);
-
-    const names = ['M Nazir', 'Ahmed Khan', 'Sadia Batool', 'Usman Ali', 'Fatima Noor', 'Ali Raza', 'Hina Khan'];
-    const urduNames = ['محمد نذیر', 'احمد خان', 'سعدیہ بتول', 'عثمان علی', 'فاطمہ نور', 'علی رضا', 'حنا خان'];
-    const fatherNames = ['Muhammad Iqbal', 'Abdul Rehman', 'Muhammad Yousaf', 'Saeed Ahmed', 'Muhammad Ali'];
-    const products = ['Mobile Phones', 'Refrigerator', 'LED TV', 'Washing Machine', 'Laptop', 'Air Conditioner'];
-    const urduProducts = ['موبائل فون', 'ریفریجریٹر', 'ایل ای ڈی ٹی وی', 'واشنگ مشین', 'لیپ ٹاپ', 'ایئر کنڈیشنر'];
-    const types = ['sale', 'installment', 'advance', 'recovery'] as const;
-    const statuses = ['paid', 'pending', 'partial'] as const;
-
-    const transactions = Array.from({ length: random(5, 20) }, (_, i) => {
-      const idx = random(0, names.length - 1);
-      const date = new Date(start);
-      date.setDate(date.getDate() + random(0, Math.max(0, Math.floor((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)))));
-      return {
-        id: `txn-${Date.now()}-${i}`,
-        customerName: names[idx % names.length],
-        customerUrdu: urduNames[idx % urduNames.length],
-        fatherName: fatherNames[random(0, fatherNames.length - 1)],
-        phone: `03${random(0, 9)}${random(0, 9)}${random(0, 9)}${random(0, 9)}${random(0, 9)}${random(0, 9)}${random(0, 9)}`,
-        productName: products[random(0, products.length - 1)],
-        productNameUrdu: urduProducts[random(0, urduProducts.length - 1)],
-        amount: random(1000, 15000),
-        type: types[random(0, types.length - 1)],
-        status: statuses[random(0, statuses.length - 1)],
-        date: date.toISOString().split('T')[0],
-      };
-    });
-
-    return {
-      date: today.toISOString().split('T')[0],
-      dayName: today.toLocaleDateString(isUrdu ? 'ur-PK' : 'en-PK', { weekday: 'long' }),
-      totalSales, totalInstallments, totalCollected, totalPending, totalCustomers,
-      cashInHand, bankDeposit, recoveryRate, outstanding: totalPending,
-      transactions,
-      cashSales: random(10000, 50000), cashSalesReturn: random(0, 5000),
-      installmentSales: random(30000, 100000), installmentCollections: random(20000, 80000),
-      advancePayments: random(5000, 20000), fineReceived: random(0, 5000), processingFee: random(0, 3000),
-      openAccounts: random(100, 300), closedAccounts: random(50, 150), netAccounts: random(50, 200),
-      freshOutstanding: random(10000, 50000), regularOutstanding: random(50000, 150000),
-      totalOutstanding: random(60000, 200000),
-    };
-  };
-
-  // ==================== HANDLERS ====================
   const handleGenerate = useCallback(() => {
     fetchReport();
   }, [fetchReport]);
@@ -494,13 +519,7 @@ const CustomerReport: React.FC = () => {
     setIsGeneratingPDF(true);
     const loadingToast = toast.loading(isUrdu ? 'پی ڈی ایف بنا رہے ہیں...' : 'Generating PDF...');
     try {
-      const canvas = await html2canvas(reportRef.current, { 
-        scale: 2, 
-        useCORS: true, 
-        logging: false, 
-        backgroundColor: '#ffffff', 
-        allowTaint: true 
-      });
+      const canvas = await html2canvas(reportRef.current, { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff', allowTaint: true });
       const imgData = canvas.toDataURL('image/png');
       const pdf = new jsPDF('p', 'mm', 'a4');
       const pdfWidth = pdf.internal.pageSize.getWidth();
@@ -533,7 +552,6 @@ const CustomerReport: React.FC = () => {
     }
   }, [reportRef, reportData, reportType, isUrdu]);
 
-  // ==================== FILTERING ====================
   const filteredTransactions = useMemo(() => {
     if (!reportData) return [];
     if (!search) return reportData.transactions;
@@ -546,7 +564,6 @@ const CustomerReport: React.FC = () => {
     );
   }, [reportData, search]);
 
-  // ==================== RENDER ====================
   const getReportTitle = () => {
     const titles: Record<string, string> = {
       daily: isUrdu ? 'یومیہ رپورٹ' : 'Daily Report',
@@ -562,11 +579,7 @@ const CustomerReport: React.FC = () => {
       return `${startDate} ${isUrdu ? 'سے' : 'to'} ${endDate}`;
     }
     if (reportType === 'daily') {
-      return new Date().toLocaleDateString(isUrdu ? 'ur-PK' : 'en-PK', { 
-        year: 'numeric', 
-        month: 'long', 
-        day: 'numeric' 
-      });
+      return new Date().toLocaleDateString(isUrdu ? 'ur-PK' : 'en-PK', { year: 'numeric', month: 'long', day: 'numeric' });
     }
     if (reportType === 'weekly') {
       const weekAgo = new Date();
@@ -584,7 +597,6 @@ const CustomerReport: React.FC = () => {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
           <div>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-800 dark:text-white">
@@ -644,7 +656,6 @@ const CustomerReport: React.FC = () => {
           </div>
         </div>
 
-        {/* Report Type Selector */}
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-4 sm:p-6 mb-6">
           <div className="flex flex-wrap gap-2">
             {(['daily', 'weekly', 'monthly', 'date-range'] as const).map((type) => {
@@ -677,99 +688,53 @@ const CustomerReport: React.FC = () => {
             })}
           </div>
 
-          {/* Date Range Picker */}
           {reportType === 'date-range' && (
             <div className="flex flex-wrap items-center gap-3 mt-4 p-4 bg-gray-50 dark:bg-gray-900/50 rounded-xl">
               <div>
-                <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">
-                  {isUrdu ? 'تاریخ سے' : 'From Date'}
-                </label>
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
+                <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">{isUrdu ? 'تاریخ سے' : 'From Date'}</label>
+                <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">
-                  {isUrdu ? 'تاریخ تک' : 'To Date'}
-                </label>
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
+                <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">{isUrdu ? 'تاریخ تک' : 'To Date'}</label>
+                <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
               </div>
             </div>
           )}
 
-          {/* Search */}
           {reportData && reportData.transactions.length > 0 && (
             <div className="mt-4">
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder={isUrdu ? 'تلاش کریں...' : 'Search...'}
-                className="w-full px-4 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              />
+              <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder={isUrdu ? 'تلاش کریں...' : 'Search...'} className="w-full px-4 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
             </div>
           )}
         </div>
 
-        {/* Error */}
         {error && (
           <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-2xl p-4 mb-6">
             <p className="text-red-700 dark:text-red-300 text-sm font-medium">{error}</p>
           </div>
         )}
 
-        {/* Report Content */}
         {reportData && (
-          <div
-            ref={reportRef}
-            className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-4 sm:p-6 overflow-hidden"
-          >
-            <ReportHeader 
-              title={getReportTitle()} 
-              subtitle={getReportSubtitle()} 
-              isUrdu={isUrdu}
-              reportDate={reportData.date}
-            />
+          <div ref={reportRef} className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-4 sm:p-6 overflow-hidden">
+            <ReportHeader title={getReportTitle()} subtitle={getReportSubtitle()} isUrdu={isUrdu} reportDate={reportData.date} />
             <ReportSummaryCards data={reportData} isUrdu={isUrdu} type={reportType} />
-            <TransactionTable 
-              transactions={filteredTransactions} 
-              isUrdu={isUrdu} 
-              type={reportType} 
-            />
+            <TransactionTable transactions={filteredTransactions} isUrdu={isUrdu} type={reportType} />
             <ReportFooter isUrdu={isUrdu} />
           </div>
         )}
 
-        {/* Empty State */}
         {!reportData && !loading && !error && (
           <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-12 text-center">
             <div className="text-6xl mb-4">📄</div>
-            <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-2">
-              {isUrdu ? 'کوئی رپورٹ نہیں' : 'No Report Generated'}
-            </h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400 max-w-md mx-auto">
-              {isUrdu
-                ? 'رپورٹ کی قسم منتخب کریں اور "رپورٹ بنائیں" بٹن پر کلک کریں'
-                : 'Select a report type and click "Generate Report" button'}
-            </p>
+            <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-2">{isUrdu ? 'کوئی رپورٹ نہیں' : 'No Report Generated'}</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 max-w-md mx-auto">{isUrdu ? 'رپورٹ کی قسم منتخب کریں اور "رپورٹ بنائیں" بٹن پر کلک کریں' : 'Select a report type and click "Generate Report" button'}</p>
           </div>
         )}
 
-        {/* Loading State */}
         {loading && (
           <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-12 text-center">
             <div className="animate-spin text-4xl mb-4">⏳</div>
-            <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300">
-              {isUrdu ? 'رپورٹ تیار ہو رہی ہے...' : 'Generating report...'}
-            </h3>
+            <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300">{isUrdu ? 'رپورٹ تیار ہو رہی ہے...' : 'Generating report...'}</h3>
           </div>
         )}
       </div>

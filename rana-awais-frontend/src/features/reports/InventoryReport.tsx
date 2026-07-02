@@ -7,19 +7,20 @@ import html2canvas from 'html2canvas';
 import { APP_CONFIG } from '../../config/app';
 import { useAuthStore } from '../../store/useAuthStore';
 
+// ✅ FIX: Domain fields ke hisaab se Interface update
 interface InventoryItem {
   id: string;
   productId: string;
   product_name: string;
-  product_urdu: string;
+  product_name_urdu: string; // ✅ was: product_urdu
   serialNumber: string;
   color: string;
   model: string;
   company: string;
   status: string;
-  purchasePrice: number;
-  purchaseDate: string;
-  createdAt: string;
+  purchase_price: number; // ✅ was: purchasePrice
+  purchase_date: string; // ✅ was: purchaseDate
+  created_at: string; // ✅ was: createdAt
 }
 
 const InventoryReport: React.FC = () => {
@@ -69,7 +70,7 @@ const InventoryReport: React.FC = () => {
       const q = search.toLowerCase();
       data = data.filter(i =>
         (i.product_name || '').toLowerCase().includes(q) ||
-        (i.product_urdu || '').includes(q) ||
+        (i.product_name_urdu || '').includes(q) || // ✅ was: product_urdu
         (i.serialNumber || '').toLowerCase().includes(q) ||
         (i.company || '').toLowerCase().includes(q) ||
         (i.model || '').toLowerCase().includes(q)
@@ -82,7 +83,7 @@ const InventoryReport: React.FC = () => {
   }, [items, search, statusFilter]);
 
   const totalValue = useMemo(() => {
-    return filteredItems.reduce((sum, item) => sum + (item.purchasePrice || 0), 0);
+    return filteredItems.reduce((sum, item) => sum + (item.purchase_price || 0), 0); // ✅ was: purchasePrice
   }, [filteredItems]);
 
   const inStockCount = useMemo(() => {
@@ -131,6 +132,7 @@ const InventoryReport: React.FC = () => {
     }
   }, [reportRef, isUrdu]);
 
+  // ✅ FIX: handlePrint mein bhi field names update
   const handlePrint = () => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
@@ -138,7 +140,7 @@ const InventoryReport: React.FC = () => {
     const rows = filteredItems.map((item, idx) => `
       <tr>
         <td style="border:1px solid #e5e7eb;padding:6px;text-align:center;">${idx + 1}</td>
-        <td style="border:1px solid #e5e7eb;padding:6px;">${isUrdu && item.product_urdu ? item.product_urdu : item.product_name || '—'}</td>
+        <td style="border:1px solid #e5e7eb;padding:6px;">${isUrdu && item.product_name_urdu ? item.product_name_urdu : item.product_name || '—'}</td>
         <td style="border:1px solid #e5e7eb;padding:6px;">${item.serialNumber || '—'}</td>
         <td style="border:1px solid #e5e7eb;padding:6px;">${item.company || '—'}</td>
         <td style="border:1px solid #e5e7eb;padding:6px;">${item.model || '—'}</td>
@@ -147,7 +149,7 @@ const InventoryReport: React.FC = () => {
             ${item.status === 'in_stock' ? (isUrdu ? 'اسٹاک میں' : 'In Stock') : item.status === 'sold' ? (isUrdu ? 'فروخت شدہ' : 'Sold') : item.status || '—'}
           </span>
         </td>
-        <td style="border:1px solid #e5e7eb;padding:6px;text-align:right;">Rs. ${(item.purchasePrice || 0).toLocaleString()}</td>
+        <td style="border:1px solid #e5e7eb;padding:6px;text-align:right;">Rs. ${(item.purchase_price || 0).toLocaleString()}</td>
       </tr>
     `).join('');
 
@@ -360,7 +362,7 @@ const InventoryReport: React.FC = () => {
                     <td className="px-4 py-3 text-gray-400 font-mono text-xs">{String(idx + 1).padStart(2, '0')}</td>
                     <td className="px-4 py-3">
                       <span className="font-semibold text-gray-800 dark:text-white">
-                        {isUrdu && item.product_urdu ? item.product_urdu : item.product_name || '—'}
+                        {isUrdu && item.product_name_urdu ? item.product_name_urdu : item.product_name || '—'}
                       </span>
                     </td>
                     <td className="px-4 py-3">
@@ -383,7 +385,7 @@ const InventoryReport: React.FC = () => {
                     </td>
                     <td className="px-4 py-3 text-end">
                       <span className="font-bold text-gray-800 dark:text-white">
-                        Rs. {(item.purchasePrice || 0).toLocaleString()}
+                        Rs. {(item.purchase_price || 0).toLocaleString()} {/* ✅ was: purchasePrice */}
                       </span>
                     </td>
                   </tr>

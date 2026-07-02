@@ -33,6 +33,7 @@ interface DashboardSummary {
   activePlans?: number;
   todayRevenue?: number;
   pendingTotal?: number;
+  monthlyDueCount?: number; // ✅ NEW: installments due this month
 }
 
 interface ModalState {
@@ -467,6 +468,14 @@ const DashboardPage: React.FC = () => {
             value={fmtCount(summary.todayDue)}
             icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>}
             onClick={() => openModal(isUrdu ? 'آج کی واجب الادا' : "Today's Due", '/dashboard/today-due')}
+            loading={loading}
+          />
+          {/* ✅ NEW: Month's Due */}
+          <DashboardCard
+            title={isUrdu ? 'اس ماہ کی واجب الادا' : "Month's Due"}
+            value={fmtCount(summary.monthlyDueCount)}
+            icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>}
+            onClick={() => openModal(isUrdu ? 'ماہانہ واجب الادا اقساط' : "Month's Due Installments", '/dashboard/monthly-due')}
             loading={loading}
           />
         </div>

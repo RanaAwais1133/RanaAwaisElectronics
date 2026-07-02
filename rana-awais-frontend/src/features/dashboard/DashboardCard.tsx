@@ -7,26 +7,46 @@ interface DashboardCardProps {
   icon: React.ReactNode;
   onClick?: () => void;
   loading?: boolean;
+  badge?: string | number; // optional badge (e.g., "New", "5")
 }
 
-const DashboardCard: React.FC<DashboardCardProps> = ({ title, value, subtitle, icon, onClick, loading }) => {
+const DashboardCard: React.FC<DashboardCardProps> = ({ 
+  title, 
+  value, 
+  subtitle, 
+  icon, 
+  onClick, 
+  loading,
+  badge 
+}) => {
   const isClickable = !!onClick;
 
   return (
     <button
       onClick={onClick}
       disabled={loading || !isClickable}
+      aria-label={isClickable ? `${title} - ${value}` : title}
       className={`
         relative group
         bg-white dark:bg-gray-800
         border border-gray-200 dark:border-gray-700
         rounded-xl p-4 sm:p-5 text-start w-full
         transition-all duration-200 ease-out
+        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 dark:focus-visible:ring-gray-500 focus-visible:ring-offset-2
         ${isClickable ? 'cursor-pointer hover:border-gray-400 dark:hover:border-gray-500 hover:shadow-lg hover:-translate-y-0.5' : 'cursor-default'}
         disabled:opacity-60 disabled:cursor-not-allowed
         active:translate-y-0 active:scale-[0.99]
       `}
     >
+      {/* Badge (optional) */}
+      {badge && !loading && (
+        <div className="absolute -top-1 -right-1 z-20">
+          <span className="inline-flex items-center justify-center px-2 py-0.5 text-[10px] font-bold leading-none text-white bg-gray-900 dark:bg-white dark:text-gray-900 rounded-full shadow-sm">
+            {badge}
+          </span>
+        </div>
+      )}
+
       {/* Content */}
       <div className="relative z-10">
         {/* Top row: Icon + Loading/Arrow indicator */}
