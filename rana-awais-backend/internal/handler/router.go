@@ -671,6 +671,90 @@ func SetupRouter(
 			"customers":     customers,
 		})
 	}).Methods("GET")
+
+	// Total Paid endpoint - returns total paid amount and customer-wise details
+	protected.HandleFunc("/accounting/total-paid", func(w http.ResponseWriter, r *http.Request) {
+		db := config.DB
+		paymentsColl := db.Collection(config.ColPayments)
+
+		// Get total paid amount
+		totalPipeline := mongo.Pipeline{
+			{{Key: "$group", Value: bson.M{
+				"_id":   nil,
+				"total": bson.M{"$sum": "$amount"},
+			}}},
+		}
+
+		totalCursor, err := paymentsColl.Aggregate(r.Context(), totalPipeline)
+		if err != nil {
+			respondError(w, r, http.StatusInternalServerError, "Failed to calculate total paid", "ناکام")
+			return
+		}
+		defer totalCursor.Close(r.Context())
+
+		var totalResults []struct {
+			Total float64 `bson:"total"`
+		}
+		if err = totalCursor.All(r.Context(), &totalResults); err != nil {
+			respondError(w, r, http.StatusInternalServerError, "Failed to parse results", "ناکام")
+			return
+		}
+
+		total := 0.0
+		if len(totalResults) > 0 {
+			total = totalResults[0].Total
+		}
+
+		// Get customer-wise paid details
+		customerPipeline := mongo.Pipeline{
+			{{Key: "$group", Value: bson.M{
+				"_id": "$customer_id",
+				"paid_amount": bson.M{"$sum": "$amount"},
+				"payment_count": bson.M{"$sum": 1},
+			}}},
+			{{Key: "$lookup", Value: bson.M{
+				"from":         config.ColCustomers,
+				"localField":   "_id",
+				"foreignField": "_id",
+				"as":           "customer",
+			}}},
+			{{Key: "$unwind", Value: bson.M{"path": "$customer", "preserveNullAndEmptyArrays": true}}},
+			{{Key: "$project", Value: bson.M{
+				"customer_id":     bson.M{"$toString": "$_id"},
+				"customer_name":   "$customer.name",
+				"customer_name_urdu": "$customer.name_urdu",
+				"father_name":     "$customer.father_name",
+				"phone":           "$customer.phone",
+				"paid_amount":     1,
+				"payment_count":   1,
+			}}},
+			{{Key: "$sort", Value: bson.M{"paid_amount": -1}}},
+		}
+
+		custCursor, err := paymentsColl.Aggregate(r.Context(), customerPipeline)
+		if err != nil {
+			respondJSON(w, http.StatusOK, map[string]interface{}{
+				"total_paid": total,
+				"customers":    []bson.M{},
+			})
+			return
+		}
+		defer custCursor.Close(r.Context())
+
+		var customers []bson.M
+		if err = custCursor.All(r.Context(), &customers); err != nil {
+			customers = []bson.M{}
+		}
+		if customers == nil {
+			customers = []bson.M{}
+		}
+
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"total_paid": total,
+			"customers":  customers,
+		})
+	}).Methods("GET")
+
 	protected.HandleFunc("/accounting/summary", func(w http.ResponseWriter, r *http.Request) {
 		basis := r.URL.Query().Get("basis")
 		if basis == "" {

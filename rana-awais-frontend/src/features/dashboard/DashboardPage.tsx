@@ -33,7 +33,7 @@ interface DashboardSummary {
   activePlans?: number;
   todayRevenue?: number;
   pendingTotal?: number;
-  monthlyDueCount?: number; // ✅ NEW: installments due this month
+  monthlyDueCount?: number;
 }
 
 interface ModalState {
@@ -179,12 +179,12 @@ const DashboardPage: React.FC = () => {
   }, []);
 
   const fmt = (val: number | undefined | null): string => {
-    if (val == null || val === 0) return 'Rs. 0';
+    if (val == null) return 'Rs. 0';
     return `Rs. ${val.toLocaleString(undefined, { minimumFractionDigits: 0 })}`;
   };
 
   const fmtCount = (val: number | undefined | null): string => {
-    if (val == null || val === 0) return '0';
+    if (val == null) return '0';
     return val.toLocaleString();
   };
 
@@ -400,14 +400,14 @@ const DashboardPage: React.FC = () => {
             value={fmt(summary.totalPending)}
             icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
             loading={loading}
-          onClick={() => openModal(isUrdu ? 'بقایا رقم' : 'Pending Amount', '/accounting/pending-total')}
+            onClick={() => openModal(isUrdu ? 'بقایا رقم' : 'Pending Amount', '/accounting/pending-total')}
           />
           <DashboardCard
             title={isUrdu ? 'کل ادا شدہ' : 'Total Paid'}
             value={fmt(summary.totalPaid)}
             icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
             loading={loading}
-            onClick={() => openModal(isUrdu ? 'ادا شدہ رقم' : 'Paid Amount', '/accounting/month')}
+            onClick={() => openModal(isUrdu ? 'ادا شدہ رقم' : 'Paid Amount', '/accounting/total-paid')}
           />
           <DashboardCard
             title={isUrdu ? 'آج کا منافع' : "Today's Profit"}
@@ -447,14 +447,14 @@ const DashboardPage: React.FC = () => {
             value={fmtCount(summary.activeInstallments)}
             icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>}
             loading={loading}
-            onClick={() => openModal(isUrdu ? 'فعال اقساط' : 'Active Installments', '/accounting/pending-total')}
+            onClick={() => openModal(isUrdu ? 'فعال اقساط' : 'Active Installments', '/dashboard/monthly-due')}
           />
           <DashboardCard
             title={isUrdu ? 'مکمل اقساط' : 'Completed Plans'}
             value={fmtCount(summary.completedInstallments)}
             icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
             loading={loading}
-            onClick={() => openModal(isUrdu ? 'مکمل اقساط' : 'Completed Plans', '/accounting/pending-total')}
+            onClick={() => openModal(isUrdu ? 'مکمل اقساط' : 'Completed Plans', '/dashboard/monthly-due')}
           />
           <DashboardCard
             title={isUrdu ? 'تاخیر شدہ گاہک' : 'Overdue Customers'}
@@ -466,106 +466,65 @@ const DashboardPage: React.FC = () => {
           <DashboardCard
             title={isUrdu ? 'آج کی واجب الادا' : "Today's Due"}
             value={fmtCount(summary.todayDue)}
-            icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>}
+            icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
             onClick={() => openModal(isUrdu ? 'آج کی واجب الادا' : "Today's Due", '/dashboard/today-due')}
             loading={loading}
           />
-          {/* ✅ NEW: Month's Due */}
           <DashboardCard
-            title={isUrdu ? 'اس ماہ کی واجب الادا' : "Month's Due"}
+            title={isUrdu ? 'ماہانہ واجب الادا' : 'Monthly Due'}
             value={fmtCount(summary.monthlyDueCount)}
             icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>}
-            onClick={() => openModal(isUrdu ? 'ماہانہ واجب الادا اقساط' : "Month's Due Installments", '/dashboard/monthly-due')}
             loading={loading}
+            onClick={() => openModal(isUrdu ? 'ماہانہ واجب الادا' : 'Monthly Due', '/dashboard/monthly-due')}
           />
         </div>
       </div>
 
-      {/* Row 3: Product & Inventory */}
+      {/* Row 3: Inventory Overview */}
       <div className="mb-8">
         <div className="flex items-center gap-2 mb-4">
           <div className="w-1 h-5 bg-gray-900 dark:bg-gray-300 rounded-full" />
           <h2 className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-            {isUrdu ? 'پراڈکٹ اور انوینٹری' : 'Product & Inventory'}
+            {isUrdu ? 'انوینٹری کا جائزہ' : 'Inventory Overview'}
           </h2>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           <DashboardCard
-            title={isUrdu ? 'کل پراڈکٹس' : 'Total Products'}
+            title={isUrdu ? 'کل مصنوعات' : 'Total Products'}
             value={fmtCount(summary.totalProducts)}
             icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>}
+            onClick={() => openModal(isUrdu ? 'تمام مصنوعات' : 'All Products', '/products?skip=0&limit=50')}
             loading={loading}
-            onClick={() => openModal(isUrdu ? 'تمام پراڈکٹس' : 'All Products', '/products?skip=0&limit=50')}
-          />
-          <DashboardCard
-            title={isUrdu ? 'فعال پلانز' : 'Active Plans'}
-            value={fmtCount(summary.activePlans)}
-            icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>}
-            loading={loading}
-            onClick={() => openModal(isUrdu ? 'فعال پلانز' : 'Active Plans', '/accounting/pending-total')}
           />
           <DashboardCard
             title={isUrdu ? 'کم اسٹاک' : 'Low Stock Items'}
             value={fmtCount(summary.lowStockItems)}
-            icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" /></svg>}
+            icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
             onClick={() => openModal(isUrdu ? 'کم اسٹاک آئٹمز' : 'Low Stock Items', '/dashboard/low-stock')}
             loading={loading}
           />
           <DashboardCard
             title={isUrdu ? 'انوینٹری ویلیو' : 'Inventory Value'}
             value={fmt(summary.inventoryValue)}
-            icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>}
+            icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" /></svg>}
             loading={loading}
             onClick={() => openModal(isUrdu ? 'انوینٹری ویلیو' : 'Inventory Value', '/inventory?limit=50')}
           />
           <DashboardCard
-            title={isUrdu ? 'ایجنگ اسٹاک' : 'Ageing Stock'}
+            title={isUrdu ? 'پرانا اسٹاک' : 'Ageing Stock'}
             value={fmtCount(summary.ageingStock)}
             icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
             loading={loading}
-            onClick={() => openModal(isUrdu ? 'ایجنگ اسٹاک' : 'Ageing Stock', '/inventory/ageing')}
+            onClick={() => openModal(isUrdu ? 'پرانا اسٹاک' : 'Ageing Stock', '/inventory/ageing?older_than_days=90')}
+          />
+          <DashboardCard
+            title={isUrdu ? 'ماہانہ منافع' : "Month's Profit"}
+            value={fmt(summary.monthProfit)}
+            icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>}
+            loading={loading}
+            onClick={() => openModal(isUrdu ? 'ماہانہ منافع' : "Month's Profit", '/accounting/month')}
           />
         </div>
-      </div>
-
-      {/* Row 4: Today's Due Installments - Professional Detail Table */}
-      <div className="mb-8">
-        <div className="flex items-center gap-2 mb-4">
-          <div className="w-1 h-5 bg-amber-500 rounded-full" />
-          <h2 className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-            {isUrdu ? 'آج کی واجب الادا اقساط' : "Today's Due Installments"}
-          </h2>
-        </div>
-        <Suspense fallback={
-          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm p-8 flex items-center justify-center">
-            <div className="flex flex-col items-center gap-3">
-              <div className="w-8 h-8 border-4 border-gray-900 dark:border-white border-t-transparent rounded-full animate-spin" />
-              <p className="text-sm text-gray-400">{isUrdu ? 'لوڈ ہو رہا ہے...' : 'Loading...'}</p>
-            </div>
-          </div>
-        }>
-          <InstallmentDetailTable type="today-due" isUrdu={isUrdu} />
-        </Suspense>
-      </div>
-
-      {/* Row 5: Overdue Installments - Professional Detail Table */}
-      <div className="mb-8">
-        <div className="flex items-center gap-2 mb-4">
-          <div className="w-1 h-5 bg-red-500 rounded-full" />
-          <h2 className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-            {isUrdu ? 'تاخیر شدہ اقساط' : 'Overdue Installments'}
-          </h2>
-        </div>
-        <Suspense fallback={
-          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm p-8 flex items-center justify-center">
-            <div className="flex flex-col items-center gap-3">
-              <div className="w-8 h-8 border-4 border-gray-900 dark:border-white border-t-transparent rounded-full animate-spin" />
-              <p className="text-sm text-gray-400">{isUrdu ? 'لوڈ ہو رہا ہے...' : 'Loading...'}</p>
-            </div>
-          </div>
-        }>
-          <InstallmentDetailTable type="overdue" isUrdu={isUrdu} />
-        </Suspense>
       </div>
 
       {/* Modals */}

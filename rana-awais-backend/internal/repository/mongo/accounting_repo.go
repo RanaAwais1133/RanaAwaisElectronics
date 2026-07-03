@@ -136,6 +136,7 @@ func (r *AccountingRepository) GetRevenueAndProfit(ctx context.Context, start, e
 
 	// Calculate profit as: Revenue - Cost of Goods Sold
 	// COGS = sum of purchase_price of inventory items sold in this period
+	// First try with sold_date filter
 	soldPipeline := mongo.Pipeline{
 		{{Key: "$match", Value: bson.M{
 			"status": "sold",
@@ -162,20 +163,51 @@ func (r *AccountingRepository) GetRevenueAndProfit(ctx context.Context, start, e
 		TotalCost    float64 `bson:"totalCost"`
 		TotalSelling float64 `bson:"totalSelling"`
 	}
+	cogsFound := false
 	if soldCursor.All(ctx, &soldResults) == nil && len(soldResults) > 0 {
 		if soldResults[0].TotalSelling > 0 && soldResults[0].TotalCost > 0 {
 			// Actual profit from sold items = selling_price - purchase_price
 			profit = soldResults[0].TotalSelling - soldResults[0].TotalCost
+			cogsFound = true
 		} else if soldResults[0].TotalSelling > 0 {
 			// Items sold but no purchase price recorded, estimate 30% margin
 			profit = soldResults[0].TotalSelling * 0.30
-		} else {
-			// No items sold in this period, profit = 0
-			profit = 0
+			cogsFound = true
 		}
-	} else {
-		// No sold items found in this period
-		profit = 0
+	}
+
+	// If no COGS found via sold_date, try all sold items without date filter
+	if !cogsFound {
+		altPipeline := mongo.Pipeline{
+			{{Key: "$match", Value: bson.M{"status": "sold"}}},
+			{{Key: "$group", Value: bson.M{
+				"_id":          nil,
+				"totalCost":    bson.M{"$sum": "$purchase_price"},
+				"totalSelling": bson.M{"$sum": "$selling_price"},
+			}}},
+		}
+		altCursor, err := r.invColl.Aggregate(ctx, altPipeline)
+		if err == nil {
+			defer altCursor.Close(ctx)
+			var altResults []struct {
+				TotalCost    float64 `bson:"totalCost"`
+				TotalSelling float64 `bson:"totalSelling"`
+			}
+			if altCursor.All(ctx, &altResults) == nil && len(altResults) > 0 {
+				if altResults[0].TotalSelling > 0 && altResults[0].TotalCost > 0 {
+					profit = altResults[0].TotalSelling - altResults[0].TotalCost
+					cogsFound = true
+				} else if altResults[0].TotalSelling > 0 {
+					profit = altResults[0].TotalSelling * 0.30
+					cogsFound = true
+				}
+			}
+		}
+	}
+
+	// If still no COGS, use 30% estimate of revenue
+	if !cogsFound {
+		profit = revenue * 0.30
 	}
 
 	// Profit cannot exceed revenue

@@ -61,65 +61,53 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
 
         if (type === 'today' || type === 'month') {
           const prefix = type === 'today' ? (isUrdu ? 'آج' : 'Today') : (isUrdu ? 'ماہ' : 'Month');
-          // Try multiple possible field names
-          const revenue = d.revenue ?? d.total_revenue ?? d.totalIncome ?? 0;
+          // Try multiple possible field names - backend returns {revenue, profit}
+          const revenue = d.revenue ?? d.total_revenue ?? d.totalIncome ?? d.totalIncome ?? 0;
           const profit = d.profit ?? d.total_profit ?? d.netProfit ?? 0;
           const collected = d.total_collected ?? d.collection ?? 0;
           const sales = d.total_sales ?? d.sales ?? 0;
           const expenses = d.expenses ?? d.total_expenses ?? 0;
           const transactionCount = d.transaction_count ?? d.count ?? 0;
 
-          if (revenue > 0 || profit > 0 || collected > 0 || sales > 0 || expenses > 0) {
-            if (revenue > 0) {
-              items.push({
-                label: isUrdu ? `${prefix} کی کل آمدنی` : `${prefix} Total Revenue`,
-                value: `Rs. ${revenue.toLocaleString()}`,
-                rawValue: revenue,
-              });
-            }
-            if (profit !== undefined) {
-              items.push({
-                label: isUrdu ? `${prefix} کا کل منافع` : `${prefix} Total Profit`,
-                value: `Rs. ${profit.toLocaleString()}`,
-                rawValue: profit,
-                isNegative: profit < 0,
-              });
-            }
-            if (collected > 0) {
-              items.push({
-                label: isUrdu ? `${prefix} کی وصولی` : `${prefix} Collection`,
-                value: `Rs. ${collected.toLocaleString()}`,
-                rawValue: collected,
-              });
-            }
-            if (sales > 0) {
-              items.push({
-                label: isUrdu ? `${prefix} کی فروخت` : `${prefix} Sales`,
-                value: `Rs. ${sales.toLocaleString()}`,
-                rawValue: sales,
-              });
-            }
-            if (expenses > 0) {
-              items.push({
-                label: isUrdu ? `${prefix} کے اخراجات` : `${prefix} Expenses`,
-                value: `Rs. ${expenses.toLocaleString()}`,
-                rawValue: expenses,
-                isNegative: true,
-              });
-            }
-            if (transactionCount > 0) {
-              items.push({
-                label: isUrdu ? 'لین دین کی تعداد' : 'Transactions',
-                value: `${transactionCount}`,
-                rawValue: transactionCount,
-              });
-            }
-          } else {
-            // If no data, show a placeholder
+          // Always show revenue and profit (even if 0) since backend always returns them
+          items.push({
+            label: isUrdu ? `${prefix} کی کل آمدنی` : `${prefix} Total Revenue`,
+            value: `Rs. ${revenue.toLocaleString()}`,
+            rawValue: revenue,
+          });
+          items.push({
+            label: isUrdu ? `${prefix} کا کل منافع` : `${prefix} Total Profit`,
+            value: `Rs. ${profit.toLocaleString()}`,
+            rawValue: profit,
+            isNegative: profit < 0,
+          });
+          if (collected > 0) {
             items.push({
-              label: isUrdu ? `${prefix} کی کوئی آمدنی نہیں` : `No ${prefix} revenue`,
-              value: 'Rs. 0',
-              rawValue: 0,
+              label: isUrdu ? `${prefix} کی وصولی` : `${prefix} Collection`,
+              value: `Rs. ${collected.toLocaleString()}`,
+              rawValue: collected,
+            });
+          }
+          if (sales > 0) {
+            items.push({
+              label: isUrdu ? `${prefix} کی فروخت` : `${prefix} Sales`,
+              value: `Rs. ${sales.toLocaleString()}`,
+              rawValue: sales,
+            });
+          }
+          if (expenses > 0) {
+            items.push({
+              label: isUrdu ? `${prefix} کے اخراجات` : `${prefix} Expenses`,
+              value: `Rs. ${expenses.toLocaleString()}`,
+              rawValue: expenses,
+              isNegative: true,
+            });
+          }
+          if (transactionCount > 0) {
+            items.push({
+              label: isUrdu ? 'لین دین کی تعداد' : 'Transactions',
+              value: `${transactionCount}`,
+              rawValue: transactionCount,
             });
           }
         } else {
@@ -396,4 +384,4 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
   );
 };
 
-export default DashboardSummaryModal;
+export default DashboardSummaryModal; 
