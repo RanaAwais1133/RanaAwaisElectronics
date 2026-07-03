@@ -133,9 +133,9 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 		ch <- result{"monthlyDueCount", count, err}
 	}()
 
-	// Collect all results (18 goroutines)
+	// Collect all results (16 goroutines)
 	results := make(map[string]interface{})
-	for i := 0; i < 18; i++ {
+	for i := 0; i < 16; i++ {
 		res := <-ch
 		if res.err == nil {
 			results[res.key] = res.data
