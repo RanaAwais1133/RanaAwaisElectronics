@@ -5,7 +5,10 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/config"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/service"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 type AccountingHandler struct {
@@ -26,9 +29,76 @@ func (h *AccountingHandler) TodaySummary(w http.ResponseWriter, r *http.Request)
 		respondError(w, r, http.StatusInternalServerError, "Failed to get today", "آج کا ڈیٹا نہیں آیا")
 		return
 	}
+
+	// Get today's pending total
+	db := config.DB
+	installmentsColl := db.Collection(config.ColInstallments)
+	pendingPipeline := mongo.Pipeline{
+		{{Key: "$match", Value: bson.M{"status": "active"}}},
+		{{Key: "$unwind", Value: "$installments"}},
+		{{Key: "$match", Value: bson.M{
+			"installments.paid":     false,
+			"installments.due_date": bson.M{"$gte": start, "$lt": end},
+		}}},
+		{{Key: "$group", Value: bson.M{
+			"_id":   nil,
+			"total": bson.M{"$sum": bson.M{"$subtract": bson.A{bson.M{"$add": bson.A{"$installments.amount", "$installments.fine"}}, "$installments.partial_paid"}}},
+		}}},
+	}
+	pendingCursor, _ := installmentsColl.Aggregate(r.Context(), pendingPipeline)
+	pending := 0.0
+	if pendingCursor != nil {
+		var pendingResults []struct {
+			Total float64 `bson:"total"`
+		}
+		if pendingCursor.All(r.Context(), &pendingResults) == nil && len(pendingResults) > 0 {
+			pending = pendingResults[0].Total
+		}
+		pendingCursor.Close(r.Context())
+	}
+
+	// Get today's total sales (installment plans created today)
+	salesPipeline := mongo.Pipeline{
+		{{Key: "$match", Value: bson.M{"created_at": bson.M{"$gte": start, "$lt": end}}}},
+		{{Key: "$group", Value: bson.M{"_id": nil, "total": bson.M{"$sum": "$total_amount"}}}},
+	}
+	salesCursor, _ := installmentsColl.Aggregate(r.Context(), salesPipeline)
+	totalSales := 0.0
+	if salesCursor != nil {
+		var salesResults []struct {
+			Total float64 `bson:"total"`
+		}
+		if salesCursor.All(r.Context(), &salesResults) == nil && len(salesResults) > 0 {
+			totalSales = salesResults[0].Total
+		}
+		salesCursor.Close(r.Context())
+	}
+
+	// Get today's customers count
+	paymentsColl := db.Collection(config.ColPayments)
+	custPipeline := mongo.Pipeline{
+		{{Key: "$match", Value: bson.M{"transaction_date": bson.M{"$gte": start, "$lt": end}}}},
+		{{Key: "$group", Value: bson.M{"_id": "$customer_id"}}},
+		{{Key: "$count", Value: "count"}},
+	}
+	custCursor, _ := paymentsColl.Aggregate(r.Context(), custPipeline)
+	customers := 0
+	if custCursor != nil {
+		var custResults []struct {
+			Count int `bson:"count"`
+		}
+		if custCursor.All(r.Context(), &custResults) == nil && len(custResults) > 0 {
+			customers = custResults[0].Count
+		}
+		custCursor.Close(r.Context())
+	}
+
 	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"revenue": revenue,
-		"profit":  profit,
+		"revenue":      revenue,
+		"profit":       profit,
+		"pending":      pending,
+		"total_sales":  totalSales,
+		"customers":    customers,
 	})
 }
 

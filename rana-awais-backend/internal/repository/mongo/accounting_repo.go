@@ -102,6 +102,7 @@ func (r *AccountingRepository) GetSoldItems(ctx context.Context, start, end time
 }
 
 // GetRevenueAndProfit calculates revenue and profit from actual data using MongoDB aggregation
+// Profit is calculated proportionally: for each payment, profit = (selling_price - purchase_price) / num_installments
 func (r *AccountingRepository) GetRevenueAndProfit(ctx context.Context, start, end time.Time) (revenue float64, profit float64, err error) {
 	// Use aggregation to sum payments in one query
 	payPipeline := mongo.Pipeline{
@@ -134,85 +135,75 @@ func (r *AccountingRepository) GetRevenueAndProfit(ctx context.Context, start, e
 		return 0, 0, nil
 	}
 
-	// Calculate profit as: Revenue - Cost of Goods Sold
-	// COGS = sum of purchase_price of inventory items sold in this period
-	// First try with sold_date filter
-	soldPipeline := mongo.Pipeline{
+	// Calculate proportional profit from payments linked to installment plans and inventory items
+	// For each payment, find the linked installment plan and inventory item
+	// Profit per installment = (selling_price - purchase_price) / num_installments
+	profitPipeline := mongo.Pipeline{
 		{{Key: "$match", Value: bson.M{
-			"status": "sold",
-			"sold_date": bson.M{
+			"transaction_date": bson.M{
 				"$gte": start,
 				"$lte": end,
 			},
 		}}},
+		{{Key: "$lookup", Value: bson.M{
+			"from":         config.ColInstallments,
+			"localField":   "installment_plan_id",
+			"foreignField": "_id",
+			"as":           "plan",
+		}}},
+		{{Key: "$unwind", Value: bson.M{"path": "$plan", "preserveNullAndEmptyArrays": true}}},
+		{{Key: "$lookup", Value: bson.M{
+			"from":         config.ColInventory,
+			"localField":   "plan.inventory_item_id",
+			"foreignField": "_id",
+			"as":           "inventory",
+		}}},
+		{{Key: "$unwind", Value: bson.M{"path": "$inventory", "preserveNullAndEmptyArrays": true}}},
 		{{Key: "$group", Value: bson.M{
-			"_id":          nil,
-			"totalCost":    bson.M{"$sum": "$purchase_price"},
-			"totalSelling": bson.M{"$sum": "$selling_price"},
+			"_id": nil,
+			"totalRevenue": bson.M{"$sum": "$amount"},
+			"totalProfit": bson.M{"$sum": bson.M{
+				"$cond": bson.A{
+					bson.M{"$and": bson.A{
+						bson.M{"$gt": bson.A{bson.M{"$ifNull": bson.A{"$inventory.selling_price", 0}}, 0}},
+						bson.M{"$gt": bson.A{bson.M{"$ifNull": bson.A{"$inventory.purchase_price", 0}}, 0}},
+						bson.M{"$gt": bson.A{bson.M{"$ifNull": bson.A{"$plan.num_installments", 1}}, 0}},
+					}},
+					// Proportional profit = (selling_price - purchase_price) / num_installments
+					bson.M{"$divide": bson.A{
+						bson.M{"$subtract": bson.A{
+							bson.M{"$ifNull": bson.A{"$inventory.selling_price", 0}},
+							bson.M{"$ifNull": bson.A{"$inventory.purchase_price", 0}},
+						}},
+						bson.M{"$ifNull": bson.A{"$plan.num_installments", 1}},
+					}},
+					// Fallback: 10% of payment as estimated profit
+					bson.M{"$multiply": bson.A{"$amount", 0.10}},
+				},
+			}},
 		}}},
 	}
-	soldCursor, err := r.invColl.Aggregate(ctx, soldPipeline)
+	profitCursor, err := r.payColl.Aggregate(ctx, profitPipeline)
 	if err != nil {
-		// Fallback: if can't get cost data, estimate profit as 30% of revenue
-		profit = revenue * 0.30
-		return revenue, profit, nil
+		// If can't get profit data, return revenue with 0 profit
+		return revenue, 0, nil
 	}
-	defer soldCursor.Close(ctx)
+	defer profitCursor.Close(ctx)
 
-	var soldResults []struct {
-		TotalCost    float64 `bson:"totalCost"`
-		TotalSelling float64 `bson:"totalSelling"`
+	var profitResults []struct {
+		TotalRevenue float64 `bson:"totalRevenue"`
+		TotalProfit  float64 `bson:"totalProfit"`
 	}
-	cogsFound := false
-	if soldCursor.All(ctx, &soldResults) == nil && len(soldResults) > 0 {
-		if soldResults[0].TotalSelling > 0 && soldResults[0].TotalCost > 0 {
-			// Actual profit from sold items = selling_price - purchase_price
-			profit = soldResults[0].TotalSelling - soldResults[0].TotalCost
-			cogsFound = true
-		} else if soldResults[0].TotalSelling > 0 {
-			// Items sold but no purchase price recorded, estimate 30% margin
-			profit = soldResults[0].TotalSelling * 0.30
-			cogsFound = true
-		}
-	}
-
-	// If no COGS found via sold_date, try all sold items without date filter
-	if !cogsFound {
-		altPipeline := mongo.Pipeline{
-			{{Key: "$match", Value: bson.M{"status": "sold"}}},
-			{{Key: "$group", Value: bson.M{
-				"_id":          nil,
-				"totalCost":    bson.M{"$sum": "$purchase_price"},
-				"totalSelling": bson.M{"$sum": "$selling_price"},
-			}}},
-		}
-		altCursor, err := r.invColl.Aggregate(ctx, altPipeline)
-		if err == nil {
-			defer altCursor.Close(ctx)
-			var altResults []struct {
-				TotalCost    float64 `bson:"totalCost"`
-				TotalSelling float64 `bson:"totalSelling"`
-			}
-			if altCursor.All(ctx, &altResults) == nil && len(altResults) > 0 {
-				if altResults[0].TotalSelling > 0 && altResults[0].TotalCost > 0 {
-					profit = altResults[0].TotalSelling - altResults[0].TotalCost
-					cogsFound = true
-				} else if altResults[0].TotalSelling > 0 {
-					profit = altResults[0].TotalSelling * 0.30
-					cogsFound = true
-				}
-			}
-		}
-	}
-
-	// If still no COGS, use 30% estimate of revenue
-	if !cogsFound {
-		profit = revenue * 0.30
+	if profitCursor.All(ctx, &profitResults) == nil && len(profitResults) > 0 {
+		profit = profitResults[0].TotalProfit
 	}
 
 	// Profit cannot exceed revenue
 	if profit > revenue {
 		profit = revenue
+	}
+	if profit < 0 {
+		profit = 0
 	}
 
 	return revenue, profit, nil

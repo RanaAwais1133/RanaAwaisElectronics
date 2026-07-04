@@ -611,7 +611,7 @@ func SetupRouter(
 			}
 		}
 
-		// Now get customer-wise pending details
+		// Now get customer-wise pending details with address and date
 		customerPipeline := mongo.Pipeline{
 			{{Key: "$match", Value: bson.M{"status": "active"}}},
 			{{Key: "$unwind", Value: "$installments"}},
@@ -627,6 +627,7 @@ func SetupRouter(
 					},
 				},
 				"installment_count": bson.M{"$sum": 1},
+				"earliest_due_date": bson.M{"$min": "$installments.due_date"},
 			}}},
 			{{Key: "$lookup", Value: bson.M{
 				"from":         config.ColCustomers,
@@ -635,14 +636,23 @@ func SetupRouter(
 				"as":           "customer",
 			}}},
 			{{Key: "$unwind", Value: bson.M{"path": "$customer", "preserveNullAndEmptyArrays": true}}},
-			{{Key: "$project", Value: bson.M{
+		{{Key: "$addFields", Value: bson.M{
+			"earliest_due_date_str": bson.M{
+				"$dateToString": bson.M{"format": "%Y-%m-%d", "date": "$earliest_due_date"},
+			},
+		}}},
+		{{Key: "$project", Value: bson.M{
 				"customer_id":        bson.M{"$toString": "$_id"},
 				"customer_name":      "$customer.name",
 				"customer_name_urdu": "$customer.name_urdu",
 				"father_name":        "$customer.father_name",
 				"phone":              "$customer.phone",
+				"cnic":               "$customer.cnic",
+				"address":            "$customer.address",
+				"address_urdu":       "$customer.address_urdu",
 				"pending_amount":     1,
 				"installment_count":  1,
+				"earliest_due_date":  "$earliest_due_date_str",
 			}}},
 			{{Key: "$sort", Value: bson.M{"pending_amount": -1}}},
 		}
@@ -843,10 +853,16 @@ func SetupRouter(
 	protected.HandleFunc("/dashboard/today-due", dashboardH.TodayDueDetails).Methods("GET")
 	protected.HandleFunc("/dashboard/low-stock", dashboardH.LowStockDetails).Methods("GET")
 	protected.HandleFunc("/dashboard/monthly-due", dashboardH.MonthlyDueDetails).Methods("GET")
-	protected.HandleFunc("/dashboard/activities", dashboardH.RecentActivities).Methods("GET")
-	// Full detail endpoints for professional tables - with caching
-	protected.Handle("/dashboard/today-due-full", middleware.DashboardCache.CacheResponse(http.HandlerFunc(dashboardH.TodayDueFull))).Methods("GET")
-	protected.Handle("/dashboard/overdue-full", middleware.DashboardCache.CacheResponse(http.HandlerFunc(dashboardH.OverdueFull))).Methods("GET")
+	// Today's Installments (top card - shows all unpaid installments due today or overdue)
+	protected.HandleFunc("/dashboard/today-installments", dashboardH.TodayInstallments).Methods("GET")
+	// Alias for overdue installments (used by InstallmentDetailTable component)
+	protected.HandleFunc("/dashboard/overdue-installments", dashboardH.OverdueDetails).Methods("GET")
+	// Active Installments - returns all active installment plans with full details
+	protected.HandleFunc("/dashboard/active-installments", dashboardH.ActiveInstallments).Methods("GET")
+	// Completed Installments - returns all completed installment plans with full details
+	protected.HandleFunc("/dashboard/completed-installments", dashboardH.CompletedInstallments).Methods("GET")
+	// All Customers with financial details - returns customers with total purchase, paid, and remaining
+	protected.HandleFunc("/dashboard/customers-with-finance", dashboardH.CustomersWithFinance).Methods("GET")
 
 	// Reports
 	protected.HandleFunc("/reports/customers", reportH.CustomerReport).Methods("GET")

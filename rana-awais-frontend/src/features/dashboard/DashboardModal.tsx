@@ -37,8 +37,9 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
     // Check endpoint first
     if (endpoint.includes('/products')) return 'products';
     if (endpoint.includes('/inventory')) return 'inventory';
+    if (endpoint.includes('/customers-with-finance')) return 'customers';
     if (endpoint.includes('/customers')) return 'customers';
-    if (endpoint.includes('/installments') || endpoint.includes('/dashboard/today-due') || endpoint.includes('/dashboard/overdue') || endpoint.includes('/dashboard/monthly-due')) return 'installments';
+    if (endpoint.includes('/installments') || endpoint.includes('/dashboard/today-due') || endpoint.includes('/dashboard/overdue') || endpoint.includes('/dashboard/monthly-due') || endpoint.includes('/dashboard/active-installments') || endpoint.includes('/dashboard/completed-installments')) return 'installments';
     if (endpoint.includes('/payments')) return 'payments';
 
     // Auto-detect from fields - check installment-related fields first

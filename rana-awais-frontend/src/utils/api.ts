@@ -463,14 +463,20 @@ export const getAuditLogs = (page = 1, limit = 50) =>
 // ✅ DASHBOARD FULL DETAILS (Professional Tables)
 // ============================================================
 
+export const getTodayInstallments = () =>
+  api.get('/dashboard/today-installments').then(res => {
+    const d = res.data;
+    return Array.isArray(d) ? d : (Array.isArray(d.data) ? d.data : []);
+  });
+
 export const getTodayDueFull = () =>
-  api.get('/dashboard/today-due-full').then(res => {
+  api.get('/dashboard/today-installments').then(res => {
     const d = res.data;
     return Array.isArray(d) ? d : (Array.isArray(d.data) ? d.data : []);
   });
 
 export const getOverdueFull = () =>
-  api.get('/dashboard/overdue-full').then(res => {
+  api.get('/dashboard/overdue-installments').then(res => {
     const d = res.data;
     return Array.isArray(d) ? d : (Array.isArray(d.data) ? d.data : []);
   });

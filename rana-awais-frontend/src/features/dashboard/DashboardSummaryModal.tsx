@@ -24,8 +24,12 @@ interface CustomerPending {
   customer_name_urdu: string;
   father_name: string;
   phone: string;
+  cnic?: string;
+  address?: string;
+  address_urdu?: string;
   pending_amount: number;
   installment_count: number;
+  earliest_due_date?: string;
 }
 
 const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, type, onClose, isUrdu }) => {
@@ -367,9 +371,17 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
                             Rs. {(cust.pending_amount || 0).toLocaleString()}
                           </span>
                         </div>
-                        <div className="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400 mt-2 pt-2 border-t border-gray-100 dark:border-gray-600">
+                        <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500 dark:text-gray-400 mt-2 pt-2 border-t border-gray-100 dark:border-gray-600">
                           <span>{isUrdu ? 'فون' : 'Phone'}: {cust.phone || '—'}</span>
                           <span>{isUrdu ? 'اقساط' : 'Installments'}: {cust.installment_count || 0}</span>
+                          {cust.address && (
+                            <span className="truncate max-w-[200px]" title={cust.address}>
+                              {isUrdu ? 'پتہ' : 'Address'}: {isUrdu ? (cust.address_urdu || cust.address) : cust.address}
+                            </span>
+                          )}
+                          {cust.earliest_due_date && (
+                            <span>{isUrdu ? 'تاریخ' : 'Due Date'}: {new Date(cust.earliest_due_date).toLocaleDateString()}</span>
+                          )}
                         </div>
                       </div>
                     ))}

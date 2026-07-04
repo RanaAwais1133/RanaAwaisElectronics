@@ -143,27 +143,27 @@ func (h *InventoryHandler) List(w http.ResponseWriter, r *http.Request) {
 	for _, item := range items {
 		prod, _ := h.prodSvc.GetByID(r.Context(), item.ProductID)
 		entry := map[string]interface{}{
-			"id":            item.ID.Hex(),
-			"productId":     item.ProductID.Hex(),
-			"product_name":  "",
-			"product_urdu":  "",
-			"serialNumber":  item.SerialNumber,
-			"color":         item.Color,
-			"model":         item.Model,
-			"engineNo":      item.EngineNo,
-			"chassisNo":     item.ChassisNo,
-			"imei":          item.IMEI,
-			"company":       item.Company,
-			"status":        item.Status,
-			"purchaseDate":  item.PurchaseDate,
-			"purchasePrice": item.PurchasePrice,
-			"soldDate":      item.SoldDate,
-			"createdAt":     item.CreatedAt,
-			"updatedAt":     item.UpdatedAt,
+			"id":                item.ID.Hex(),
+			"productId":         item.ProductID.Hex(),
+			"product_name":      "",
+			"product_name_urdu": "",
+			"serialNumber":      item.SerialNumber,
+			"color":             item.Color,
+			"model":             item.Model,
+			"engineNo":          item.EngineNo,
+			"chassisNo":         item.ChassisNo,
+			"imei":              item.IMEI,
+			"company":           item.Company,
+			"status":            item.Status,
+			"purchase_date":     item.PurchaseDate,
+			"purchase_price":    item.PurchasePrice,
+			"sold_date":         item.SoldDate,
+			"created_at":        item.CreatedAt,
+			"updated_at":        item.UpdatedAt,
 		}
 		if prod != nil {
 			entry["product_name"] = prod.Name
-			entry["product_urdu"] = prod.NameUrdu
+			entry["product_name_urdu"] = prod.NameUrdu
 		}
 		result = append(result, entry)
 	}

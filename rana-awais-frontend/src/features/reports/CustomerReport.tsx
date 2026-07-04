@@ -299,7 +299,7 @@ const CustomerReport: React.FC = () => {
     setEndDate(today.toISOString().split('T')[0]);
   }, []);
 
-  // ✅ FIX: Real API endpoints using existing accounting endpoints
+  // ✅ FIX: Use actual /reports endpoints that return full report data
   const fetchReport = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -308,88 +308,28 @@ const CustomerReport: React.FC = () => {
     try {
       const today = new Date();
       const todayStr = today.toISOString().split('T')[0];
-      let response;
+      let res;
 
       switch (reportType) {
         case 'daily': {
-          // Use /accounting/today for daily report
-          const res = await api.get('/accounting/today');
-          const d = res.data;
-          // Transform to DailyReportData format
-          const transactions = d.transactions || [];
-          response = {
-            date: todayStr,
-            dayName: today.toLocaleDateString(isUrdu ? 'ur-PK' : 'en-PK', { weekday: 'long' }),
-            totalSales: d.total_sales || 0,
-            totalInstallments: transactions.filter((t: any) => t.type === 'installment').length || 0,
-            totalCollected: d.revenue || 0,
-            totalPending: d.pending || 0,
-            totalCustomers: d.customers || 0,
-            cashInHand: d.cash_in_hand || 0,
-            bankDeposit: d.bank_deposit || 0,
-            recoveryRate: d.recovery_rate || 0,
-            outstanding: d.outstanding || 0,
-            transactions: transactions.map((t: any) => ({
-              id: t.id || `txn-${Date.now()}`,
-              customerName: t.customer_name || 'Unknown',
-              customerUrdu: t.customer_urdu || '',
-              fatherName: t.father_name || '',
-              phone: t.phone || '',
-              productName: t.product_name || '',
-              productNameUrdu: t.product_name_urdu || '',
-              amount: t.amount || 0,
-              type: t.type || 'sale',
-              status: t.status || 'pending',
-              date: t.date || todayStr,
-            })),
-            cashSales: d.cash_sales || 0,
-            cashSalesReturn: d.cash_sales_return || 0,
-            installmentSales: d.installment_sales || 0,
-            installmentCollections: d.installment_collections || 0,
-            advancePayments: d.advance_payments || 0,
-            fineReceived: d.fine_received || 0,
-            processingFee: d.processing_fee || 0,
-            openAccounts: d.open_accounts || 0,
-            closedAccounts: d.closed_accounts || 0,
-            netAccounts: d.net_accounts || 0,
-            freshOutstanding: d.fresh_outstanding || 0,
-            regularOutstanding: d.regular_outstanding || 0,
-            totalOutstanding: d.total_outstanding || 0,
-          };
+          // Use /reports/daily endpoint which returns full daily report data
+          res = await api.get(`/reports/daily?date=${todayStr}`);
+          break;
+        }
+        case 'weekly': {
+          const weekAgo = new Date();
+          weekAgo.setDate(weekAgo.getDate() - 7);
+          const start = weekAgo.toISOString().split('T')[0];
+          const end = todayStr;
+          res = await api.get(`/reports/weekly?startDate=${start}&endDate=${end}`);
           break;
         }
         case 'monthly': {
-          const res = await api.get('/accounting/month');
-          const d = res.data;
           const monthAgo = new Date();
           monthAgo.setMonth(monthAgo.getMonth() - 1);
-          response = {
-            date: todayStr,
-            dayName: today.toLocaleDateString(isUrdu ? 'ur-PK' : 'en-PK', { weekday: 'long' }),
-            totalSales: d.total_sales || 0,
-            totalInstallments: 0,
-            totalCollected: d.revenue || 0,
-            totalPending: d.pending || 0,
-            totalCustomers: d.customers || 0,
-            cashInHand: d.cash_in_hand || 0,
-            bankDeposit: d.bank_deposit || 0,
-            recoveryRate: d.recovery_rate || 0,
-            outstanding: d.outstanding || 0,
-            transactions: [],
-            cashSales: 0,
-            cashSalesReturn: 0,
-            installmentSales: 0,
-            installmentCollections: 0,
-            advancePayments: 0,
-            fineReceived: 0,
-            processingFee: 0,
-            openAccounts: 0,
-            closedAccounts: 0,
-            netAccounts: 0,
-            freshOutstanding: 0,
-            regularOutstanding: 0,
-            totalOutstanding: 0,
-          };
+          const start = monthAgo.toISOString().split('T')[0];
+          const end = todayStr;
+          res = await api.get(`/reports/monthly?startDate=${start}&endDate=${end}`);
           break;
         }
         case 'date-range': {
@@ -398,105 +338,60 @@ const CustomerReport: React.FC = () => {
             setLoading(false);
             return;
           }
-          // Use /accounting/profit-loss/cash for date range
-          const res = await api.get(`/accounting/profit-loss/cash?start=${startDate}&end=${endDate}`);
-          const d = res.data;
-          response = {
-            date: todayStr,
-            dayName: today.toLocaleDateString(isUrdu ? 'ur-PK' : 'en-PK', { weekday: 'long' }),
-            totalSales: d.total_sales || 0,
-            totalInstallments: 0,
-            totalCollected: d.revenue || 0,
-            totalPending: d.pending || 0,
-            totalCustomers: d.customers || 0,
-            cashInHand: d.cash_in_hand || 0,
-            bankDeposit: d.bank_deposit || 0,
-            recoveryRate: d.recovery_rate || 0,
-            outstanding: d.outstanding || 0,
-            transactions: [],
-            cashSales: 0,
-            cashSalesReturn: 0,
-            installmentSales: 0,
-            installmentCollections: 0,
-            advancePayments: 0,
-            fineReceived: 0,
-            processingFee: 0,
-            openAccounts: 0,
-            closedAccounts: 0,
-            netAccounts: 0,
-            freshOutstanding: 0,
-            regularOutstanding: 0,
-            totalOutstanding: 0,
-          };
-          break;
-        }
-        case 'weekly': {
-          // Weekly = last 7 days using date-range endpoint
-          const weekAgo = new Date();
-          weekAgo.setDate(weekAgo.getDate() - 7);
-          const start = weekAgo.toISOString().split('T')[0];
-          const end = todayStr;
-          const res = await api.get(`/accounting/profit-loss/cash?start=${start}&end=${end}`);
-          const d = res.data;
-          response = {
-            date: todayStr,
-            dayName: today.toLocaleDateString(isUrdu ? 'ur-PK' : 'en-PK', { weekday: 'long' }),
-            totalSales: d.total_sales || 0,
-            totalInstallments: 0,
-            totalCollected: d.revenue || 0,
-            totalPending: d.pending || 0,
-            totalCustomers: d.customers || 0,
-            cashInHand: d.cash_in_hand || 0,
-            bankDeposit: d.bank_deposit || 0,
-            recoveryRate: d.recovery_rate || 0,
-            outstanding: d.outstanding || 0,
-            transactions: [],
-            cashSales: 0,
-            cashSalesReturn: 0,
-            installmentSales: 0,
-            installmentCollections: 0,
-            advancePayments: 0,
-            fineReceived: 0,
-            processingFee: 0,
-            openAccounts: 0,
-            closedAccounts: 0,
-            netAccounts: 0,
-            freshOutstanding: 0,
-            regularOutstanding: 0,
-            totalOutstanding: 0,
-          };
+          res = await api.get(`/reports/date-range?startDate=${startDate}&endDate=${endDate}`);
           break;
         }
         default: {
-          response = {
-            date: todayStr,
-            dayName: today.toLocaleDateString(isUrdu ? 'ur-PK' : 'en-PK', { weekday: 'long' }),
-            totalSales: 0,
-            totalInstallments: 0,
-            totalCollected: 0,
-            totalPending: 0,
-            totalCustomers: 0,
-            cashInHand: 0,
-            bankDeposit: 0,
-            recoveryRate: 0,
-            outstanding: 0,
-            transactions: [],
-            cashSales: 0,
-            cashSalesReturn: 0,
-            installmentSales: 0,
-            installmentCollections: 0,
-            advancePayments: 0,
-            fineReceived: 0,
-            processingFee: 0,
-            openAccounts: 0,
-            closedAccounts: 0,
-            netAccounts: 0,
-            freshOutstanding: 0,
-            regularOutstanding: 0,
-            totalOutstanding: 0,
-          };
+          res = await api.get(`/reports/daily?date=${todayStr}`);
         }
       }
+
+      const d = res.data;
+      
+      // Transform backend response to DailyReportData format
+      // Backend returns: totalSales, totalInstallments, totalCollected, totalPending, totalCustomers,
+      // cashInHand, bankDeposit, recoveryRate, openAccounts, closedAccounts, netAccounts, totalOutstanding, transactions
+      const transactions = d.transactions || [];
+      
+      const response: DailyReportData = {
+        date: d.date || todayStr,
+        dayName: d.dayName || today.toLocaleDateString(isUrdu ? 'ur-PK' : 'en-PK', { weekday: 'long' }),
+        totalSales: d.totalSales || 0,
+        totalInstallments: d.totalInstallments || transactions.length || 0,
+        totalCollected: d.totalCollected || 0,
+        totalPending: d.totalPending || 0,
+        totalCustomers: d.totalCustomers || 0,
+        cashInHand: d.cashInHand || 0,
+        bankDeposit: d.bankDeposit || 0,
+        recoveryRate: d.recoveryRate || 0,
+        outstanding: d.totalOutstanding || 0,
+        transactions: transactions.map((t: any) => ({
+          id: t.id || `txn-${Date.now()}-${Math.random()}`,
+          customerName: t.customer_name || 'Unknown',
+          customerUrdu: t.customer_urdu || '',
+          fatherName: t.father_name || '',
+          phone: t.phone || '',
+          productName: t.product_name || '',
+          productNameUrdu: t.product_name_urdu || '',
+          amount: t.amount || 0,
+          type: t.type || 'installment',
+          status: t.status || 'paid',
+          date: t.date || todayStr,
+        })),
+        cashSales: d.cashSales || 0,
+        cashSalesReturn: d.cashSalesReturn || 0,
+        installmentSales: d.installmentSales || 0,
+        installmentCollections: d.installmentCollections || 0,
+        advancePayments: d.advancePayments || 0,
+        fineReceived: d.fineReceived || 0,
+        processingFee: d.processingFee || 0,
+        openAccounts: d.openAccounts || 0,
+        closedAccounts: d.closedAccounts || 0,
+        netAccounts: d.netAccounts || 0,
+        freshOutstanding: d.freshOutstanding || 0,
+        regularOutstanding: d.regularOutstanding || 0,
+        totalOutstanding: d.totalOutstanding || 0,
+      };
 
       setReportData(response);
       toast.success(isUrdu ? 'رپورٹ تیار ہو گئی' : 'Report generated successfully');
@@ -535,13 +430,8 @@ const CustomerReport: React.FC = () => {
         pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, pdfHeight);
         heightLeft -= pageHeight;
       }
-      const reportNames: Record<string, string> = {
-        daily: 'Daily_Report',
-        weekly: 'Weekly_Report',
-        monthly: 'Monthly_Report',
-        'date-range': 'Date_Range_Report'
-      };
-      pdf.save(`${reportNames[reportType] || 'Report'}_${new Date().toISOString().split('T')[0]}.pdf`);
+      const reportNames = { daily: 'Daily_Report', weekly: 'Weekly_Report', monthly: 'Monthly_Report', 'date-range': 'Date_Range_Report' };
+      pdf.save((reportNames[reportType] || 'Report') + '_' + new Date().toISOString().split('T')[0] + '.pdf');
       toast.dismiss(loadingToast);
       toast.success(isUrdu ? 'پی ڈی ایف ڈاؤن لوڈ ہو گئی' : 'PDF downloaded successfully');
     } catch (err) {
@@ -565,7 +455,7 @@ const CustomerReport: React.FC = () => {
   }, [reportData, search]);
 
   const getReportTitle = () => {
-    const titles: Record<string, string> = {
+    const titles = {
       daily: isUrdu ? 'یومیہ رپورٹ' : 'Daily Report',
       weekly: isUrdu ? 'ہفتہ وار رپورٹ' : 'Weekly Report',
       monthly: isUrdu ? 'ماہانہ رپورٹ' : 'Monthly Report',
@@ -576,7 +466,7 @@ const CustomerReport: React.FC = () => {
 
   const getReportSubtitle = () => {
     if (reportType === 'date-range' && startDate && endDate) {
-      return `${startDate} ${isUrdu ? 'سے' : 'to'} ${endDate}`;
+      return startDate + ' ' + (isUrdu ? 'سے' : 'to') + ' ' + endDate;
     }
     if (reportType === 'daily') {
       return new Date().toLocaleDateString(isUrdu ? 'ur-PK' : 'en-PK', { year: 'numeric', month: 'long', day: 'numeric' });
@@ -584,12 +474,12 @@ const CustomerReport: React.FC = () => {
     if (reportType === 'weekly') {
       const weekAgo = new Date();
       weekAgo.setDate(weekAgo.getDate() - 7);
-      return `${weekAgo.toLocaleDateString(isUrdu ? 'ur-PK' : 'en-PK')} ${isUrdu ? 'سے' : 'to'} ${new Date().toLocaleDateString(isUrdu ? 'ur-PK' : 'en-PK')}`;
+      return weekAgo.toLocaleDateString(isUrdu ? 'ur-PK' : 'en-PK') + ' ' + (isUrdu ? 'سے' : 'to') + ' ' + new Date().toLocaleDateString(isUrdu ? 'ur-PK' : 'en-PK');
     }
     if (reportType === 'monthly') {
       const monthAgo = new Date();
       monthAgo.setMonth(monthAgo.getMonth() - 1);
-      return `${monthAgo.toLocaleDateString(isUrdu ? 'ur-PK' : 'en-PK', { month: 'long', year: 'numeric' })} ${isUrdu ? 'سے' : 'to'} ${new Date().toLocaleDateString(isUrdu ? 'ur-PK' : 'en-PK', { month: 'long', year: 'numeric' })}`;
+      return monthAgo.toLocaleDateString(isUrdu ? 'ur-PK' : 'en-PK', { month: 'long', year: 'numeric' }) + ' ' + (isUrdu ? 'سے' : 'to') + ' ' + new Date().toLocaleDateString(isUrdu ? 'ur-PK' : 'en-PK', { month: 'long', year: 'numeric' });
     }
     return undefined;
   };
@@ -657,84 +547,101 @@ const CustomerReport: React.FC = () => {
         </div>
 
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-4 sm:p-6 mb-6">
-          <div className="flex flex-wrap gap-2">
-            {(['daily', 'weekly', 'monthly', 'date-range'] as const).map((type) => {
-              const labels: Record<string, string> = {
-                daily: isUrdu ? 'یومیہ' : 'Daily',
-                weekly: isUrdu ? 'ہفتہ وار' : 'Weekly',
-                monthly: isUrdu ? 'ماہانہ' : 'Monthly',
-                'date-range': isUrdu ? 'تاریخ سے تاریخ' : 'Date to Date',
-              };
-              const icons: Record<string, string> = {
-                daily: '📅',
-                weekly: '📆',
-                monthly: '📊',
-                'date-range': '📋',
-              };
-              return (
-                <button
-                  key={type}
-                  onClick={() => setReportType(type)}
-                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all ${
-                    reportType === type
-                      ? 'bg-blue-600 text-white shadow-lg shadow-blue-200 dark:shadow-blue-900/30'
-                      : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                  }`}
-                >
-                  <span>{icons[type]}</span>
-                  <span>{labels[type]}</span>
-                </button>
-              );
-            })}
+          <div className="flex flex-col sm:flex-row gap-4 items-end">
+            <div className="w-full sm:w-auto">
+              <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5">
+                {isUrdu ? 'رپورٹ کی قسم' : 'Report Type'}
+              </label>
+              <div className="flex gap-2 flex-wrap">
+                {(['daily', 'weekly', 'monthly', 'date-range'] as const).map((type) => (
+                  <button
+                    key={type}
+                    onClick={() => setReportType(type)}
+                    className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+                      reportType === type
+                        ? 'bg-blue-600 text-white shadow-md'
+                        : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                    }`}
+                  >
+                    {type === 'daily' ? (isUrdu ? 'یومیہ' : 'Daily') :
+                     type === 'weekly' ? (isUrdu ? 'ہفتہ وار' : 'Weekly') :
+                     type === 'monthly' ? (isUrdu ? 'ماہانہ' : 'Monthly') :
+                     (isUrdu ? 'تاریخ سے تاریخ' : 'Date to Date')}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {reportType === 'date-range' && (
+              <>
+                <div className="w-full sm:w-auto">
+                  <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5">
+                    {isUrdu ? 'شروع کی تاریخ' : 'Start Date'}
+                  </label>
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                  />
+                </div>
+                <div className="w-full sm:w-auto">
+                  <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5">
+                    {isUrdu ? 'آخری تاریخ' : 'End Date'}
+                  </label>
+                  <input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                  />
+                </div>
+              </>
+            )}
           </div>
-
-          {reportType === 'date-range' && (
-            <div className="flex flex-wrap items-center gap-3 mt-4 p-4 bg-gray-50 dark:bg-gray-900/50 rounded-xl">
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">{isUrdu ? 'تاریخ سے' : 'From Date'}</label>
-                <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">{isUrdu ? 'تاریخ تک' : 'To Date'}</label>
-                <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-              </div>
-            </div>
-          )}
-
-          {reportData && reportData.transactions.length > 0 && (
-            <div className="mt-4">
-              <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder={isUrdu ? 'تلاش کریں...' : 'Search...'} className="w-full px-4 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-            </div>
-          )}
         </div>
 
         {error && (
-          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-2xl p-4 mb-6">
-            <p className="text-red-700 dark:text-red-300 text-sm font-medium">{error}</p>
-          </div>
-        )}
-
-        {reportData && (
-          <div ref={reportRef} className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-4 sm:p-6 overflow-hidden">
-            <ReportHeader title={getReportTitle()} subtitle={getReportSubtitle()} isUrdu={isUrdu} reportDate={reportData.date} />
-            <ReportSummaryCards data={reportData} isUrdu={isUrdu} type={reportType} />
-            <TransactionTable transactions={filteredTransactions} isUrdu={isUrdu} type={reportType} />
-            <ReportFooter isUrdu={isUrdu} />
-          </div>
-        )}
-
-        {!reportData && !loading && !error && (
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-12 text-center">
-            <div className="text-6xl mb-4">📄</div>
-            <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-2">{isUrdu ? 'کوئی رپورٹ نہیں' : 'No Report Generated'}</h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400 max-w-md mx-auto">{isUrdu ? 'رپورٹ کی قسم منتخب کریں اور "رپورٹ بنائیں" بٹن پر کلک کریں' : 'Select a report type and click "Generate Report" button'}</p>
+          <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-xl p-4 mb-6">
+            <p className="text-red-600 dark:text-red-400 text-sm font-medium">{error}</p>
           </div>
         )}
 
         {loading && (
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-12 text-center">
-            <div className="animate-spin text-4xl mb-4">⏳</div>
-            <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300">{isUrdu ? 'رپورٹ تیار ہو رہی ہے...' : 'Generating report...'}</h3>
+          <div className="flex flex-col items-center justify-center py-20">
+            <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+            <p className="mt-4 text-gray-500 dark:text-gray-400">{isUrdu ? 'رپورٹ تیار ہو رہی ہے...' : 'Generating report...'}</p>
+          </div>
+        )}
+
+        {reportData && !loading && (
+          <div ref={reportRef} className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden p-4 sm:p-6">
+            <ReportHeader
+              title={getReportTitle()}
+              subtitle={getReportSubtitle()}
+              isUrdu={isUrdu}
+              reportDate={reportData.date}
+            />
+
+            <ReportSummaryCards data={reportData} isUrdu={isUrdu} type={reportType} />
+
+            <div className="mt-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+                <h3 className="text-lg font-bold text-gray-800 dark:text-white">
+                  {isUrdu ? 'ٹرانزیکشنز' : 'Transactions'}
+                  <span className="ml-2 text-sm font-normal text-gray-500">({filteredTransactions.length})</span>
+                </h3>
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder={isUrdu ? 'تلاش کریں...' : 'Search...'}
+                  className="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none w-full sm:w-64"
+                />
+              </div>
+              <TransactionTable transactions={filteredTransactions} isUrdu={isUrdu} type={reportType} />
+            </div>
+
+            <ReportFooter isUrdu={isUrdu} />
           </div>
         )}
       </div>

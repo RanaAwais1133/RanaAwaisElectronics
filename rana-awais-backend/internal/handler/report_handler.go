@@ -120,15 +120,59 @@ func (h *ReportHandler) DailyReport(w http.ResponseWriter, r *http.Request) {
 	// Get total sales
 	totalSales := h.getTotalSales(r.Context(), startOfDay, endOfDay, totalCollected)
 
+	// Calculate additional report fields
+	cashInHand := totalCollected // Cash collected today
+	bankDeposit := 0.0           // Will be calculated from payments with method="bank"
+	recoveryRate := 0.0
+	if totalSales > 0 {
+		recoveryRate = (totalCollected / totalSales) * 100
+	}
+	openAccounts := totalCustomers
+	closedAccounts := 0
+	netAccounts := openAccounts - closedAccounts
+	totalOutstanding := totalPending
+
+	// Get bank deposits from payments
+	bankPipeline := mongo.Pipeline{
+		{{Key: "$match", Value: bson.M{
+			"transaction_date": bson.M{"$gte": startOfDay, "$lt": endOfDay},
+			"method":           bson.M{"$in": bson.A{"bank", "jazzcash", "easypaisa"}},
+		}}},
+		{{Key: "$group", Value: bson.M{
+			"_id":   nil,
+			"total": bson.M{"$sum": "$amount"},
+		}}},
+	}
+	bankCursor, err := db.Collection(config.ColPayments).Aggregate(r.Context(), bankPipeline)
+	if err == nil {
+		var bankResults []struct {
+			Total float64 `bson:"total"`
+		}
+		if bankCursor.All(r.Context(), &bankResults) == nil && len(bankResults) > 0 {
+			bankDeposit = bankResults[0].Total
+		}
+		bankCursor.Close(r.Context())
+	}
+	if bankDeposit > 0 {
+		cashInHand = totalCollected - bankDeposit
+	}
+
 	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"date":              dateStr,
-		"dayName":           date.Weekday().String(),
-		"totalSales":        totalSales,
-		"totalInstallments": totalInstallments,
-		"totalCollected":    totalCollected,
-		"totalPending":      totalPending,
-		"totalCustomers":    totalCustomers,
-		"transactions":      transactions,
+		"date":               dateStr,
+		"dayName":            date.Weekday().String(),
+		"totalSales":         totalSales,
+		"totalInstallments":  totalInstallments,
+		"totalCollected":     totalCollected,
+		"totalPending":       totalPending,
+		"totalCustomers":     totalCustomers,
+		"cashInHand":         cashInHand,
+		"bankDeposit":        bankDeposit,
+		"recoveryRate":       recoveryRate,
+		"openAccounts":       openAccounts,
+		"closedAccounts":     closedAccounts,
+		"netAccounts":        netAccounts,
+		"totalOutstanding":   totalOutstanding,
+		"transactions":       transactions,
 	})
 }
 
@@ -299,6 +343,43 @@ func (h *ReportHandler) generateDateRangeReport(w http.ResponseWriter, r *http.R
 	totalPending := h.getPendingTotal(r.Context(), start, end)
 	totalSales := h.getTotalSales(r.Context(), start, end, totalCollected)
 
+	// Calculate additional report fields
+	cashInHand := totalCollected
+	bankDeposit := 0.0
+	recoveryRate := 0.0
+	if totalSales > 0 {
+		recoveryRate = (totalCollected / totalSales) * 100
+	}
+	openAccounts := totalCustomers
+	closedAccounts := 0
+	netAccounts := openAccounts - closedAccounts
+	totalOutstanding := totalPending
+
+	// Get bank deposits from payments
+	bankPipeline := mongo.Pipeline{
+		{{Key: "$match", Value: bson.M{
+			"transaction_date": bson.M{"$gte": start, "$lt": end},
+			"method":           bson.M{"$in": bson.A{"bank", "jazzcash", "easypaisa"}},
+		}}},
+		{{Key: "$group", Value: bson.M{
+			"_id":   nil,
+			"total": bson.M{"$sum": "$amount"},
+		}}},
+	}
+	bankCursor, err := db.Collection(config.ColPayments).Aggregate(r.Context(), bankPipeline)
+	if err == nil {
+		var bankResults []struct {
+			Total float64 `bson:"total"`
+		}
+		if bankCursor.All(r.Context(), &bankResults) == nil && len(bankResults) > 0 {
+			bankDeposit = bankResults[0].Total
+		}
+		bankCursor.Close(r.Context())
+	}
+	if bankDeposit > 0 {
+		cashInHand = totalCollected - bankDeposit
+	}
+
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"startDate":         start.Format("2006-01-02"),
 		"endDate":           end.Add(-24 * time.Hour).Format("2006-01-02"),
@@ -307,6 +388,13 @@ func (h *ReportHandler) generateDateRangeReport(w http.ResponseWriter, r *http.R
 		"totalCollected":    totalCollected,
 		"totalPending":      totalPending,
 		"totalCustomers":    totalCustomers,
+		"cashInHand":        cashInHand,
+		"bankDeposit":       bankDeposit,
+		"recoveryRate":      recoveryRate,
+		"openAccounts":      openAccounts,
+		"closedAccounts":    closedAccounts,
+		"netAccounts":       netAccounts,
+		"totalOutstanding":  totalOutstanding,
 		"transactions":      transactions,
 	})
 }
@@ -517,7 +605,7 @@ func (h *ReportHandler) getTotalSales(ctx context.Context, start, end time.Time,
 		Total float64 `bson:"total"`
 	}
 	if salesCursor.All(ctx, &salesResults) == nil && len(salesResults) > 0 {
-		return existingTotal + salesResults[0].Total
+		return salesResults[0].Total
 	}
-	return existingTotal
+	return 0
 }
