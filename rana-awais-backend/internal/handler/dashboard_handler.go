@@ -59,11 +59,15 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 	var wg sync.WaitGroup
 	results := make(chan result, 25)
 
-	// 1. Today's Collection
+	// 1. Today's Collection (from payments + accounting_entries income)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		pipeline := mongo.Pipeline{
+		var total float64
+		var count int64
+
+		// Query payments collection
+		payPipeline := mongo.Pipeline{
 			bson.D{{Key: "$match", Value: bson.D{
 				{Key: "transactiondate", Value: bson.D{
 					{Key: "$gte", Value: todayStart},
@@ -76,28 +80,45 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 				{Key: "count", Value: bson.D{{Key: "$sum", Value: 1}}},
 			}}},
 		}
-		cursor, err := db.Collection("payments").Aggregate(ctx, pipeline)
-		if err != nil {
-			results <- result{"todayCollection", map[string]interface{}{"total": 0.0, "count": 0}}
-			return
-		}
-		defer cursor.Close(ctx)
-
-		var total float64
-		var count int64
-		if cursor.Next(ctx) {
-			var r struct {
-				Total float64 `bson:"total"`
-				Count int64   `bson:"count"`
+		payCursor, err := db.Collection("payments").Aggregate(ctx, payPipeline)
+		if err == nil {
+			if payCursor.Next(ctx) {
+				var r struct {
+					Total float64 `bson:"total"`
+					Count int64   `bson:"count"`
+				}
+				if payCursor.Decode(&r) == nil {
+					total = r.Total
+					count = r.Count
+				}
 			}
-			if cursor.Decode(&r) == nil {
-				total = r.Total
-				count = r.Count
-			}
+			payCursor.Close(ctx)
 		}
 
-		// Down payments are already recorded in payments collection by CreatePlan
-		// No need to query installment_plans separately - avoids double counting
+		// Also query accounting_entries for income (catches any records not in payments)
+		accPipeline := mongo.Pipeline{
+			bson.D{{Key: "$match", Value: bson.D{
+				{Key: "type", Value: "income"},
+				{Key: "date", Value: bson.D{
+					{Key: "$gte", Value: todayStart},
+					{Key: "$lt", Value: todayEnd},
+				}},
+			}}},
+			bson.D{{Key: "$group", Value: bson.D{
+				{Key: "_id", Value: nil},
+				{Key: "total", Value: bson.D{{Key: "$sum", Value: "$amount"}}},
+			}}},
+		}
+		accCursor, err := db.Collection("accounting_entries").Aggregate(ctx, accPipeline)
+		if err == nil {
+			if accCursor.Next(ctx) {
+				var r struct{ Total float64 `bson:"total"` }
+				if accCursor.Decode(&r) == nil {
+					total += r.Total
+				}
+			}
+			accCursor.Close(ctx)
+		}
 
 		results <- result{"todayCollection", map[string]interface{}{"total": total, "count": count}}
 	}()
@@ -224,67 +245,90 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 		results <- result{"monthProfit", profit}
 	}()
 
-	// 6. Total Pending
+	// 6. Total Pending (from installment_details collection)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		var total float64
-		cursor, err := db.Collection("installment_plans").Find(ctx, bson.M{"status": "active"})
+		// Aggregate unpaid installments from installment_details
+		pipeline := mongo.Pipeline{
+			bson.D{{Key: "$match", Value: bson.D{
+				{Key: "paid", Value: false},
+			}}},
+			bson.D{{Key: "$group", Value: bson.D{
+				{Key: "_id", Value: nil},
+				{Key: "total", Value: bson.D{{Key: "$sum", Value: bson.D{
+					{Key: "$add", Value: bson.A{"$amount", bson.D{{Key: "$ifNull", Value: bson.A{"$fine", 0}}}, bson.D{{Key: "$subtract", Value: bson.A{bson.D{{Key: "$ifNull", Value: bson.A{"$partial_paid", 0}}}, bson.D{{Key: "$ifNull", Value: bson.A{"$partial_paid", 0}}}}}}}},
+				}}}},
+			}}},
+		}
+		cursor, err := db.Collection("installment_details").Aggregate(ctx, pipeline)
 		if err == nil {
 			defer cursor.Close(ctx)
-			for cursor.Next(ctx) {
-				var plan domain.InstallmentPlan
-				if cursor.Decode(&plan) == nil {
-					for _, d := range plan.Installments {
-						if !d.Paid {
-							total += d.Amount + d.Fine - d.PartialPaid
-						}
-					}
+			if cursor.Next(ctx) {
+				var r struct{ Total float64 `bson:"total"` }
+				if cursor.Decode(&r) == nil {
+					total = r.Total
 				}
 			}
 		}
 		results <- result{"totalPending", total}
 	}()
 
-	// 6b. Pending Customers Count
+	// 6b. Pending Customers Count (from installment_details)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		custMap := make(map[string]bool)
-		cursor, err := db.Collection("installment_plans").Find(ctx, bson.M{"status": "active"})
+		// Get distinct plan_ids with unpaid installments
+		cursor, err := db.Collection("installment_details").Find(ctx, bson.M{"paid": false})
 		if err == nil {
 			defer cursor.Close(ctx)
+			planIDs := make(map[string]bool)
 			for cursor.Next(ctx) {
-				var plan domain.InstallmentPlan
-				if cursor.Decode(&plan) == nil {
-					for _, d := range plan.Installments {
-						if !d.Paid {
-							custMap[plan.CustomerID] = true
-							break
-						}
-					}
+				var doc struct {
+					PlanID string `bson:"plan_id"`
+				}
+				if cursor.Decode(&doc) == nil {
+					planIDs[doc.PlanID] = true
 				}
 			}
+			// Get unique customer IDs from plans
+			custMap := make(map[string]bool)
+			for pid := range planIDs {
+				var plan domain.InstallmentPlan
+				if err := db.Collection("installment_plans").FindOne(ctx, bson.M{"_id": pid}).Decode(&plan); err == nil {
+					custMap[plan.CustomerID] = true
+				}
+			}
+			results <- result{"pendingCustomers", int64(len(custMap))}
+		} else {
+			results <- result{"pendingCustomers", int64(0)}
 		}
-		results <- result{"pendingCustomers", int64(len(custMap))}
 	}()
 
-	// 6c. Pending Total Amount
+	// 6c. Pending Total Amount (same as 6, using installment_details)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		var total float64
-		cursor, err := db.Collection("installment_plans").Find(ctx, bson.M{"status": "active"})
+		pipeline := mongo.Pipeline{
+			bson.D{{Key: "$match", Value: bson.D{
+				{Key: "paid", Value: false},
+			}}},
+			bson.D{{Key: "$group", Value: bson.D{
+				{Key: "_id", Value: nil},
+				{Key: "total", Value: bson.D{{Key: "$sum", Value: bson.D{
+					{Key: "$add", Value: bson.A{"$amount", bson.D{{Key: "$ifNull", Value: bson.A{"$fine", 0}}}, bson.D{{Key: "$subtract", Value: bson.A{bson.D{{Key: "$ifNull", Value: bson.A{"$partial_paid", 0}}}, bson.D{{Key: "$ifNull", Value: bson.A{"$partial_paid", 0}}}}}}}},
+				}}}},
+			}}},
+		}
+		cursor, err := db.Collection("installment_details").Aggregate(ctx, pipeline)
 		if err == nil {
 			defer cursor.Close(ctx)
-			for cursor.Next(ctx) {
-				var plan domain.InstallmentPlan
-				if cursor.Decode(&plan) == nil {
-					for _, d := range plan.Installments {
-						if !d.Paid {
-							total += d.Amount + d.Fine - d.PartialPaid
-						}
-					}
+			if cursor.Next(ctx) {
+				var r struct{ Total float64 `bson:"total"` }
+				if cursor.Decode(&r) == nil {
+					total = r.Total
 				}
 			}
 		}
@@ -399,68 +443,44 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 		results <- result{"ageingInventory", count}
 	}()
 
-	// 15. Overdue Installments count
+	// 15. Overdue Installments count (from installment_details)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		var count int64
-		cursor, err := db.Collection("installment_plans").Find(ctx, bson.M{"status": "active"})
-		if err == nil {
-			defer cursor.Close(ctx)
-			for cursor.Next(ctx) {
-				var plan domain.InstallmentPlan
-				if cursor.Decode(&plan) == nil {
-					for _, d := range plan.Installments {
-						if !d.Paid && d.DueDate.Before(todayStart) {
-							count++
-						}
-					}
-				}
-			}
+		count, err := db.Collection("installment_details").CountDocuments(ctx, bson.M{
+			"paid":     false,
+			"due_date": bson.M{"$lt": todayStart},
+		})
+		if err != nil {
+			count = 0
 		}
 		results <- result{"overdueCount", count}
 	}()
 
-	// 16. Today Due count
+	// 16. Today Due count (from installment_details)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		var count int64
-		cursor, err := db.Collection("installment_plans").Find(ctx, bson.M{"status": "active"})
-		if err == nil {
-			defer cursor.Close(ctx)
-			for cursor.Next(ctx) {
-				var plan domain.InstallmentPlan
-				if cursor.Decode(&plan) == nil {
-					for _, d := range plan.Installments {
-						if !d.Paid && (d.DueDate.Equal(todayStart) || (d.DueDate.After(todayStart) && d.DueDate.Before(todayEnd))) {
-							count++
-						}
-					}
-				}
-			}
+		count, err := db.Collection("installment_details").CountDocuments(ctx, bson.M{
+			"paid":     false,
+			"due_date": bson.M{"$gte": todayStart, "$lt": todayEnd},
+		})
+		if err != nil {
+			count = 0
 		}
 		results <- result{"todayDueCount", count}
 	}()
 
-	// 17. Monthly Due count
+	// 17. Monthly Due count (from installment_details)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		var count int64
-		cursor, err := db.Collection("installment_plans").Find(ctx, bson.M{"status": "active"})
-		if err == nil {
-			defer cursor.Close(ctx)
-			for cursor.Next(ctx) {
-				var plan domain.InstallmentPlan
-				if cursor.Decode(&plan) == nil {
-					for _, d := range plan.Installments {
-						if !d.Paid && (d.DueDate.Equal(monthStart) || (d.DueDate.After(monthStart) && d.DueDate.Before(monthEnd))) {
-							count++
-						}
-					}
-				}
-			}
+		count, err := db.Collection("installment_details").CountDocuments(ctx, bson.M{
+			"paid":     false,
+			"due_date": bson.M{"$gte": monthStart, "$lt": monthEnd},
+		})
+		if err != nil {
+			count = 0
 		}
 		results <- result{"monthlyDueCount", count}
 	}()
@@ -499,17 +519,44 @@ func (h *DashboardHandler) TodayInstallments(w http.ResponseWriter, r *http.Requ
 	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	end := start.Add(24 * time.Hour)
 
-	cursor, err := db.Collection("installment_plans").Find(r.Context(), bson.M{"status": "active"})
+	// Query installment_details directly for today's due installments
+	detailCursor, err := db.Collection("installment_details").Find(r.Context(), bson.M{
+		"due_date": bson.M{"$gte": start, "$lt": end},
+		"paid":     false,
+	})
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "Failed to fetch", "ناکام")
 		return
 	}
-	defer cursor.Close(r.Context())
+	defer detailCursor.Close(r.Context())
+
+	var detailDocs []struct {
+		PlanID        string     `bson:"plan_id"`
+		InstallmentNo int        `bson:"installment_no"`
+		DueDate       time.Time  `bson:"due_date"`
+		Amount        float64    `bson:"amount"`
+		Paid          bool       `bson:"paid"`
+		PaidDate      *time.Time `bson:"paid_date,omitempty"`
+		PartialPaid   float64    `bson:"partial_paid"`
+		Remaining     float64    `bson:"remaining"`
+		CollectedBy   string     `bson:"collected_by,omitempty"`
+	}
+	err = detailCursor.All(r.Context(), &detailDocs)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "Failed to fetch", "ناکام")
+		return
+	}
+
+	// Collect unique plan IDs
+	planIDs := make(map[string]bool)
+	for _, d := range detailDocs {
+		planIDs[d.PlanID] = true
+	}
 
 	var result []map[string]interface{}
-	for cursor.Next(r.Context()) {
+	for pid := range planIDs {
 		var plan domain.InstallmentPlan
-		if err := cursor.Decode(&plan); err != nil {
+		if err := db.Collection("installment_plans").FindOne(r.Context(), bson.M{"_id": pid}).Decode(&plan); err != nil {
 			continue
 		}
 
@@ -527,11 +574,8 @@ func (h *DashboardHandler) TodayInstallments(w http.ResponseWriter, r *http.Requ
 			}
 		}
 
-		for _, d := range plan.Installments {
-			if d.Paid {
-				continue
-			}
-			if d.DueDate.Before(start) || d.DueDate.After(end) || d.DueDate.Equal(end) {
+		for _, d := range detailDocs {
+			if d.PlanID != pid {
 				continue
 			}
 
@@ -567,17 +611,45 @@ func (h *DashboardHandler) OverdueDetails(w http.ResponseWriter, r *http.Request
 	now := time.Now()
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 
-	cursor, err := db.Collection("installment_plans").Find(r.Context(), bson.M{"status": "active"})
+	// Query installment_details for overdue unpaid installments
+	detailCursor, err := db.Collection("installment_details").Find(r.Context(), bson.M{
+		"paid":     false,
+		"due_date": bson.M{"$lt": today},
+	})
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "Failed to fetch overdue", "ناکام")
 		return
 	}
-	defer cursor.Close(r.Context())
+	defer detailCursor.Close(r.Context())
+
+	var detailDocs []struct {
+		PlanID        string     `bson:"plan_id"`
+		InstallmentNo int        `bson:"installment_no"`
+		DueDate       time.Time  `bson:"due_date"`
+		Amount        float64    `bson:"amount"`
+		Paid          bool       `bson:"paid"`
+		PaidDate      *time.Time `bson:"paid_date,omitempty"`
+		PartialPaid   float64    `bson:"partial_paid"`
+		Remaining     float64    `bson:"remaining"`
+		CollectedBy   string     `bson:"collected_by,omitempty"`
+		Fine          float64    `bson:"fine"`
+	}
+	err = detailCursor.All(r.Context(), &detailDocs)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "Failed to fetch overdue", "ناکام")
+		return
+	}
+
+	// Collect unique plan IDs
+	planIDs := make(map[string]bool)
+	for _, d := range detailDocs {
+		planIDs[d.PlanID] = true
+	}
 
 	var result []map[string]interface{}
-	for cursor.Next(r.Context()) {
+	for pid := range planIDs {
 		var plan domain.InstallmentPlan
-		if err := cursor.Decode(&plan); err != nil {
+		if err := db.Collection("installment_plans").FindOne(r.Context(), bson.M{"_id": pid}).Decode(&plan); err != nil {
 			continue
 		}
 
@@ -595,11 +667,8 @@ func (h *DashboardHandler) OverdueDetails(w http.ResponseWriter, r *http.Request
 			}
 		}
 
-		for _, d := range plan.Installments {
-			if d.Paid {
-				continue
-			}
-			if !d.DueDate.Before(today) {
+		for _, d := range detailDocs {
+			if d.PlanID != pid {
 				continue
 			}
 
@@ -668,17 +737,42 @@ func (h *DashboardHandler) MonthlyDueDetails(w http.ResponseWriter, r *http.Requ
 	start := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
 	end := start.AddDate(0, 1, 0)
 
-	cursor, err := db.Collection("installment_plans").Find(r.Context(), bson.M{"status": "active"})
+	// Query installment_details directly for monthly due installments
+	detailCursor, err := db.Collection("installment_details").Find(r.Context(), bson.M{
+		"due_date": bson.M{"$gte": start, "$lt": end},
+		"paid":     false,
+	})
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "Failed to fetch", "ناکام")
 		return
 	}
-	defer cursor.Close(r.Context())
+	defer detailCursor.Close(r.Context())
+
+	var detailDocs []struct {
+		PlanID        string    `bson:"plan_id"`
+		InstallmentNo int       `bson:"installment_no"`
+		DueDate       time.Time `bson:"due_date"`
+		Amount        float64   `bson:"amount"`
+		Paid          bool      `bson:"paid"`
+		PartialPaid   float64   `bson:"partial_paid"`
+		Remaining     float64   `bson:"remaining"`
+	}
+	err = detailCursor.All(r.Context(), &detailDocs)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "Failed to fetch", "ناکام")
+		return
+	}
+
+	// Collect unique plan IDs
+	planIDs := make(map[string]bool)
+	for _, d := range detailDocs {
+		planIDs[d.PlanID] = true
+	}
 
 	var result []map[string]interface{}
-	for cursor.Next(r.Context()) {
+	for pid := range planIDs {
 		var plan domain.InstallmentPlan
-		if err := cursor.Decode(&plan); err != nil {
+		if err := db.Collection("installment_plans").FindOne(r.Context(), bson.M{"_id": pid}).Decode(&plan); err != nil {
 			continue
 		}
 
@@ -696,11 +790,8 @@ func (h *DashboardHandler) MonthlyDueDetails(w http.ResponseWriter, r *http.Requ
 			}
 		}
 
-		for _, d := range plan.Installments {
-			if d.Paid {
-				continue
-			}
-			if d.DueDate.Before(start) || d.DueDate.After(end) || d.DueDate.Equal(end) {
+		for _, d := range detailDocs {
+			if d.PlanID != pid {
 				continue
 			}
 
@@ -784,12 +875,18 @@ func (h *DashboardHandler) ActiveInstallments(w http.ResponseWriter, r *http.Req
 		// Down payment is already recorded in payments collection by CreatePlan
 		// No need to add it again - avoids double counting
 
+		// Calculate actual remaining amount from payments
+		actualRemaining := plan.TotalAmount - paidAmount
+		if actualRemaining < 0 {
+			actualRemaining = 0
+		}
+
 		result = append(result, map[string]interface{}{
 			"id": plan.ID, "customer_name": cust.Name, "customer_urdu": cust.NameUrdu,
 			"father_name": cust.FatherName, "phone": cust.Phone,
 			"product_name": prodName, "product_name_urdu": prodNameUrdu,
 			"total_amount": plan.TotalAmount, "down_payment": plan.DownPayment,
-			"remaining_amount": plan.RemainingAmount, "num_installments": plan.NumberOfInstallments,
+			"remaining_amount": actualRemaining, "num_installments": plan.NumberOfInstallments,
 			"paid_amount": paidAmount, "paid_count": paidCount,
 			"start_date": plan.StartDate.Format("2006-01-02"),
 			"end_date":   plan.EndDate.Format("2006-01-02"),
@@ -837,12 +934,40 @@ func (h *DashboardHandler) CompletedInstallments(w http.ResponseWriter, r *http.
 			}
 		}
 
+		// Calculate actual paid amount from payments
+		var paidAmount float64
+		payPipeline := mongo.Pipeline{
+			bson.D{{Key: "$match", Value: bson.D{
+				{Key: "installmentplanid", Value: plan.ID},
+			}}},
+			bson.D{{Key: "$group", Value: bson.D{
+				{Key: "_id", Value: nil},
+				{Key: "total", Value: bson.D{{Key: "$sum", Value: "$amount"}}},
+			}}},
+		}
+		payCursor, _ := db.Collection("payments").Aggregate(r.Context(), payPipeline)
+		if payCursor != nil {
+			if payCursor.Next(r.Context()) {
+				var r struct{ Total float64 `bson:"total"` }
+				if payCursor.Decode(&r) == nil {
+					paidAmount = r.Total
+				}
+			}
+			payCursor.Close(r.Context())
+		}
+
+		actualRemaining := plan.TotalAmount - paidAmount
+		if actualRemaining < 0 {
+			actualRemaining = 0
+		}
+
 		result = append(result, map[string]interface{}{
 			"id": plan.ID, "customer_name": cust.Name, "customer_urdu": cust.NameUrdu,
 			"father_name": cust.FatherName, "phone": cust.Phone,
 			"product_name": prodName, "product_name_urdu": prodNameUrdu,
 			"total_amount": plan.TotalAmount, "down_payment": plan.DownPayment,
-			"remaining_amount": plan.RemainingAmount, "num_installments": plan.NumberOfInstallments,
+			"remaining_amount": actualRemaining, "num_installments": plan.NumberOfInstallments,
+			"paid_amount": paidAmount,
 			"start_date": plan.StartDate.Format("2006-01-02"),
 			"end_date":   plan.EndDate.Format("2006-01-02"),
 			"status":     plan.Status, "created_by": plan.CreatedBy,

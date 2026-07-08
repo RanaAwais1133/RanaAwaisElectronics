@@ -126,28 +126,8 @@ func (r *AccountingRepository) GetRevenueAndProfit(ctx context.Context, start, e
 		cursor.Close(ctx)
 	}
 
-	// Down payment revenue from installment plans
-	matchStage2 := bson.D{
-		{Key: "$match", Value: bson.M{
-			"createdat": bson.M{"$gte": start, "$lt": end},
-		}},
-	}
-	groupStage2 := bson.D{
-		{Key: "$group", Value: bson.M{
-			"_id":   nil,
-			"total": bson.M{"$sum": "$downpayment"},
-		}},
-	}
-	cursor2, err := r.plansColl.Aggregate(ctx, mongo.Pipeline{matchStage2, groupStage2})
-	if err == nil {
-		var results []bson.M
-		if err := cursor2.All(ctx, &results); err == nil && len(results) > 0 {
-			if total, ok := results[0]["total"].(float64); ok {
-				revenue += total
-			}
-		}
-		cursor2.Close(ctx)
-	}
+	// Down payment revenue is already recorded in payments collection by CreatePlan
+	// No need to query installment_plans separately - avoids double counting
 
 	// Profit calculation using aggregation pipeline
 	// Profit = Payment * (1 - PurchasePrice / TotalAmount)
@@ -206,55 +186,9 @@ func (r *AccountingRepository) GetRevenueAndProfit(ctx context.Context, start, e
 		cursor3.Close(ctx)
 	}
 
-	// Profit from down payments
-	pipeline2 := mongo.Pipeline{
-		{{Key: "$match", Value: bson.M{
-			"createdat":   bson.M{"$gte": start, "$lt": end},
-			"downpayment": bson.M{"$gt": 0},
-		}}},
-		{{Key: "$lookup", Value: bson.M{
-			"from":         "products",
-			"localField":   "productid",
-			"foreignField": "_id",
-			"as":           "product",
-		}}},
-		{{Key: "$unwind", Value: bson.D{
-			{Key: "path", Value: "$product"},
-			{Key: "preserveNullAndEmptyArrays", Value: true},
-		}}},
-		{{Key: "$group", Value: bson.M{
-			"_id": nil,
-			"totalProfit": bson.M{
-				"$sum": bson.M{
-					"$multiply": []interface{}{
-						"$downpayment",
-						bson.M{"$subtract": []interface{}{
-							1,
-							bson.M{"$cond": []interface{}{
-								bson.M{"$gt": []interface{}{"$totalamount", 0}},
-								bson.M{"$divide": []interface{}{
-									bson.M{"$ifNull": []interface{}{"$product.purchaseprice", 0}},
-									"$totalamount",
-								}},
-								0,
-							}},
-						}},
-					},
-				},
-			},
-		}}},
-	}
-
-	cursor4, err := r.plansColl.Aggregate(ctx, pipeline2)
-	if err == nil {
-		var results []bson.M
-		if err := cursor4.All(ctx, &results); err == nil && len(results) > 0 {
-			if totalProfit, ok := results[0]["totalProfit"].(float64); ok {
-				profit += totalProfit
-			}
-		}
-		cursor4.Close(ctx)
-	}
+	// Down payment profit is already included in payments profit calculation above
+	// since down payments are recorded in payments collection by CreatePlan
+	// No need to calculate separately - avoids double counting
 
 	// Subtract expenses
 	matchStage3 := bson.D{

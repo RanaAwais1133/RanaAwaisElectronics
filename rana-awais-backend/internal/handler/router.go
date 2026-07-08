@@ -199,6 +199,8 @@ func SetupRouter(
 
 	// Payments (unique routes only - no duplicates with /installments routes)
 	protected.HandleFunc("/payments", installmentH.RecordPayment).Methods("POST")
+	protected.HandleFunc("/payments/advance", installmentH.AdvancePayment).Methods("POST")
+	protected.HandleFunc("/payments/bulk", installmentH.BulkPayment).Methods("POST")
 	protected.HandleFunc("/payments/plan/{plan_id}", paymentH.ListByPlan).Methods("GET")
 
 	// Upcoming installments (MongoDB-based)
