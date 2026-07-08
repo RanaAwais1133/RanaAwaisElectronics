@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/repository"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type RescheduleService struct {
@@ -17,7 +16,7 @@ func NewRescheduleService(planRepo repository.InstallmentRepository) *Reschedule
 	return &RescheduleService{planRepo: planRepo}
 }
 
-func (s *RescheduleService) CheckAndReschedule(ctx context.Context, planID primitive.ObjectID) error {
+func (s *RescheduleService) CheckAndReschedule(ctx context.Context, planID string) error {
 	plan, err := s.planRepo.GetByID(ctx, planID)
 	if err != nil || plan == nil {
 		return errors.New("plan not found")
@@ -34,7 +33,7 @@ func (s *RescheduleService) CheckAndReschedule(ctx context.Context, planID primi
 		s.planRepo.Update(ctx, planID, plan)
 
 		newPlan := *plan
-		newPlan.ID = primitive.NilObjectID
+		newPlan.ID = ""
 		newPlan.StartDate = now
 		newPlan.EndDate = plan.EndDate.AddDate(0, 2, 0)
 		newPlan.NumberOfInstallments = plan.NumberOfInstallments + 2
@@ -46,36 +45,28 @@ func (s *RescheduleService) CheckAndReschedule(ctx context.Context, planID primi
 	return nil
 }
 
-// ✅ NEW: Get reschedule options for a plan
-func (s *RescheduleService) GetRescheduleOptions(ctx context.Context, planID primitive.ObjectID) (map[string]interface{}, error) {
+// GetRescheduleOptions returns available reschedule options for a plan
+func (s *RescheduleService) GetRescheduleOptions(ctx context.Context, planID string) (map[string]interface{}, error) {
 	plan, err := s.planRepo.GetByID(ctx, planID)
 	if err != nil || plan == nil {
 		return nil, errors.New("plan not found")
 	}
-	
-	// Calculate remaining balance
+
 	remainingBalance := 0.0
 	paidCount := 0
-	totalCount := len(plan.Installments)
-	
 	for _, inst := range plan.Installments {
-		if !inst.Paid {
-			remainingBalance += inst.Amount - inst.PartialPaid
-		} else {
+		if inst.Paid {
 			paidCount++
+		} else {
+			remainingBalance += inst.Amount - inst.PartialPaid
 		}
 	}
-	
+
 	return map[string]interface{}{
-		"planId":           planID.Hex(),
-		"remainingBalance": remainingBalance,
-		"paidCount":        paidCount,
-		"totalCount":       totalCount,
-		"remainingCount":   totalCount - paidCount,
-		"currentStatus":    plan.Status,
-		"options": []string{
-			"continue", // Continue with same schedule
-			"new",      // New schedule with remaining balance
-		},
+		"totalInstallments":   plan.NumberOfInstallments,
+		"paidInstallments":    paidCount,
+		"remainingBalance":    remainingBalance,
+		"currentInstallment":  plan.InstallmentAmount,
+		"status":              plan.Status,
 	}, nil
 }

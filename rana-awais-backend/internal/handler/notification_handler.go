@@ -5,7 +5,6 @@ import (
 	"net/http"
 
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/service"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type NotificationHandler struct {
@@ -35,17 +34,7 @@ func (h *NotificationHandler) SendSingle(w http.ResponseWriter, r *http.Request)
 		respondError(w, r, http.StatusBadRequest, "Invalid payload", "غلط مواد")
 		return
 	}
-	custID, err := primitive.ObjectIDFromHex(payload.CustomerID)
-	if err != nil {
-		respondError(w, r, http.StatusBadRequest, "Invalid customer ID", "غلط گاہک شناخت")
-		return
-	}
-	planID, err := primitive.ObjectIDFromHex(payload.InstallmentPlanID)
-	if err != nil {
-		respondError(w, r, http.StatusBadRequest, "Invalid plan ID", "غلط پلان شناخت")
-		return
-	}
-	if err := h.svc.SendSingleReminder(r.Context(), custID, planID, payload.InstallmentNo); err != nil {
+	if err := h.svc.SendSingleReminder(r.Context(), payload.CustomerID, payload.InstallmentPlanID, payload.InstallmentNo); err != nil {
 		respondError(w, r, http.StatusInternalServerError, err.Error(), "ریمائنڈر نہیں بھیجا جا سکا")
 		return
 	}

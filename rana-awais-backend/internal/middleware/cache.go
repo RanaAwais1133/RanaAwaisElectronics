@@ -146,6 +146,6 @@ func CacheKey(method, path string) string {
 }
 
 // Global dashboard cache instance
-var DashboardCache = NewCacheMiddleware(5 * time.Minute) // 5 minute TTL for dashboard
+var DashboardCache = NewCacheMiddleware(30 * time.Second) // 30s TTL for multi-client real-time sync
 
 

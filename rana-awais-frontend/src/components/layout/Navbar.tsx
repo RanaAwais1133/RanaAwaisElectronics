@@ -4,7 +4,7 @@ import LanguageToggle from '../bilingual/LanguageToggle';
 import ThemeToggle from '../bilingual/ThemeToggle';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../../store/useAuthStore';
-import { APP_CONFIG } from '../../config/app'; // ✅ NEW: Import config
+import { useClientStore } from '../../store/useClientStore';
 
 interface NavbarProps {
   onMenuToggle: () => void;
@@ -16,6 +16,8 @@ const Navbar: React.FC<NavbarProps> = ({ onMenuToggle }) => {
   const logout = useAuthStore((s) => s.logout);
   const navigate = useNavigate();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  // ✅ Global store se company name - settings change karte hi update ho jayega
+  const companyName = useClientStore((s) => s.info.name);
 
   const handleLogout = async () => {
     setIsLoggingOut(true);
@@ -43,9 +45,9 @@ const Navbar: React.FC<NavbarProps> = ({ onMenuToggle }) => {
           </svg>
         </button>
         
-        {/* ✅ Dynamic Company Name from config */}
+        {/* ✅ Dynamic Company Name from config (synced from localStorage) */}
         <h1 className="text-base sm:text-xl md:text-2xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600 dark:from-blue-400 dark:to-purple-400 truncate">
-          {APP_CONFIG.companyName}
+          {companyName}
         </h1>
       </div>
 

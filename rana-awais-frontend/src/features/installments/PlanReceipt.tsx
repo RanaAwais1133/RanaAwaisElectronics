@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 import api from '../../utils/api';
 import { useAuthStore } from '../../store/useAuthStore';
-import { APP_CONFIG } from '../../config/app';
+import { useClientStore } from '../../store/useClientStore';
 
 interface Props { planId: string; onClose: () => void; }
 
@@ -40,7 +40,28 @@ const PlanReceipt: React.FC<Props> = ({ planId, onClose }) => {
           )).filter(Boolean);
         }
         setData({ ...plan, cust, prod, pays, guars });
-      } catch {} finally { setLoading(false); }
+      } catch (err: any) {
+        // ✅ OFFLINE FALLBACK: Load from IndexedDB cache
+        if (!navigator.onLine || err.code === 'ERR_NETWORK' || err.message?.includes('Network Error')) {
+          console.log('📦 Offline: Loading receipt from IndexedDB cache');
+          try {
+            const { offlineDB } = await import('../../db/indexeddb');
+            // ✅ Use getCachedPlan() for full plan data with installments array
+            const plan = await offlineDB.getCachedPlan(planId);
+            if (plan) {
+              // Also try to get cached customers and payments
+              const cachedCustomers = await offlineDB.getCachedCustomers();
+              const custId = plan.customerId;
+              const cust = cachedCustomers.find((c: any) => c.id === custId);
+              const cachedPayments = await offlineDB.getCachedPayments();
+              const pays = cachedPayments.filter((p: any) => p.plan_id === planId);
+              setData({ ...plan, cust, prod: null, pays, guars: [] });
+            }
+          } catch (cacheErr) {
+            console.error('Failed to load from cache:', cacheErr);
+          }
+        }
+      } finally { setLoading(false); }
     })();
   }, [planId]);
 
@@ -101,14 +122,15 @@ const PlanReceipt: React.FC<Props> = ({ planId, onClose }) => {
   // ✅ Created by
   const plc = plan?.createdBy || cu?.displayName || cu?.username || '—';
 
-  // ✅ Dynamic config
-  const companyName = APP_CONFIG.companyName || 'Company Name';
-  const companyNameUr = APP_CONFIG.companyNameUr || 'کمپنی کا نام';
-  const address = APP_CONFIG.address || '';
-  const addressUr = APP_CONFIG.addressUr || '';
-  const phones = APP_CONFIG.phones || [];
-  const softwareBy = APP_CONFIG.softwareBy || '';
-  const softwareByUr = APP_CONFIG.softwareByUr || '';
+  // ✅ Dynamic config from global store - settings change karte hi update ho jayega
+  const clientInfo = useClientStore((s) => s.info);
+  const companyName = clientInfo.name || 'Company Name';
+  const companyNameUr = clientInfo.nameUr || 'کمپنی کا نام';
+  const address = clientInfo.address || '';
+  const addressUr = clientInfo.addressUr || '';
+  const phones = clientInfo.phones.filter(p => p.number.trim()).map(p => p.number);
+  const softwareBy = clientInfo.softwareBy || '';
+  const softwareByUr = clientInfo.softwareByUr || '';
 
   // ✅ Helpers
   const L = (en: string, ur: string) => isUrdu ? ur : en;
@@ -436,6 +458,7 @@ const PlanReceipt: React.FC<Props> = ({ planId, onClose }) => {
                 <th style={thStyle}>{L('Amount', 'رقم')}</th>
                 <th style={thStyle}>{L('Method', 'طریقہ')}</th>
                 <th style={thStyle}>{L('Collected By', 'وصول')}</th>
+                <th style={thStyle}>{L('Remarks', 'ریمارکس')}</th>
               </tr>
             </thead>
             <tbody>
@@ -447,6 +470,7 @@ const PlanReceipt: React.FC<Props> = ({ planId, onClose }) => {
                   <td style={tdRight}>{fc(p.amount)}</td>
                   <td style={tdStyle}>{p.method || '—'}</td>
                   <td style={tdStyle}>{p.collectedBy || p.collected_by || '—'}</td>
+                  <td style={tdStyle}>{p.remarks || '—'}</td>
                 </tr>
               ))}
             </tbody>

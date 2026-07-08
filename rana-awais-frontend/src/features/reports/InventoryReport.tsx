@@ -4,23 +4,22 @@ import api from '../../utils/api';
 import toast from 'react-hot-toast';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
-import { APP_CONFIG } from '../../config/app';
 import { useAuthStore } from '../../store/useAuthStore';
+import { useClientStore } from '../../store/useClientStore';
 
-// ✅ FIX: Domain fields ke hisaab se Interface update
-interface InventoryItem {
-  id: string;
+// ✅ Product-wise inventory grouping
+interface ProductStock {
   productId: string;
   product_name: string;
-  product_name_urdu: string; // ✅ was: product_urdu
-  serialNumber: string;
-  color: string;
-  model: string;
+  product_name_urdu: string;
   company: string;
-  status: string;
-  purchase_price: number; // ✅ was: purchasePrice
-  purchase_date: string; // ✅ was: purchaseDate
-  created_at: string; // ✅ was: createdAt
+  model: string;
+  totalItems: number;
+  inStock: number;
+  sold: number;
+  returned: number;
+  totalValue: number;
+  sellingPrice: number;
 }
 
 const InventoryReport: React.FC = () => {
@@ -28,7 +27,7 @@ const InventoryReport: React.FC = () => {
   const isUrdu = i18n.language === 'ur';
   const currentUser = useAuthStore((state) => state.user);
 
-  const [items, setItems] = useState<InventoryItem[]>([]);
+  const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
@@ -36,9 +35,10 @@ const InventoryReport: React.FC = () => {
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const reportRef = useRef<HTMLDivElement>(null);
 
+  const clientInfo = useClientStore((s) => s.info);
   useEffect(() => {
-    document.title = `${isUrdu ? 'انوینٹری رپورٹ' : 'Inventory Report'} | ${APP_CONFIG.companyName}`;
-  }, [isUrdu]);
+    document.title = `${isUrdu ? 'انوینٹری رپورٹ' : 'Inventory Report'} | ${clientInfo.name}`;
+  }, [isUrdu, clientInfo.name]);
 
   useEffect(() => {
     fetchInventory();
@@ -50,7 +50,7 @@ const InventoryReport: React.FC = () => {
     try {
       const res = await api.get('/inventory?limit=500');
       const d = res.data;
-      let list: InventoryItem[] = [];
+      let list: any[] = [];
       if (d?.data && Array.isArray(d.data)) {
         list = d.data;
       } else if (Array.isArray(d)) {
@@ -64,35 +64,68 @@ const InventoryReport: React.FC = () => {
     }
   };
 
-  const filteredItems = useMemo(() => {
-    let data = [...items];
+  // ✅ Group items by product
+  const productGroups = useMemo(() => {
+    const groups: Record<string, ProductStock> = {};
+    
+    items.forEach(item => {
+      const pid = item.productId || 'unknown';
+      if (!groups[pid]) {
+        groups[pid] = {
+          productId: pid,
+          product_name: item.product_name || '',
+          product_name_urdu: item.product_name_urdu || '',
+          company: item.company || '',
+          model: item.model || '',
+          totalItems: 0,
+          inStock: 0,
+          sold: 0,
+          returned: 0,
+          totalValue: 0,
+          sellingPrice: item.purchase_price || 0,
+        };
+      }
+      groups[pid].totalItems++;
+      if (item.status === 'in_stock') groups[pid].inStock++;
+      else if (item.status === 'sold') groups[pid].sold++;
+      else if (item.status === 'returned') groups[pid].returned++;
+      groups[pid].totalValue += (item.purchase_price || 0) * (item.quantity || 1);
+    });
+    
+    return Object.values(groups);
+  }, [items]);
+
+  const filteredProducts = useMemo(() => {
+    let data = [...productGroups];
     if (search) {
       const q = search.toLowerCase();
-      data = data.filter(i =>
-        (i.product_name || '').toLowerCase().includes(q) ||
-        (i.product_name_urdu || '').includes(q) || // ✅ was: product_urdu
-        (i.serialNumber || '').toLowerCase().includes(q) ||
-        (i.company || '').toLowerCase().includes(q) ||
-        (i.model || '').toLowerCase().includes(q)
+      data = data.filter(p =>
+        (p.product_name || '').toLowerCase().includes(q) ||
+        (p.product_name_urdu || '').includes(q) ||
+        (p.company || '').toLowerCase().includes(q) ||
+        (p.model || '').toLowerCase().includes(q)
       );
     }
     if (statusFilter !== 'all') {
-      data = data.filter(i => i.status === statusFilter);
+      if (statusFilter === 'in_stock') data = data.filter(p => p.inStock > 0);
+      else if (statusFilter === 'sold') data = data.filter(p => p.sold > 0);
+      else if (statusFilter === 'returned') data = data.filter(p => p.returned > 0);
     }
     return data;
-  }, [items, search, statusFilter]);
+  }, [productGroups, search, statusFilter]);
 
   const totalValue = useMemo(() => {
-    return filteredItems.reduce((sum, item) => sum + (item.purchase_price || 0), 0); // ✅ was: purchasePrice
-  }, [filteredItems]);
+    return filteredProducts.reduce((sum, p) => sum + p.totalValue, 0);
+  }, [filteredProducts]);
 
   const inStockCount = useMemo(() => {
-    return items.filter(i => i.status === 'in_stock').length;
-  }, [items]);
+    return productGroups.reduce((sum, p) => sum + p.inStock, 0);
+  }, [productGroups]);
 
   const soldCount = useMemo(() => {
-    return items.filter(i => i.status === 'sold').length;
-  }, [items]);
+    return productGroups.reduce((sum, p) => sum + p.sold, 0);
+  }, [productGroups]);
+
 
   const downloadPDF = useCallback(async () => {
     if (!reportRef.current) return;
@@ -132,24 +165,20 @@ const InventoryReport: React.FC = () => {
     }
   }, [reportRef, isUrdu]);
 
-  // ✅ FIX: handlePrint mein bhi field names update
+  // ✅ FIX: Product-wise grouped print
   const handlePrint = () => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
 
-    const rows = filteredItems.map((item, idx) => `
+    const rows = filteredProducts.map((p, idx) => `
       <tr>
         <td style="border:1px solid #e5e7eb;padding:6px;text-align:center;">${idx + 1}</td>
-        <td style="border:1px solid #e5e7eb;padding:6px;">${isUrdu && item.product_name_urdu ? item.product_name_urdu : item.product_name || '—'}</td>
-        <td style="border:1px solid #e5e7eb;padding:6px;">${item.serialNumber || '—'}</td>
-        <td style="border:1px solid #e5e7eb;padding:6px;">${item.company || '—'}</td>
-        <td style="border:1px solid #e5e7eb;padding:6px;">${item.model || '—'}</td>
-        <td style="border:1px solid #e5e7eb;padding:6px;text-align:center;">
-          <span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;background:${item.status === 'in_stock' ? '#d1fae5' : item.status === 'sold' ? '#fef3c7' : '#f3f4f6'};color:${item.status === 'in_stock' ? '#065f46' : item.status === 'sold' ? '#92400e' : '#374151'}">
-            ${item.status === 'in_stock' ? (isUrdu ? 'اسٹاک میں' : 'In Stock') : item.status === 'sold' ? (isUrdu ? 'فروخت شدہ' : 'Sold') : item.status || '—'}
-          </span>
-        </td>
-        <td style="border:1px solid #e5e7eb;padding:6px;text-align:right;">Rs. ${(item.purchase_price || 0).toLocaleString()}</td>
+        <td style="border:1px solid #e5e7eb;padding:6px;">${isUrdu && p.product_name_urdu ? p.product_name_urdu : p.product_name || '—'}</td>
+        <td style="border:1px solid #e5e7eb;padding:6px;text-align:center;">${p.totalItems}</td>
+        <td style="border:1px solid #e5e7eb;padding:6px;text-align:center;">${p.inStock}</td>
+        <td style="border:1px solid #e5e7eb;padding:6px;text-align:center;">${p.sold}</td>
+        <td style="border:1px solid #e5e7eb;padding:6px;text-align:right;">Rs. ${(p.sellingPrice || 0).toLocaleString()}</td>
+        <td style="border:1px solid #e5e7eb;padding:6px;text-align:right;">Rs. ${(p.totalValue || 0).toLocaleString()}</td>
       </tr>
     `).join('');
 
@@ -172,30 +201,34 @@ const InventoryReport: React.FC = () => {
       </style>
       </head>
       <body>
-        <h1>${APP_CONFIG.companyName}</h1>
+        <h1>${clientInfo.name}</h1>
         <div class="subtitle">${isUrdu ? 'انوینٹری رپورٹ' : 'Inventory Report'} — ${new Date().toLocaleDateString()}</div>
         <div class="summary">
-          <div class="summary-item"><div class="label">${isUrdu ? 'کل آئٹمز' : 'Total Items'}</div><div class="value">${filteredItems.length}</div></div>
+          <div class="summary-item"><div class="label">${isUrdu ? 'کل پروڈکٹس' : 'Total Products'}</div><div class="value">${filteredProducts.length}</div></div>
           <div class="summary-item"><div class="label">${isUrdu ? 'اسٹاک میں' : 'In Stock'}</div><div class="value">${inStockCount}</div></div>
           <div class="summary-item"><div class="label">${isUrdu ? 'فروخت شدہ' : 'Sold'}</div><div class="value">${soldCount}</div></div>
           <div class="summary-item"><div class="label">${isUrdu ? 'کل قیمت' : 'Total Value'}</div><div class="value">Rs. ${totalValue.toLocaleString()}</div></div>
         </div>
         <table>
           <thead><tr>
-            <th>#</th><th>${isUrdu ? 'پروڈکٹ' : 'Product'}</th><th>${isUrdu ? 'سیریل نمبر' : 'Serial'}</th>
-            <th>${isUrdu ? 'کمپنی' : 'Company'}</th><th>${isUrdu ? 'ماڈل' : 'Model'}</th>
-            <th>${isUrdu ? 'حالت' : 'Status'}</th><th>${isUrdu ? 'قیمت' : 'Price'}</th>
+            <th>#</th><th>${isUrdu ? 'پروڈکٹ' : 'Product'}</th>
+            <th>${isUrdu ? 'کل' : 'Total'}</th>
+            <th>${isUrdu ? 'اسٹاک' : 'Stock'}</th>
+            <th>${isUrdu ? 'فروخت' : 'Sold'}</th>
+            <th>${isUrdu ? 'فی قیمت' : 'Unit Price'}</th>
+            <th>${isUrdu ? 'کل قیمت' : 'Total Value'}</th>
           </tr></thead>
           <tbody>${rows}</tbody>
         </table>
         <div class="footer">
-          ${isUrdu ? 'رانا اویس آٹوز اور الیکٹرانکس' : 'Rana Awais Autos and Electronics'} — ${isUrdu ? 'پرنٹ کی تاریخ' : 'Print Date'}: ${new Date().toLocaleDateString()} | ${isUrdu ? 'تیار کردہ' : 'Generated By'}: ${currentUser?.displayName || currentUser?.username || '—'}
+          ${isUrdu ? (clientInfo.nameUr || clientInfo.name) : clientInfo.name} — ${isUrdu ? 'پرنٹ کی تاریخ' : 'Print Date'}: ${new Date().toLocaleDateString()} | ${isUrdu ? 'تیار کردہ' : 'Generated By'}: ${currentUser?.displayName || currentUser?.username || '—'}
         </div>
         <script>window.onload=function(){setTimeout(function(){window.print();window.close()},300)}</script>
       </body></html>
     `);
     printWindow.document.close();
   };
+
 
   return (
     <div className="max-w-7xl mx-auto px-3 sm:px-4 pb-10 space-y-6">
@@ -212,7 +245,7 @@ const InventoryReport: React.FC = () => {
         <div className="flex gap-2">
           <button
             onClick={handlePrint}
-            disabled={filteredItems.length === 0}
+            disabled={filteredProducts.length === 0}
             className="px-4 py-2.5 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-xl text-sm font-semibold hover:bg-gray-800 dark:hover:bg-gray-100 transition-all disabled:opacity-50 flex items-center gap-2"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -222,8 +255,9 @@ const InventoryReport: React.FC = () => {
           </button>
           <button
             onClick={downloadPDF}
-            disabled={isGeneratingPDF || filteredItems.length === 0}
+            disabled={isGeneratingPDF || filteredProducts.length === 0}
             className="px-4 py-2.5 bg-red-600 text-white rounded-xl text-sm font-semibold hover:bg-red-700 transition-all disabled:opacity-50 flex items-center gap-2"
+
           >
             {isGeneratingPDF ? (
               <span className="flex items-center gap-2">
@@ -299,7 +333,7 @@ const InventoryReport: React.FC = () => {
       <div ref={reportRef} className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
         {/* Print Header */}
         <div className="hidden print:block text-center p-6 border-b border-gray-200">
-          <h2 className="text-xl font-bold text-gray-900">{APP_CONFIG.companyName}</h2>
+          <h2 className="text-xl font-bold text-gray-900">{clientInfo.name}</h2>
           <p className="text-sm text-gray-500">{isUrdu ? 'انوینٹری رپورٹ' : 'Inventory Report'}</p>
           <p className="text-xs text-gray-400">{new Date().toLocaleDateString()}</p>
         </div>
@@ -321,7 +355,8 @@ const InventoryReport: React.FC = () => {
               {isUrdu ? 'دوبارہ کوشش کریں' : 'Retry'}
             </button>
           </div>
-        ) : filteredItems.length === 0 ? (
+        ) : filteredProducts.length === 0 ? (
+
           <div className="flex flex-col items-center justify-center py-16 gap-3">
             <div className="p-3 bg-gray-100 dark:bg-gray-700 rounded-full">
               <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -340,56 +375,58 @@ const InventoryReport: React.FC = () => {
                     {isUrdu ? 'پروڈکٹ' : 'Product'}
                   </th>
                   <th className="px-4 py-3.5 text-start text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    {isUrdu ? 'سیریل نمبر' : 'Serial No.'}
-                  </th>
-                  <th className="px-4 py-3.5 text-start text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                     {isUrdu ? 'کمپنی' : 'Company'}
                   </th>
                   <th className="px-4 py-3.5 text-start text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                     {isUrdu ? 'ماڈل' : 'Model'}
                   </th>
                   <th className="px-4 py-3.5 text-center text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    {isUrdu ? 'حالت' : 'Status'}
+                    {isUrdu ? 'کل' : 'Total'}
+                  </th>
+                  <th className="px-4 py-3.5 text-center text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    {isUrdu ? 'اسٹاک' : 'Stock'}
+                  </th>
+                  <th className="px-4 py-3.5 text-center text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    {isUrdu ? 'فروخت' : 'Sold'}
                   </th>
                   <th className="px-4 py-3.5 text-end text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    {isUrdu ? 'قیمت' : 'Price'}
+                    {isUrdu ? 'کل قیمت' : 'Total Value'}
                   </th>
+
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
-                {filteredItems.map((item, idx) => (
-                  <tr key={item.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
+                {filteredProducts.map((p, idx) => (
+                  <tr key={p.productId} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
                     <td className="px-4 py-3 text-gray-400 font-mono text-xs">{String(idx + 1).padStart(2, '0')}</td>
                     <td className="px-4 py-3">
                       <span className="font-semibold text-gray-800 dark:text-white">
-                        {isUrdu && item.product_name_urdu ? item.product_name_urdu : item.product_name || '—'}
+                        {isUrdu && p.product_name_urdu ? p.product_name_urdu : p.product_name || '—'}
                       </span>
                     </td>
-                    <td className="px-4 py-3">
-                      <span className="font-mono text-xs text-gray-600 dark:text-gray-300">
-                        {item.serialNumber || '—'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{item.company || '—'}</td>
-                    <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{item.model || '—'}</td>
+                    <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{p.company || '—'}</td>
+                    <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{p.model || '—'}</td>
                     <td className="px-4 py-3 text-center">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-                        item.status === 'in_stock'
-                          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
-                          : item.status === 'sold'
-                          ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
-                          : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
-                      }`}>
-                        {item.status === 'in_stock' ? (isUrdu ? 'اسٹاک میں' : 'In Stock') : item.status === 'sold' ? (isUrdu ? 'فروخت شدہ' : 'Sold') : item.status || '—'}
+                      <span className="font-bold text-gray-800 dark:text-white">{p.totalItems}</span>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                        {p.inStock}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                        {p.sold}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-end">
                       <span className="font-bold text-gray-800 dark:text-white">
-                        Rs. {(item.purchase_price || 0).toLocaleString()} {/* ✅ was: purchasePrice */}
+                        Rs. {(p.totalValue || 0).toLocaleString()}
                       </span>
                     </td>
                   </tr>
                 ))}
+
               </tbody>
             </table>
           </div>

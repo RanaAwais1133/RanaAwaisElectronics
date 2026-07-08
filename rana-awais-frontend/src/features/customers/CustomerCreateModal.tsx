@@ -8,6 +8,7 @@ import PhoneField from '../../components/forms/PhoneField';
 import CNICField from '../../components/forms/CNICField';
 import { validatePhone } from '../../components/forms/PhoneField';
 import { validateCNIC } from '../../components/forms/CNICField';
+import { offlineCreateCustomer } from '../../db/offlineActions';
 
 interface Props {
   onClose: () => void;
@@ -46,6 +47,7 @@ const CustomerCreateModal: React.FC<Props> = ({ onClose, onSuccess, initialData 
   const [isEditMode] = useState(!!initialData?.id);
   
   const fetchCustomers = useCustomerStore(s => s.fetchCustomers);
+  const addCustomer = useCustomerStore(s => s.addCustomer);
   const formRef = useRef<HTMLFormElement>(null);
 
   // âœ… Validation
@@ -119,12 +121,30 @@ const CustomerCreateModal: React.FC<Props> = ({ onClose, onSuccess, initialData 
     try {
       if (isEditMode) {
         // âœ… Edit mode - update customer
-        await api.put(`/customers/${initialData.id}`, payload);
-        toast.success(isUrdu ? 'Ú¯Ø§ÛÚ© Ø§Ù¾ ÚˆÛŒÙ¹ ÛÙˆ Ú¯ÛŒØ§' : 'Customer updated successfully');
+        try {
+          await api.put(`/customers/${initialData.id}`, payload);
+          toast.success(isUrdu ? 'Ú¯Ø§ÛÚ© Ø§Ù¾ ÚˆÛŒÙ¹ ÛÙˆ Ú¯ÛŒØ§' : 'Customer updated successfully');
+        } catch {
+          // OFFLINE FALLBACK
+          console.log('📦 Offline: Caching customer update locally');
+          await offlineCreateCustomer({ ...payload, id: initialData.id });
+          addCustomer({ ...payload, id: initialData.id } as any);
+          toast.success(isUrdu ? 'Ú¯Ø§ÛÚ© Ø¢Ù Ù„Ø§Ø¦Ù† Ø§Ù¾ ÚˆÛŒÙ¹ ÛÙˆ Ú¯ÛŒØ§' : 'Customer updated offline');
+        }
       } else {
         // âœ… Create mode
-        await createCustomer(payload);
-        toast.success(isUrdu ? 'Ú¯Ø§ÛÚ© Ø¨Ù† Ú¯ÛŒØ§' : 'Customer created successfully');
+        try {
+          await createCustomer(payload);
+          toast.success(isUrdu ? 'Ú¯Ø§ÛÚ© Ø¨Ù† Ú¯ÛŒØ§' : 'Customer created successfully');
+        } catch {
+          // OFFLINE FALLBACK: Create locally and queue for sync
+          console.log('📦 Offline: Caching customer locally');
+          const tempId = 'offline_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+          const offlineCustomer = { ...payload, id: tempId };
+          await offlineCreateCustomer(offlineCustomer);
+          addCustomer(offlineCustomer as any);
+          toast.success(isUrdu ? 'Ú¯Ø§ÛÚ© Ø¢Ù Ù„Ø§Ø¦Ù† Ø¨Ù† Ú¯ÛŒØ§' : 'Customer created offline');
+        }
       }
       
       await fetchCustomers(true);

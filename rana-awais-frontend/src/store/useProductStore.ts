@@ -28,6 +28,7 @@ interface ProductState {
   searchQuery: string;
   selectedCategory: string;
   selectedProductId: string | null;
+  isFetching: boolean;
   fetchProducts: (force?: boolean) => Promise<void>;
   setSearchQuery: (query: string) => void;
   setSelectedCategory: (category: string) => void;
@@ -45,8 +46,8 @@ interface ProductState {
   reset: () => void;
 }
 
-// ✅ Cache TTL - 5 minutes
-const CACHE_TTL = 5 * 60 * 1000;
+// ✅ Cache TTL - 15 seconds for near real-time updates
+const CACHE_TTL = 15 * 1000;
 
 // ✅ Storage keys
 const STORAGE_KEYS = {
@@ -89,20 +90,24 @@ export const useProductStore = create<ProductState>()((set, get) => {
     lastFetched: cached.lastFetched,
     searchQuery: '',
     selectedCategory: 'all',
+    isFetching: false,
     selectedProductId: null,
 
     // ✅ Fetch products with cache
     fetchProducts: async (force = false) => {
       const state = get();
 
-      // Check cache
+      // Prevent concurrent fetches (unless forced)
+      if (state.isFetching && !force) return;
+
+      // Check cache (skip if forced)
       if (!force && state.lastFetched && 
           Date.now() - state.lastFetched < CACHE_TTL && 
           state.products.length > 0) {
         return;
       }
 
-      set({ loading: true, error: null });
+      set({ loading: true, isFetching: true, error: null });
 
       try {
         const data = await getProducts();
@@ -120,6 +125,7 @@ export const useProductStore = create<ProductState>()((set, get) => {
         set({
           products: processedProducts,
           loading: false,
+          isFetching: false,
           lastFetched,
           error: null,
         });
@@ -129,6 +135,7 @@ export const useProductStore = create<ProductState>()((set, get) => {
         set({
           products: [],
           loading: false,
+          isFetching: false,
           error: errorMsg,
         });
         toast.error(errorMsg);

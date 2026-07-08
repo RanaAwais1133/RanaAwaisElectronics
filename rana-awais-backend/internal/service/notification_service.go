@@ -8,7 +8,6 @@ import (
 
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/domain"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/repository"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type NotificationService struct {
@@ -59,42 +58,33 @@ func (s *NotificationService) SendReminders(ctx context.Context) error {
 			if inst.Paid {
 				continue
 			}
-			dueDate := inst.DueDate.Truncate(24 * time.Hour)
-			if dueDate.Equal(targetDate.Truncate(24 * time.Hour)) {
-				msgEn := fmt.Sprintf("Dear %s, your installment #%d of Rs.%.2f is due on %s. Please pay on time to avoid fine.", cust.Name, inst.InstallmentNo, inst.Amount, inst.DueDate.Format("02-Jan-2006"))
-				msgUr := fmt.Sprintf("محترم %s، آپ کی قسط نمبر %d بمبلغ %.2f روپے %s کو واجب الادا ہے۔ برائے مہربانی بروقت ادائیگی کریں۔", cust.NameUrdu, inst.InstallmentNo, inst.Amount, inst.DueDate.Format("02-Jan-2006"))
+			if inst.DueDate.Format("2006-01-02") == targetDate.Format("2006-01-02") {
+				msg := fmt.Sprintf("Reminder: Your installment of %.2f is due on %s. Please pay on time.", inst.Amount, inst.DueDate.Format("2006-01-02"))
+				msgUr := fmt.Sprintf("یاد دہانی: آپ کی قسط %.0f روپے مورخہ %s کو واجب الادا ہے۔", inst.Amount, inst.DueDate.Format("2006-01-02"))
 
-				var channel string
-				if s.waSender != nil {
-					if err := s.waSender.Send(cust.Phone, msgUr); err == nil {
-						channel = "whatsapp"
-					}
-				}
-				if channel == "" && s.smsSender != nil {
-					if err := s.smsSender.Send(cust.Phone, msgUr); err == nil {
-						channel = "sms"
-					}
-				}
 				notif := &domain.Notification{
-					CustomerID:        cust.ID,
+					ID:              "",
+					CustomerID:      cust.ID,
 					InstallmentPlanID: plan.ID,
-					Channel:           channel,
-					MessageEn:         msgEn,
-					MessageUr:         msgUr,
-					SentAt:            time.Now(),
-					Status:            "sent",
-				}
-				if channel == "" {
-					notif.Status = "failed"
+					Channel:         "sms",
+					MessageEn:       msg,
+					MessageUr:       msgUr,
+					SentAt:          time.Now(),
+					Status:          "pending",
+					FineAmount:      0,
+					CreatedAt:       time.Now(),
 				}
 				s.notifRepo.Create(ctx, notif)
+				if cust.Phone != "" && s.smsSender != nil {
+					s.smsSender.Send(cust.Phone, msg)
+				}
 			}
 		}
 	}
 	return nil
 }
 
-func (s *NotificationService) SendSingleReminder(ctx context.Context, customerID, planID primitive.ObjectID, installmentNo int) error {
+func (s *NotificationService) SendSingleReminder(ctx context.Context, customerID, planID string, installmentNo int) error {
 	cust, err := s.custRepo.GetByID(ctx, customerID)
 	if err != nil || cust == nil {
 		return errors.New("customer not found")
@@ -103,48 +93,33 @@ func (s *NotificationService) SendSingleReminder(ctx context.Context, customerID
 	if err != nil || plan == nil {
 		return errors.New("plan not found")
 	}
-	var target *domain.InstallmentDetail
-	for i := range plan.Installments {
-		if plan.Installments[i].InstallmentNo == installmentNo {
-			target = &plan.Installments[i]
-			break
+	for _, inst := range plan.Installments {
+		if inst.InstallmentNo == installmentNo {
+			msg := fmt.Sprintf("Payment reminder for installment #%d of %.2f due on %s.", installmentNo, inst.Amount, inst.DueDate.Format("2006-01-02"))
+			msgUr := fmt.Sprintf("قسط نمبر %d کی ادائیگی %.0f روپے مورخہ %s کو واجب الادا ہے۔", installmentNo, inst.Amount, inst.DueDate.Format("2006-01-02"))
+			notif := &domain.Notification{
+				ID:               "",
+				CustomerID:       customerID,
+				InstallmentPlanID: planID,
+				Channel:          "sms",
+				MessageEn:        msg,
+				MessageUr:        msgUr,
+				SentAt:           time.Now(),
+				Status:           "sent",
+				FineAmount:       0,
+				CreatedAt:        time.Now(),
+			}
+			s.notifRepo.Create(ctx, notif)
+			if cust.Phone != "" && s.smsSender != nil {
+				s.smsSender.Send(cust.Phone, msg)
+			}
+			return nil
 		}
 	}
-	if target == nil {
-		return errors.New("installment not found")
-	}
-
-	msgEn := fmt.Sprintf("Dear %s, your installment #%d of Rs.%.2f is due on %s. Please pay on time to avoid fine.", cust.Name, target.InstallmentNo, target.Amount, target.DueDate.Format("02-Jan-2006"))
-	msgUr := fmt.Sprintf("محترم %s، آپ کی قسط نمبر %d بمبلغ %.2f روپے %s کو واجب الادا ہے۔ برائے مہربانی بروقت ادائیگی کریں۔", cust.NameUrdu, target.InstallmentNo, target.Amount, target.DueDate.Format("02-Jan-2006"))
-
-	var channel string
-	if s.waSender != nil {
-		if err := s.waSender.Send(cust.Phone, msgUr); err == nil {
-			channel = "whatsapp"
-		}
-	}
-	if channel == "" && s.smsSender != nil {
-		if err := s.smsSender.Send(cust.Phone, msgUr); err == nil {
-			channel = "sms"
-		}
-	}
-	notif := &domain.Notification{
-		CustomerID:        cust.ID,
-		InstallmentPlanID: plan.ID,
-		Channel:           channel,
-		MessageEn:         msgEn,
-		MessageUr:         msgUr,
-		SentAt:            time.Now(),
-		Status:            "sent",
-	}
-	if channel == "" {
-		notif.Status = "failed"
-	}
-	return s.notifRepo.Create(ctx, notif)
+	return errors.New("installment not found")
 }
 
-// ✅ NEW: SendOverdueReminder for late payments with fine
-func (s *NotificationService) SendOverdueReminder(ctx context.Context, customerID, planID primitive.ObjectID, installmentNo int, fineAmount float64) error {
+func (s *NotificationService) SendOverdueReminder(ctx context.Context, customerID, planID string, installmentNo int, fineAmount float64) error {
 	cust, err := s.custRepo.GetByID(ctx, customerID)
 	if err != nil || cust == nil {
 		return errors.New("customer not found")
@@ -153,47 +128,28 @@ func (s *NotificationService) SendOverdueReminder(ctx context.Context, customerI
 	if err != nil || plan == nil {
 		return errors.New("plan not found")
 	}
-	var target *domain.InstallmentDetail
-	for i := range plan.Installments {
-		if plan.Installments[i].InstallmentNo == installmentNo {
-			target = &plan.Installments[i]
-			break
+	for _, inst := range plan.Installments {
+		if inst.InstallmentNo == installmentNo {
+			msg := fmt.Sprintf("Overdue payment: Installment #%d of %.2f. Fine: %.2f. Total due: %.2f.", installmentNo, inst.Amount, fineAmount, inst.Amount+fineAmount)
+			msgUr := fmt.Sprintf("ادائیگی واجب: قسط نمبر %d کی رقم %.0f روپے۔ جرمانہ: %.0f روپے۔ کل واجب الادا: %.0f روپے", installmentNo, inst.Amount, fineAmount, inst.Amount+fineAmount)
+			notif := &domain.Notification{
+				ID:               "",
+				CustomerID:       customerID,
+				InstallmentPlanID: planID,
+				Channel:          "sms",
+				MessageEn:        msg,
+				MessageUr:        msgUr,
+				SentAt:           time.Now(),
+				Status:           "sent",
+				FineAmount:       fineAmount,
+				CreatedAt:        time.Now(),
+			}
+			s.notifRepo.Create(ctx, notif)
+			if cust.Phone != "" && s.smsSender != nil {
+				s.smsSender.Send(cust.Phone, msg)
+			}
+			return nil
 		}
 	}
-	if target == nil {
-		return errors.New("installment not found")
-	}
-
-	totalPayable := target.Amount + fineAmount
-
-	msgEn := fmt.Sprintf("Dear %s, your installment #%d of Rs.%.2f is overdue. Fine of Rs.%.2f has been added. Total payable: Rs.%.2f. Please pay immediately to avoid additional charges.", 
-		cust.Name, target.InstallmentNo, target.Amount, fineAmount, totalPayable)
-	msgUr := fmt.Sprintf("محترم %s، آپ کی قسط نمبر %d بمبلغ %.2f روپے واجب الادا ہو چکی ہے۔ %.2f روپے جرمانہ شامل کر دیا گیا ہے۔ کل قابل ادائیگی: %.2f روپے۔ برائے مہربانی فوری ادائیگی کریں۔", 
-		cust.NameUrdu, target.InstallmentNo, target.Amount, fineAmount, totalPayable)
-
-	var channel string
-	if s.waSender != nil {
-		if err := s.waSender.Send(cust.Phone, msgUr); err == nil {
-			channel = "whatsapp"
-		}
-	}
-	if channel == "" && s.smsSender != nil {
-		if err := s.smsSender.Send(cust.Phone, msgUr); err == nil {
-			channel = "sms"
-		}
-	}
-	notif := &domain.Notification{
-		CustomerID:        cust.ID,
-		InstallmentPlanID: plan.ID,
-		Channel:           channel,
-		MessageEn:         msgEn,
-		MessageUr:         msgUr,
-		SentAt:            time.Now(),
-		Status:            "sent",
-		FineAmount:        fineAmount,
-	}
-	if channel == "" {
-		notif.Status = "failed"
-	}
-	return s.notifRepo.Create(ctx, notif)
+	return errors.New("installment not found")
 }

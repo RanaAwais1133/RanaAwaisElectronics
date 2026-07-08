@@ -4,7 +4,8 @@ import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 import api from '../../utils/api';
 import { useAuthStore } from '../../store/useAuthStore';
-import { APP_CONFIG } from '../../config/app';
+import { useClientStore } from '../../store/useClientStore';
+import { offlineDB } from '../../db/indexeddb';
 
 interface Props { planId: string; onClose: () => void; }
 
@@ -15,6 +16,7 @@ const PaymentReceipt: React.FC<Props> = ({ planId, onClose }) => {
   const [dl, setDl] = useState(false);
   const isUrdu = i18n.language === 'ur';
   const cu = useAuthStore((s) => s.user);
+  const clientInfo = useClientStore((s) => s.info);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -107,7 +109,7 @@ const PaymentReceipt: React.FC<Props> = ({ planId, onClose }) => {
         marginBottom: '12px',
       }}>
         <div style={{ fontSize: '13px' }}>
-          <div><strong>{L('Branch:', 'برانچ:')}</strong> {APP_CONFIG.branchName}</div>
+          <div><strong>{L('Branch:', 'برانچ:')}</strong> {clientInfo.branch || clientInfo.name}</div>
           <div><strong>{L('UID:', 'یوزر:')}</strong> {cu?.displayName || cu?.username || '—'}</div>
         </div>
         <div style={{ textAlign: 'center', flex: 1 }}>
@@ -138,7 +140,7 @@ const PaymentReceipt: React.FC<Props> = ({ planId, onClose }) => {
         flexWrap: 'wrap',
       }}>
         <div style={{ fontWeight: 'bold', fontSize: '12px', flex: '1 1 auto', minWidth: '140px' }}>
-          {L(APP_CONFIG.serviceNote || '', APP_CONFIG.serviceNoteUr || 'سروس چارجز میں صرف ایڈوانس شامل ہے')}
+          {L(clientInfo.invoiceNote || '', clientInfo.invoiceNoteUr || 'سروس چارجز میں صرف ایڈوانس شامل ہے')}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '0 10px', borderLeft: '1px solid #000' }}>
           <div style={{ fontWeight: 'bold', fontSize: '16px' }}>{ni}</div>
@@ -231,7 +233,7 @@ const PaymentReceipt: React.FC<Props> = ({ planId, onClose }) => {
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '25px', fontSize: '12px' }}>
         <div><strong>{L('Form Fee :', 'فارم فیس:')}</strong> 0</div>
         <div style={{ textAlign: 'center', fontWeight: 'bold', fontSize: '13px' }}>
-          {L(APP_CONFIG.invoiceNote || '', APP_CONFIG.invoiceNoteUr || 'نوٹ: مذکورہ بالا تفصیلات درست اور تصدیق شدہ ہیں۔')}
+          {L(clientInfo.invoiceNote || '', clientInfo.invoiceNoteUr || 'نوٹ: مذکورہ بالا تفصیلات درست اور تصدیق شدہ ہیں۔')}
         </div>
       </div>
 

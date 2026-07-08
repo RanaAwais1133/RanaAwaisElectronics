@@ -4,6 +4,8 @@ import toast from 'react-hot-toast';
 import { bulkPayment } from '../../utils/api';
 import PaymentReceipt from './PaymentReceipt';
 import { useAuthStore } from '../../store/useAuthStore';
+import { offlineCreatePayment } from '../../db/offlineActions';
+import { syncEngine } from '../../utils/sync';
 // ✅ Fixed: Removed unused APP_CONFIG import
 // import { APP_CONFIG } from '../../config/app';
 
@@ -97,6 +99,60 @@ const BulkPaymentModal: React.FC<Props> = ({ planId, selectedInstallments, onClo
       onSuccess();
       setPaymentDone(true);
     } catch (err: any) {
+      // ✅ OFFLINE FALLBACK: Save bulk payment locally and queue for sync
+      if (!navigator.onLine || err.code === 'ERR_NETWORK' || err.message?.includes('Network Error')) {
+        console.log('📦 Offline: Caching bulk payment locally');
+        try {
+          const paymentData = {
+            id: `offline_bulk_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            plan_id: planId,
+            amount: totalPayable,
+            method,
+            payment_date: paymentDate,
+            collected_by: collectedBy || currentUser?.displayName || currentUser?.username || '',
+            collected_by_id: collectedById || currentUser?.id || '',
+            remarks: remarks || '',
+            bulk_payment: true,
+            payments: selectedInstallments.map(i => ({
+              installment_no: i.installment_no,
+              amount: i.totalPayable || i.amount || 0,
+            })),
+          };
+          
+          // Save to IndexedDB cache
+          await offlineCreatePayment(paymentData);
+          
+          // Queue via sync engine for server sync
+          await syncEngine.queueOperation('payment', 'create', paymentData.id, paymentData);
+          
+          // ✅ Update the cached plan's installment status to reflect bulk payment
+          try {
+            const { offlineDB } = await import('../../db/indexeddb');
+            const cachedPlan = await offlineDB.getCachedPlan(planId);
+            if (cachedPlan && cachedPlan.installments) {
+              const paidInstallmentNos = new Set(selectedInstallments.map(i => i.installment_no));
+              const updatedInstallments = cachedPlan.installments.map((inst: any) => {
+                if (paidInstallmentNos.has(inst.installmentNo)) {
+                  return { ...inst, paid: true, paidDate: paymentDate, collectedBy: collectedBy || currentUser?.displayName || currentUser?.username || '' };
+                }
+                return inst;
+              });
+              await offlineDB.updateCachedPlan(planId, { ...cachedPlan, installments: updatedInstallments });
+            }
+          } catch (cacheErr) {
+            console.error('Failed to update cached plan for bulk payment:', cacheErr);
+          }
+          
+          toast.success(isUrdu ? 'بلک ادائیگی آف لائن محفوظ ہو گئی' : 'Bulk payment saved offline');
+          onSuccess();
+          setPaymentDone(true);
+          setLoading(false);
+          return;
+        } catch (offlineErr) {
+          // Fallback to showing error
+        }
+      }
+      
       const errorMsg = err.response?.data?.error || err.response?.data?.message || 
                        (isUrdu ? 'ادائیگی ناکام' : t('payment_failed'));
       setError(errorMsg);

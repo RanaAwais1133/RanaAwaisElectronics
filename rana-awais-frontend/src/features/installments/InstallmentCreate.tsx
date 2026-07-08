@@ -10,6 +10,8 @@ import api from '../../utils/api';
 import { formatPhone, formatCNIC } from '../../utils/helpers';
 import { useAuthStore } from '../../store/useAuthStore';
 import { APP_CONFIG } from '../../config/app';
+import { useInstallmentStore } from '../../store/useInstallmentStore';
+import { roundMoney } from '../../utils/math';
 
 const InstallmentCreate: React.FC = () => {
   const { t, i18n } = useTranslation();
@@ -28,6 +30,31 @@ const InstallmentCreate: React.FC = () => {
   const [productSearch, setProductSearch] = useState('');
   const [showProductDropdown, setShowProductDropdown] = useState(false);
 
+  // ✅ Use Installment Store with Undo/Redo
+  const plan = useInstallmentStore((s: any) => s.plan);
+  const isCalculating = useInstallmentStore((s: any) => s.isCalculating);
+  const storeError = useInstallmentStore((s: any) => s.error);
+  const setCustomerIdStore = useInstallmentStore((s: any) => s.setCustomerId);
+  const setProductIdStore = useInstallmentStore((s: any) => s.setProductId);
+  const setTotalAmountStore = useInstallmentStore((s: any) => s.setTotalAmount);
+  const setDownPaymentStore = useInstallmentStore((s: any) => s.setDownPayment);
+  const setNumInstallmentsStore = useInstallmentStore((s: any) => s.setNumInstallments);
+  const setInstallmentAmountStore = useInstallmentStore((s: any) => s.setInstallmentAmount);
+  const setStartDateStore = useInstallmentStore((s: any) => s.setStartDate);
+  const setGracePeriodStore = useInstallmentStore((s: any) => s.setGracePeriod);
+  const setFinePerDayStore = useInstallmentStore((s: any) => s.setFinePerDay);
+  const setProductDetailsStore = useInstallmentStore((s: any) => s.setProductDetails);
+  const setAdditionalFieldsStore = useInstallmentStore((s: any) => s.setAdditionalFields);
+  const setScheduleStore = useInstallmentStore((s: any) => s.setSchedule);
+  const calculateScheduleStore = useInstallmentStore((s: any) => s.calculateSchedule);
+  const resetStore = useInstallmentStore((s: any) => s.reset);
+  const loadPlanStore = useInstallmentStore((s: any) => s.loadPlan);
+  const undo = useInstallmentStore((s: any) => s.undo);
+  const redo = useInstallmentStore((s: any) => s.redo);
+  const canUndo = useInstallmentStore((s: any) => s.canUndo);
+  const canRedo = useInstallmentStore((s: any) => s.canRedo);
+
+  // ✅ Local state for UI-only fields
   const [totalAmount, setTotalAmount] = useState('');
   const [downPayment, setDownPayment] = useState('');
   const [perMonthInstallment, setPerMonthInstallment] = useState('');
@@ -74,6 +101,22 @@ const InstallmentCreate: React.FC = () => {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // ✅ Keyboard shortcuts for Undo/Redo (Ctrl+Z / Ctrl+Y)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        e.preventDefault();
+        if (canUndo()) undo();
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
+        e.preventDefault();
+        if (canRedo()) redo();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [undo, redo, canUndo, canRedo]);
 
   useEffect(() => {
     fetchCustomers();
@@ -489,6 +532,35 @@ const InstallmentCreate: React.FC = () => {
           </div>
         </div>
 
+
+        {/* ✅ Undo/Redo Controls */}
+        <div className="flex items-center gap-2 pt-2 pb-1">
+          <button
+            onClick={undo}
+            disabled={!canUndo()}
+            className="px-3 py-1.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-lg text-xs font-medium hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-95 flex items-center gap-1"
+            title={isUrdu ? 'واپس' : 'Undo'}
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 0 1 8 8v2M3 10l6 6m-6-6l6-6" />
+            </svg>
+            {isUrdu ? 'واپس' : 'Undo'}
+          </button>
+          <button
+            onClick={redo}
+            disabled={!canRedo()}
+            className="px-3 py-1.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-lg text-xs font-medium hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-95 flex items-center gap-1"
+            title={isUrdu ? 'آگے' : 'Redo'}
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 10H11a8 8 0 0 0-8 8v2m18-10l-6 6m6-6l-6-6" />
+            </svg>
+            {isUrdu ? 'آگے' : 'Redo'}
+          </button>
+          <span className="text-[10px] text-gray-400 ml-1">
+            {isUrdu ? 'Ctrl+Z / Ctrl+Y' : 'Ctrl+Z / Ctrl+Y'}
+          </span>
+        </div>
 
         {/* ✅ Buttons */}
         <div className="flex flex-wrap gap-3 pt-3">

@@ -8,7 +8,6 @@ import (
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/config"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/repository"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/pkg/thermal"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type ReceiptService struct {
@@ -33,26 +32,26 @@ func NewReceiptService(
 	}
 }
 
-// SetConfig sets the config for the service
 func (s *ReceiptService) SetConfig(cfg *config.Config) {
 	s.cfg = cfg
 }
 
-// getConfig safely returns config or defaults from APP_CONFIG
 func (s *ReceiptService) getConfig() *config.Config {
 	if s.cfg != nil {
 		return s.cfg
 	}
-	// Fallback to global config
-	return &config.Config{
-		CompanyName:   config.APP_CONFIG.CompanyName,
-		CompanyNameUr: config.APP_CONFIG.CompanyNameUr,
-		SoftwareBy:    config.APP_CONFIG.SoftwareBy,
-		SoftwareByUr:  config.APP_CONFIG.SoftwareByUr,
+	if config.APP_CONFIG != nil {
+		return &config.Config{
+			CompanyName:   config.APP_CONFIG.CompanyName,
+			CompanyNameUr: config.APP_CONFIG.CompanyNameUr,
+			SoftwareBy:    config.APP_CONFIG.SoftwareBy,
+			SoftwareByUr:  config.APP_CONFIG.SoftwareByUr,
+		}
 	}
+	return &config.Config{}
 }
 
-func (s *ReceiptService) GenerateAndPrintReceipt(ctx context.Context, paymentID primitive.ObjectID) error {
+func (s *ReceiptService) GenerateAndPrintReceipt(ctx context.Context, paymentID string) error {
 	payment, err := s.paymentRepo.GetByID(ctx, paymentID)
 	if err != nil || payment == nil {
 		return errors.New("payment not found")
@@ -65,76 +64,51 @@ func (s *ReceiptService) GenerateAndPrintReceipt(ctx context.Context, paymentID 
 	if err != nil || cust == nil {
 		return errors.New("customer not found")
 	}
-
-	// ✅ Get company info from config (dynamic, no hardcoded fallback needed)
 	cfg := s.getConfig()
-	companyName := cfg.CompanyName
-	companyNameUr := cfg.CompanyNameUr
-	softwareBy := cfg.SoftwareBy
-	softwareByUr := cfg.SoftwareByUr
 
-	headerEn := fmt.Sprintf("%s\nPayment Receipt", companyName)
-	headerUr := fmt.Sprintf("%s\nادائیگی رسید", companyNameUr)
+	receipt := fmt.Sprintf(
+		"%s\n%s\n==========\n%s: %s\nFather: %s\nPhone: %s\n%s: %d\n%s: Rs. %.2f\n%s: %s\n",
+		cfg.CompanyName,
+		cfg.CompanyNameUr,
+		"Customer", cust.Name,
+		cust.FatherName,
+		cust.Phone,
+		"Installment #", payment.InstallmentNo,
+		"Amount", payment.Amount,
+		"Date", payment.TransactionDate.Format("2006-01-02 15:04"),
+	)
 
-	bodyEn := fmt.Sprintf("Customer: %s\n", cust.Name)
-	if cust.FatherName != "" {
-		bodyEn += fmt.Sprintf("Father: %s\n", cust.FatherName)
+	if payment.Remarks != "" {
+		receipt += fmt.Sprintf("Remarks: %s\n", payment.Remarks)
 	}
-	bodyEn += fmt.Sprintf("Phone: %s\n", cust.Phone)
-	if cust.Address != "" {
-		bodyEn += fmt.Sprintf("Address: %s\n", cust.Address)
-	}
-	bodyEn += fmt.Sprintf("Installment No: %d\n", payment.InstallmentNo)
-	bodyEn += fmt.Sprintf("Amount Paid: Rs. %.2f\n", payment.Amount)
-
-	// Show fine if any
-	if payment.FinePaid > 0 {
-		// Check if plan has "both" fine type for breakdown
-		if plan.FineType == "both" && plan.FixedFineAmount > 0 && plan.FinePerDay > 0 {
-			bodyEn += fmt.Sprintf("Fixed Fine: Rs. %.2f\n", plan.FixedFineAmount)
-			bodyEn += fmt.Sprintf("Per Day Fine: Rs. %.2f\n", payment.FinePaid-plan.FixedFineAmount)
-			bodyEn += fmt.Sprintf("Total Fine Paid: Rs. %.2f\n", payment.FinePaid)
-		} else if plan.FineType == "fixed" {
-			bodyEn += fmt.Sprintf("Fixed Fine: Rs. %.2f\n", payment.FinePaid)
-		} else {
-			bodyEn += fmt.Sprintf("Fine Paid: Rs. %.2f\n", payment.FinePaid)
-		}
-		bodyEn += fmt.Sprintf("Amount Without Fine: Rs. %.2f\n", payment.AmountWithoutFine)
+	if payment.CollectedBy != "" {
+		receipt += fmt.Sprintf("Collected By: %s\n", payment.CollectedBy)
 	}
 
+	receipt += fmt.Sprintf("==========\n%s\n%s", cfg.SoftwareBy, cfg.SoftwareByUr)
 
-	bodyEn += fmt.Sprintf("Method: %s\n", payment.Method)
-	bodyEn += fmt.Sprintf("Date: %s\n", payment.TransactionDate.Format("02-Jan-2006 03:04 PM"))
-	bodyEn += fmt.Sprintf("Total Plan: Rs. %.2f\n", plan.TotalAmount)
-	bodyEn += fmt.Sprintf("Remaining: Rs. %.2f\n", plan.RemainingAmount)
-	bodyEn += "\nThank you for your payment!"
-	bodyEn += fmt.Sprintf("\nSoftware by: %s", softwareBy)
+	return s.printer.PrintBilingual(cfg.CompanyName, cfg.CompanyNameUr, receipt, "")
+}
 
-	bodyUr := fmt.Sprintf("گاہک: %s\n", cust.NameUrdu)
-	if cust.FatherName != "" {
-		bodyUr += fmt.Sprintf("والد: %s\n", cust.FatherName)
+func (s *ReceiptService) DownloadReceiptData(ctx context.Context, planID string) (map[string]interface{}, error) {
+	plan, err := s.planRepo.GetByID(ctx, planID)
+	if err != nil || plan == nil {
+		return nil, errors.New("installment plan not found")
 	}
-	bodyUr += fmt.Sprintf("فون: %s\n", cust.Phone)
-	if cust.AddressUrdu != "" {
-		bodyUr += fmt.Sprintf("پتہ: %s\n", cust.AddressUrdu)
-	}
-	bodyUr += fmt.Sprintf("قسط نمبر: %d\n", payment.InstallmentNo)
-	bodyUr += fmt.Sprintf("ادا کردہ رقم: %.2f روپے\n", payment.Amount)
-
-	if payment.FinePaid > 0 {
-		bodyUr += fmt.Sprintf("جرمانہ: %.2f روپے\n", payment.FinePaid)
-		bodyUr += fmt.Sprintf("بغیر جرمانہ رقم: %.2f روپے\n", payment.AmountWithoutFine)
+	cust, err := s.custRepo.GetByID(ctx, plan.CustomerID)
+	if err != nil || cust == nil {
+		return nil, errors.New("customer not found")
 	}
 
-	bodyUr += fmt.Sprintf("طریقہ: %s\n", payment.Method)
-	bodyUr += fmt.Sprintf("تاریخ: %s\n", payment.TransactionDate.Format("02-Jan-2006 03:04 PM"))
-	bodyUr += fmt.Sprintf("کل پلان: %.2f روپے\n", plan.TotalAmount)
-	bodyUr += fmt.Sprintf("باقی: %.2f روپے\n", plan.RemainingAmount)
-	bodyUr += "\nادائیگی کا شکریہ!"
-	bodyUr += fmt.Sprintf("\nسافٹ ویئر بذریعہ: %s", softwareByUr)
-
-	if err := s.printer.PrintBilingual(headerEn, headerUr, bodyEn, bodyUr); err != nil {
-		return err
+	payments, err := s.paymentRepo.ListByPlan(ctx, planID)
+	if err != nil {
+		payments = nil
 	}
-	return nil
+
+	return map[string]interface{}{
+		"plan":      plan,
+		"customer":  cust,
+		"payments":  payments,
+		"company":   s.getConfig().GetCompanyInfo(),
+	}, nil
 }

@@ -2,6 +2,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import api from '../../utils/api';
 import { formatPhone } from '../../utils/helpers';
+import { useClientStore } from '../../store/useClientStore';
 
 interface DashboardModalProps {
   title: string;
@@ -22,6 +23,7 @@ const displayName = (item: any, isUrdu: boolean): string => {
 
 const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClose, isUrdu }) => {
   const { t } = useTranslation();
+  const clientInfo = useClientStore((s) => s.info);
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -84,6 +86,7 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
   }, [data, dataType]);
 
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
     setError('');
     api.get(endpoint)
@@ -212,9 +215,90 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
         setData(items);
       })
       .catch(() => {
-        setError(isUrdu ? 'ڈیٹا لوڈ کرنے میں ناکامی' : 'Failed to load data');
+        // ✅ OFFLINE FALLBACK: Try to load from IndexedDB cache based on endpoint
+        if (!cancelled) {
+          import('../../db/indexeddb').then(({ offlineDB }) => {
+            const loadFromCache = async () => {
+              let cachedData: any = null;
+              const ep = endpoint;
+              if (ep.includes('/customers')) {
+                cachedData = await offlineDB.getCachedCustomers();
+              } else if (ep.includes('/products')) {
+                cachedData = await offlineDB.getCachedProducts();
+              } else if (ep.includes('/installments') || ep.includes('/today-installments') || ep.includes('/monthly-due')) {
+                cachedData = await offlineDB.getCachedInstallments();
+              } else if (ep.includes('/payments')) {
+                cachedData = await offlineDB.getCachedPayments();
+              } else if (ep.includes('/promises')) {
+                cachedData = await offlineDB.getCachedPromises();
+              } else if (ep.includes('/inventory')) {
+                cachedData = await offlineDB.getCachedInventory();
+              } else if (ep.includes('/dashboard/summary')) {
+                cachedData = await offlineDB.getCachedDashboardSummary();
+              } else if (ep.includes('/accounting/today') || ep.includes('/accounting/month') || ep.includes('/accounting/pending-total')) {
+                cachedData = await offlineDB.getCachedDashboardSummary();
+              }
+              return cachedData;
+            };
+            loadFromCache().then(cached => {
+              if (cached && !cancelled) {
+                let items: any[] = [];
+                if (Array.isArray(cached)) {
+                  items = cached;
+                } else if (cached?.data && Array.isArray(cached.data)) {
+                  items = cached.data;
+                } else if (cached?.installments && Array.isArray(cached.installments)) {
+                  items = cached.installments;
+                } else if (cached?.payments && Array.isArray(cached.payments)) {
+                  items = cached.payments;
+                } else if (cached?.customers && Array.isArray(cached.customers)) {
+                  items = cached.customers;
+                } else if (cached?.products && Array.isArray(cached.products)) {
+                  items = cached.products;
+                } else if (cached?.inventory && Array.isArray(cached.inventory)) {
+                  items = cached.inventory;
+                } else if (typeof cached === 'object' && cached !== null) {
+                  // Handle dashboard summary object
+                  if ('todayRevenue' in cached || 'monthRevenue' in cached || 'totalPending' in cached) {
+                    const rows: any[] = [];
+                    if (cached.todayRevenue !== undefined) {
+                      rows.push({ _type: 'accounting', label: isUrdu ? 'آج کی آمدنی' : "Today's Revenue", label_urdu: 'آج کی آمدنی', amount: cached.todayRevenue, icon: 'revenue' });
+                    }
+                    if (cached.todayProfit !== undefined) {
+                      rows.push({ _type: 'accounting', label: isUrdu ? 'آج کا منافع' : "Today's Profit", label_urdu: 'آج کا منافع', amount: cached.todayProfit, icon: 'profit' });
+                    }
+                    if (cached.monthRevenue !== undefined) {
+                      rows.push({ _type: 'accounting', label: isUrdu ? 'ماہ کی آمدنی' : "Month's Revenue", label_urdu: 'ماہ کی آمدنی', amount: cached.monthRevenue, icon: 'revenue' });
+                    }
+                    if (cached.monthProfit !== undefined) {
+                      rows.push({ _type: 'accounting', label: isUrdu ? 'ماہ کا منافع' : "Month's Profit", label_urdu: 'ماہ کا منافع', amount: cached.monthProfit, icon: 'profit' });
+                    }
+                    if (cached.totalPending !== undefined) {
+                      rows.push({ _type: 'accounting', label: isUrdu ? 'کل بقایا' : 'Total Pending', label_urdu: 'کل بقایا', amount: cached.totalPending, icon: 'pending' });
+                    }
+                    if (rows.length > 0) items = rows;
+                  }
+                }
+                if (items.length > 0) {
+                  setData(items);
+                } else {
+                  setError(isUrdu ? 'ڈیٹا لوڈ کرنے میں ناکامی' : 'Failed to load data');
+                }
+              } else if (!cancelled) {
+                setError(isUrdu ? 'ڈیٹا لوڈ کرنے میں ناکامی' : 'Failed to load data');
+              }
+            }).catch(() => {
+              if (!cancelled) setError(isUrdu ? 'ڈیٹا لوڈ کرنے میں ناکامی' : 'Failed to load data');
+            });
+          }).catch(() => {
+            if (!cancelled) setError(isUrdu ? 'ڈیٹا لوڈ کرنے میں ناکامی' : 'Failed to load data');
+          });
+        }
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
   }, [endpoint, isUrdu]);
 
   const handlePrint = () => {
@@ -233,8 +317,8 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
           return { headers: ['#', isUrdu ? 'نام' : 'Name', isUrdu ? 'مقدار' : 'Qty', isUrdu ? 'فی قیمت' : 'Unit Price', isUrdu ? 'کل قیمت' : 'Total Value', isUrdu ? 'حالت' : 'Status', isUrdu ? 'تاریخ' : 'Date'],
                    fields: ['name', 'quantity', 'price', 'total_value', 'status', 'date'] };
         case 'installments':
-          return { headers: ['#', isUrdu ? 'نام' : 'Name', isUrdu ? 'والد' : 'Father', isUrdu ? 'فون' : 'Phone', isUrdu ? 'قسط' : 'Inst#', isUrdu ? 'کل رقم' : 'Total', isUrdu ? 'ادا شدہ' : 'Paid', isUrdu ? 'بقایا' : 'Pending', isUrdu ? 'باقی اقساط' : 'Remaining', isUrdu ? 'تاریخ' : 'Date', isUrdu ? 'حالت' : 'Status'],
-                   fields: ['name', 'father_name', 'phone', 'installment_no', 'total_amount', 'paid_amount', 'pending_amount', 'remaining', 'date', 'status'] };
+          return { headers: ['#', isUrdu ? 'نام' : 'Name', isUrdu ? 'والد' : 'Father', isUrdu ? 'فون' : 'Phone', isUrdu ? 'پروڈکٹ' : 'Product', isUrdu ? 'کل رقم' : 'Total', isUrdu ? 'ادائیگی' : 'Down Pay', isUrdu ? 'قسط#' : 'Inst#', isUrdu ? 'ادا شدہ' : 'Paid', isUrdu ? 'بقایا' : 'Remaining', isUrdu ? 'تاریخ' : 'Date', isUrdu ? 'حالت' : 'Status'],
+                   fields: ['name', 'father_name', 'phone', 'product_name', 'total_amount', 'down_payment', 'installment_no', 'paid_amount', 'remaining', 'date', 'status'] };
         case 'payments':
           return { headers: ['#', isUrdu ? 'گاہک' : 'Customer', isUrdu ? 'رقم' : 'Amount', isUrdu ? 'طریقہ' : 'Method', isUrdu ? 'حوالہ' : 'Ref#', isUrdu ? 'تاریخ' : 'Date'],
                    fields: ['name', 'amount', 'method', 'reference', 'date'] };
@@ -283,6 +367,7 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
           case 'quantity': return String(item.quantity ?? item.stock ?? '—');
           case 'total_value': return `Rs. ${Number(item.total_value || 0).toLocaleString()}`;
           case 'total': return `Rs. ${Number((item.quantity || 0) * (item.purchase_price || 0)).toLocaleString()}`;
+          case 'product_name': return isUrdu ? (item.product_name_urdu || item.product_name || '—') : (item.product_name || item.product_name_urdu || '—');
           case 'installment_no': return `${item.installment_no || '—'}/${item.total_installments || '—'}`;
           case 'total_amount': return `Rs. ${Number(item.total_amount || item.amount || 0).toLocaleString()}`;
           case 'paid_amount': return `Rs. ${Number(item.paid_amount || (item.paid ? item.amount : 0) || 0).toLocaleString()}`;
@@ -314,7 +399,7 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
       <body>
         <h1>${title}</h1>
         <table><thead><tr>${cols.headers.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>
-        <div class="footer">Rana Awais Autos and Electronics — ${new Date().toLocaleDateString()}</div>
+        <div class="footer">${clientInfo?.name || ''} — ${new Date().toLocaleDateString()}</div>
         <script>window.onload=function(){setTimeout(function(){window.print();window.close()},300)}</script>
       </body></html>
     `);
@@ -438,10 +523,12 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
         // ========== INSTALLMENTS ==========
         case 'installments': {
           const totalAmt = item.total_amount || item.amount || 0;
+          const downPay = item.down_payment || 0;
           const paidAmt = item.paid_amount || (item.paid ? item.amount : 0) || 0;
-          const pendingAmt = item.pending_amount || (!item.paid ? item.amount : 0) || 0;
-          const remaining = item.remaining ?? (item.total_installments ? item.total_installments - (item.paid_count || 0) : '—');
-          const totalInst = item.total_installments ?? '—';
+          const remaining = item.remaining ?? (item.remaining_amount || (totalAmt - paidAmt) || 0);
+          const paidCount = item.paid_count || 0;
+          const totalInst = item.num_installments || item.total_installments || '—';
+          const prodName = isUrdu ? (item.product_name_urdu || item.product_name || '—') : (item.product_name || item.product_name_urdu || '—');
           return (
             <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
               <td className="px-4 py-3 text-gray-400 font-mono text-xs text-center">{idx + 1}</td>
@@ -461,14 +548,24 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
                   {item.phone ? formatPhone(item.phone) : '—'}
                 </span>
               </td>
-              <td className="px-4 py-3 text-center">
-                <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">
-                  {item.installment_no || '—'}/{totalInst}
+              <td className="px-4 py-3">
+                <span className="text-xs text-gray-600 dark:text-gray-300 max-w-[120px] block truncate" title={prodName}>
+                  {prodName}
                 </span>
               </td>
               <td className="px-4 py-3 text-end">
                 <span className="font-bold text-gray-800 dark:text-white text-sm whitespace-nowrap">
                   Rs. {Number(totalAmt).toLocaleString()}
+                </span>
+              </td>
+              <td className="px-4 py-3 text-end">
+                <span className="text-xs font-semibold text-gray-600 dark:text-gray-300 whitespace-nowrap">
+                  Rs. {Number(downPay).toLocaleString()}
+                </span>
+              </td>
+              <td className="px-4 py-3 text-center">
+                <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">
+                  {paidCount}/{totalInst}
                 </span>
               </td>
               <td className="px-4 py-3 text-end">
@@ -478,12 +575,7 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
               </td>
               <td className="px-4 py-3 text-end">
                 <span className="text-xs font-semibold text-red-600 dark:text-red-400 whitespace-nowrap">
-                  Rs. {Number(pendingAmt).toLocaleString()}
-                </span>
-              </td>
-              <td className="px-4 py-3 text-center">
-                <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">
-                  {remaining}
+                  Rs. {Number(remaining).toLocaleString()}
                 </span>
               </td>
               <td className="px-4 py-3 text-center">
@@ -734,11 +826,12 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
                         <th className="px-4 py-3 text-start text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'نام' : 'Name'}</th>
                         <th className="px-4 py-3 text-start text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'والد' : 'Father'}</th>
                         <th className="px-4 py-3 text-start text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'فون' : 'Phone'}</th>
-                        <th className="px-4 py-3 text-center text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'قسط#' : 'Inst#'}</th>
+                        <th className="px-4 py-3 text-start text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'پروڈکٹ' : 'Product'}</th>
                         <th className="px-4 py-3 text-end text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'کل رقم' : 'Total'}</th>
+                        <th className="px-4 py-3 text-end text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'ادائیگی' : 'Down Pay'}</th>
+                        <th className="px-4 py-3 text-center text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'قسط#' : 'Inst#'}</th>
                         <th className="px-4 py-3 text-end text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'ادا شدہ' : 'Paid'}</th>
-                        <th className="px-4 py-3 text-end text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'بقایا' : 'Pending'}</th>
-                        <th className="px-4 py-3 text-center text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'باقی اقساط' : 'Remaining'}</th>
+                        <th className="px-4 py-3 text-end text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'بقایا' : 'Remaining'}</th>
                         <th className="px-4 py-3 text-center text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'تاریخ' : 'Date'}</th>
                         <th className="px-4 py-3 text-center text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'حالت' : 'Status'}</th>
                       </>

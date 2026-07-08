@@ -12,7 +12,7 @@ import api from '../../utils/api';
 import { useCustomerStore } from '../../store/useCustomerStore';
 // ✅ Fixed: Removed unused imports
 // import { formatPhone, formatCNIC } from '../../utils/helpers';
-import { APP_CONFIG } from '../../config/app';
+import { useClientStore } from '../../store/useClientStore';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 
@@ -81,14 +81,15 @@ const InstallmentList: React.FC = () => {
 
   const { customers, fetchCustomers } = useCustomerStore();
 
-  // ✅ Dynamic config
-  const companyName = APP_CONFIG.companyName || 'Company Name';
-  const companyNameUr = APP_CONFIG.companyNameUr || 'کمپنی کا نام';
-  const address = APP_CONFIG.address || '';
-  const addressUr = APP_CONFIG.addressUr || '';
-  const phones = APP_CONFIG.phones || [];
-  const softwareBy = APP_CONFIG.softwareBy || '';
-  const softwareByUr = APP_CONFIG.softwareByUr || '';
+  // ✅ Dynamic config from global store - settings change karte hi update ho jayega
+  const clientInfo = useClientStore((s) => s.info);
+  const companyName = clientInfo.name || 'Company Name';
+  const companyNameUr = clientInfo.nameUr || 'کمپنی کا نام';
+  const address = clientInfo.address || '';
+  const addressUr = clientInfo.addressUr || '';
+  const phones = clientInfo.phones.filter(p => p.number.trim()).map(p => p.number);
+  const softwareBy = clientInfo.softwareBy || '';
+  const softwareByUr = clientInfo.softwareByUr || '';
 
   // ✅ Page title
   useEffect(() => {
@@ -126,21 +127,56 @@ const InstallmentList: React.FC = () => {
         setPlans(Array.isArray(data) ? data : []);
       })
       .catch((err) => {
-        setErrorDetails(err?.response?.data?.error || err?.message);
-        setError(t('error_loading_installments'));
+        // ✅ OFFLINE FALLBACK: Try to load from IndexedDB cached plans (full data with installments)
+        import('../../db/indexeddb').then(({ offlineDB }) => {
+          offlineDB.getCachedPlansByCustomer(selectedCustomer).then(cached => {
+            if (cached && cached.length > 0) {
+              setPlans(cached);
+              return;
+            }
+            setErrorDetails(err?.response?.data?.error || err?.message);
+            setError(t('error_loading_installments'));
+          }).catch(() => {
+            setErrorDetails(err?.response?.data?.error || err?.message);
+            setError(t('error_loading_installments'));
+          });
+        }).catch(() => {
+          setErrorDetails(err?.response?.data?.error || err?.message);
+          setError(t('error_loading_installments'));
+        });
       })
       .finally(() => setLoading(false));
   }, [selectedCustomer, t]);
 
-  // ✅ Refresh
+  // ✅ Refresh - with offline fallback to IndexedDB cached plans (full data with installments)
   const refresh = useCallback(() => {
     if (selectedCustomer) {
       setLoading(true);
       getInstallmentsByCustomer(selectedCustomer)
         .then(data => setPlans(Array.isArray(data) ? data : []))
         .catch((err) => {
-          setErrorDetails(err?.response?.data?.error || err?.message);
-          setError(t('error_loading_installments'));
+          // ✅ OFFLINE FALLBACK: Load from IndexedDB cached plans
+          if (!navigator.onLine || err.code === 'ERR_NETWORK' || err.message?.includes('Network Error')) {
+            import('../../db/indexeddb').then(({ offlineDB }) => {
+              offlineDB.getCachedPlansByCustomer(selectedCustomer).then(cached => {
+                if (cached && cached.length > 0) {
+                  setPlans(cached);
+                  return;
+                }
+                setErrorDetails(err?.response?.data?.error || err?.message);
+                setError(t('error_loading_installments'));
+              }).catch(() => {
+                setErrorDetails(err?.response?.data?.error || err?.message);
+                setError(t('error_loading_installments'));
+              });
+            }).catch(() => {
+              setErrorDetails(err?.response?.data?.error || err?.message);
+              setError(t('error_loading_installments'));
+            });
+          } else {
+            setErrorDetails(err?.response?.data?.error || err?.message);
+            setError(t('error_loading_installments'));
+          }
         })
         .finally(() => setLoading(false));
     }
@@ -185,7 +221,28 @@ const InstallmentList: React.FC = () => {
       toast.success(isUrdu ? 'پلان ڈیلیٹ ہو گیا' : t('plan_deleted'));
       refresh();
     } catch {
-      toast.error(isUrdu ? 'پلان ڈیلیٹ کرنے میں ناکامی' : t('error_deleting_plan'));
+      // OFFLINE FALLBACK: Queue delete for sync
+      console.log('📦 Offline: Caching plan delete locally');
+      try {
+        const { offlineDB } = await import('../../db/indexeddb');
+        await offlineDB.addRecord({
+          record_id: `delete_plan_${deletePlanId}_${Date.now()}`,
+          entity_type: 'installment',
+          operation: 'delete',
+          data: { id: deletePlanId },
+          sync_status: 'pending',
+          created_at: new Date(),
+          retry_count: 0,
+          endpoint: `/installments/${deletePlanId}`,
+          method: 'DELETE'
+        });
+        // Remove from local store
+        const { useInstallmentStore } = await import('../../store/useInstallmentStore');
+        useInstallmentStore.getState().removePlan(deletePlanId);
+        toast.success(isUrdu ? 'پلان آف لائن ڈیلیٹ ہو گیا' : 'Plan deleted offline');
+      } catch {
+        toast.error(isUrdu ? 'پلان ڈیلیٹ کرنے میں ناکامی' : t('error_deleting_plan'));
+      }
     } finally {
       setIsDeleting(false);
       setDeletePlanId(null);

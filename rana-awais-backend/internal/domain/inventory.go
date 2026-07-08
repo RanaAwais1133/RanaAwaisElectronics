@@ -2,24 +2,23 @@ package domain
 
 import (
 	"time"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type InventoryItem struct {
-	ID            primitive.ObjectID `bson:"_id,omitempty" json:"id"`
-	ProductID     primitive.ObjectID `bson:"product_id" json:"productId"`
-	SerialNumber  string             `bson:"serial_number,omitempty" json:"serialNumber"`
-	Color         string             `bson:"color,omitempty" json:"color,omitempty"`
-	Model         string             `bson:"model,omitempty" json:"model,omitempty"`
-	EngineNo      string             `bson:"engine_no,omitempty" json:"engineNo,omitempty"`
-	ChassisNo     string             `bson:"chassis_no,omitempty" json:"chassisNo,omitempty"`
-	IMEI          string             `bson:"imei,omitempty" json:"imei,omitempty"`
-	Company       string             `bson:"company,omitempty" json:"company,omitempty"`
-	Status        string             `bson:"status" json:"status"` // "in_stock", "sold", "returned"
-	PurchaseDate  time.Time          `bson:"purchase_date" json:"purchaseDate"`
-	PurchasePrice float64            `bson:"purchase_price,omitempty" json:"purchasePrice,omitempty"`
-	SellingPrice  float64            `bson:"selling_price,omitempty" json:"sellingPrice,omitempty"` // ✅ NEW
-	SoldDate      *time.Time         `bson:"sold_date,omitempty" json:"soldDate,omitempty"`
-	CreatedAt     time.Time          `bson:"created_at" json:"createdAt"`
-	UpdatedAt     time.Time          `bson:"updated_at" json:"updatedAt"`
+	ID            string     `json:"id"`
+	ProductID     string     `json:"productId"`
+	SerialNumber  string     `json:"serialNumber"`
+	Color         string     `json:"color,omitempty"`
+	Model         string     `json:"model,omitempty"`
+	EngineNo      string     `json:"engineNo,omitempty"`
+	ChassisNo     string     `json:"chassisNo,omitempty"`
+	IMEI          string     `json:"imei,omitempty"`
+	Company       string     `json:"company,omitempty"`
+	Status        string     `json:"status"`
+	PurchaseDate  time.Time  `json:"purchaseDate"`
+	PurchasePrice float64    `json:"purchasePrice,omitempty"`
+	SellingPrice  float64    `json:"sellingPrice,omitempty"`
+	SoldDate      *time.Time `json:"soldDate,omitempty"`
+	CreatedAt     time.Time  `json:"createdAt"`
+	UpdatedAt     time.Time  `json:"updatedAt"`
 }

@@ -10,15 +10,15 @@ import (
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/service"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/pkg/audit"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/pkg/validator"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type CustomerHandler struct {
-	svc *service.CustomerService
+	svc     *service.CustomerService
+	guarSvc *service.GuarantorService
 }
 
-func NewCustomerHandler(svc *service.CustomerService) *CustomerHandler {
-	return &CustomerHandler{svc: svc}
+func NewCustomerHandler(svc *service.CustomerService, guarSvc *service.GuarantorService) *CustomerHandler {
+	return &CustomerHandler{svc: svc, guarSvc: guarSvc}
 }
 
 func (h *CustomerHandler) Create(w http.ResponseWriter, r *http.Request) {
@@ -28,7 +28,6 @@ func (h *CustomerHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Allow either English or Urdu name
 	if c.Name == "" && c.NameUrdu == "" {
 		respondError(w, r, http.StatusBadRequest, "Name is required", "نام ضروری ہے")
 		return
@@ -38,20 +37,6 @@ func (h *CustomerHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	if c.NameUrdu == "" {
 		c.NameUrdu = c.Name
-	}
-
-	if c.FatherName == "" && c.FatherNameUrdu != "" {
-		c.FatherName = c.FatherNameUrdu
-	}
-	if c.FatherNameUrdu == "" && c.FatherName != "" {
-		c.FatherNameUrdu = c.FatherName
-	}
-
-	if c.Address == "" && c.AddressUrdu != "" {
-		c.Address = c.AddressUrdu
-	}
-	if c.AddressUrdu == "" && c.Address != "" {
-		c.AddressUrdu = c.Address
 	}
 
 	phone, _, err := validator.SanitizePhoneAndCNIC(c.Phone, "")
@@ -65,16 +50,12 @@ func (h *CustomerHandler) Create(w http.ResponseWriter, r *http.Request) {
 		respondError(w, r, http.StatusConflict, err.Error(), "گاہک نہیں بنایا جا سکا")
 		return
 	}
-	audit.Log(r.Context(), "CREATE", "customer", c.ID.Hex(), "", getUserID(r))
+	audit.Log(r.Context(), "CREATE", "customer", c.ID, "", getUserID(r))
 	respondJSON(w, http.StatusCreated, c)
 }
 
 func (h *CustomerHandler) GetByID(w http.ResponseWriter, r *http.Request) {
-	id, err := primitive.ObjectIDFromHex(mux.Vars(r)["id"])
-	if err != nil {
-		respondError(w, r, http.StatusBadRequest, "Invalid ID", "غلط شناخت")
-		return
-	}
+	id := mux.Vars(r)["id"]
 	cust, err := h.svc.GetByID(r.Context(), id)
 	if err != nil || cust == nil {
 		respondError(w, r, http.StatusNotFound, "Customer not found", "گاہک نہیں ملا")
@@ -84,12 +65,7 @@ func (h *CustomerHandler) GetByID(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *CustomerHandler) Update(w http.ResponseWriter, r *http.Request) {
-	id, err := primitive.ObjectIDFromHex(mux.Vars(r)["id"])
-	if err != nil {
-		respondError(w, r, http.StatusBadRequest, "Invalid ID", "غلط شناخت")
-		return
-	}
-
+	id := mux.Vars(r)["id"]
 	existing, err := h.svc.GetByID(r.Context(), id)
 	if err != nil || existing == nil {
 		respondError(w, r, http.StatusNotFound, "Customer not found", "گاہک نہیں ملا")
@@ -115,19 +91,6 @@ func (h *CustomerHandler) Update(w http.ResponseWriter, r *http.Request) {
 		existing.NameUrdu = existing.Name
 	}
 
-	if input.FatherName != "" {
-		existing.FatherName = input.FatherName
-	}
-	if input.FatherNameUrdu != "" {
-		existing.FatherNameUrdu = input.FatherNameUrdu
-	}
-	if existing.FatherName == "" && existing.FatherNameUrdu != "" {
-		existing.FatherName = existing.FatherNameUrdu
-	}
-	if existing.FatherNameUrdu == "" && existing.FatherName != "" {
-		existing.FatherNameUrdu = existing.FatherName
-	}
-
 	if input.Phone != "" {
 		phone, _, err := validator.SanitizePhoneAndCNIC(input.Phone, "")
 		if err != nil {
@@ -144,102 +107,83 @@ func (h *CustomerHandler) Update(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if input.CNIC != "" {
-		existing.CNIC = input.CNIC
-	}
-	if input.Address != "" {
-		existing.Address = input.Address
-	}
-	if input.AddressUrdu != "" {
-		existing.AddressUrdu = input.AddressUrdu
-	}
-	if existing.Address == "" && existing.AddressUrdu != "" {
-		existing.Address = existing.AddressUrdu
-	}
-	if existing.AddressUrdu == "" && existing.Address != "" {
-		existing.AddressUrdu = existing.Address
-	}
-
-	// New fields for receipt
-	if input.Residential != "" {
-		existing.Residential = input.Residential
-	}
-	if input.Occupant != "" {
-		existing.Occupant = input.Occupant
-	}
-	if input.ResidentialAddress != "" {
-		existing.ResidentialAddress = input.ResidentialAddress
-	}
-	if input.OfficeAddress != "" {
-		existing.OfficeAddress = input.OfficeAddress
-	}
-	if input.AccountNo != "" {
-		existing.AccountNo = input.AccountNo
-	}
-	if input.CostNo != "" {
-		existing.CostNo = input.CostNo
-	}
-	if input.ProcessNo != "" {
-		existing.ProcessNo = input.ProcessNo
-	}
-	if input.PrepAC != "" {
-		existing.PrepAC = input.PrepAC
-	}
+	if input.CNIC != "" { existing.CNIC = input.CNIC }
+	if input.Address != "" { existing.Address = input.Address }
+	if input.AddressUrdu != "" { existing.AddressUrdu = input.AddressUrdu }
+	if input.Residential != "" { existing.Residential = input.Residential }
+	if input.Occupant != "" { existing.Occupant = input.Occupant }
+	if input.ResidentialAddress != "" { existing.ResidentialAddress = input.ResidentialAddress }
+	if input.OfficeAddress != "" { existing.OfficeAddress = input.OfficeAddress }
+	if input.AccountNo != "" { existing.AccountNo = input.AccountNo }
+	if input.CostNo != "" { existing.CostNo = input.CostNo }
+	if input.ProcessNo != "" { existing.ProcessNo = input.ProcessNo }
+	if input.PrepAC != "" { existing.PrepAC = input.PrepAC }
+	if input.Remarks != "" { existing.Remarks = input.Remarks }
+	if input.CompletedRemarks != "" { existing.CompletedRemarks = input.CompletedRemarks }
 
 	if err := h.svc.Update(r.Context(), id, existing); err != nil {
 		respondError(w, r, http.StatusInternalServerError, "Update failed", "اپڈیٹ ناکام")
 		return
 	}
-
-	audit.Log(r.Context(), "UPDATE", "customer", id.Hex(), "", getUserID(r))
+	audit.Log(r.Context(), "UPDATE", "customer", id, "", getUserID(r))
 	respondJSON(w, http.StatusOK, existing)
 }
 
 func (h *CustomerHandler) Delete(w http.ResponseWriter, r *http.Request) {
-	id, err := primitive.ObjectIDFromHex(mux.Vars(r)["id"])
-	if err != nil {
-		respondError(w, r, http.StatusBadRequest, "Invalid ID", "غلط شناخت")
-		return
-	}
-
+	id := mux.Vars(r)["id"]
 	if err := h.svc.Delete(r.Context(), id); err != nil {
 		respondError(w, r, http.StatusInternalServerError, "Delete failed", "ڈیلیٹ ناکام")
 		return
 	}
-
-	audit.Log(r.Context(), "DELETE", "customer", id.Hex(), "", getUserID(r))
+	audit.Log(r.Context(), "DELETE", "customer", id, "", getUserID(r))
 	respondJSON(w, http.StatusOK, map[string]string{"message": "Customer deleted"})
 }
 
 func (h *CustomerHandler) List(w http.ResponseWriter, r *http.Request) {
 	skip, _ := strconv.ParseInt(r.URL.Query().Get("skip"), 10, 64)
 	limit, _ := strconv.ParseInt(r.URL.Query().Get("limit"), 10, 64)
-	if limit == 0 {
-		limit = 20
-	}
+	if limit == 0 { limit = 10000 }
 	custs, err := h.svc.List(r.Context(), skip, limit)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "Failed to list", "گاہکوں کی فہرست نہیں لائی جا سکی")
 		return
 	}
+
+	// Populate guarantorIds for each customer from guarantor table
+	if h.guarSvc != nil {
+		allGuarantors, err := h.guarSvc.List(r.Context(), 0, 10000)
+		if err == nil {
+			// Build customer-to-guarantor mapping
+			custGuarTable := make(map[string][]string)
+			for _, g := range allGuarantors {
+				if g.CustomerID != "" {
+					custGuarTable[g.CustomerID] = append(custGuarTable[g.CustomerID], g.ID)
+				}
+			}
+			// Assign to each customer
+			for i := range custs {
+				if ids, ok := custGuarTable[custs[i].ID]; ok {
+					custs[i].GuarantorIDs = ids
+				} else {
+					custs[i].GuarantorIDs = []string{}
+				}
+			}
+		}
+	}
+
 	total, err := h.svc.Count(r.Context())
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "Failed to count", "گنتی نہیں ہو سکی")
 		return
 	}
-	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"data":  custs,
-		"total": total,
-	})
+	respondJSON(w, http.StatusOK, map[string]interface{}{"data": custs, "total": total})
 }
 
 func (h *CustomerHandler) Search(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query().Get("q")
 	skip, _ := strconv.ParseInt(r.URL.Query().Get("skip"), 10, 64)
 	limit, _ := strconv.ParseInt(r.URL.Query().Get("limit"), 10, 64)
-	if limit == 0 || limit > 50 {
-		limit = 20
-	}
+	if limit == 0 || limit > 50 { limit = 20 }
 	custs, err := h.svc.Search(r.Context(), query, skip, limit)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "Search failed", "تلاش ناکام")

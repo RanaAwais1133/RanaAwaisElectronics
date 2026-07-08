@@ -329,5 +329,6 @@
   "process_fee": "Process Fee",
   "discount": "Discount",
   "end_date": "End Date",
-  "created_by": "Created By"
+  "created_by": "Created By",
+  "backup": "Backup"
 }

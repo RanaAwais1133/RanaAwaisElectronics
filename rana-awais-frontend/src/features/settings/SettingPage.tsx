@@ -3,13 +3,15 @@ import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 import api, { changePassword } from '../../utils/api';
 import UserManagement from '../users/userManagement';
-import { APP_CONFIG } from '../../config/app';
+import ClientInfoSettings from './ClientInfoSettings';
+import { useClientStore } from '../../store/useClientStore';
 import { useAuthStore } from '../../store/useAuthStore';
 
 const SettingsPage: React.FC = () => {
   const { t, i18n } = useTranslation();
   const isUrdu = i18n.language === 'ur';
   const currentUser = useAuthStore((state) => state.user);
+  const clientInfo = useClientStore((s) => s.info);
   
   const [showUserManagement, setShowUserManagement] = useState(false);
   const [isBackingUp, setIsBackingUp] = useState(false);
@@ -27,7 +29,7 @@ const SettingsPage: React.FC = () => {
 
   // ✅ Page title
   useEffect(() => {
-    document.title = `${isUrdu ? 'ترتیبات' : 'Settings'} | ${APP_CONFIG.companyName}`;
+    document.title = `${isUrdu ? 'ترتیبات' : 'Settings'} | ${clientInfo.name}`;
   }, [isUrdu]);
 
   // ✅ Theme detection
@@ -50,7 +52,7 @@ const SettingsPage: React.FC = () => {
       const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/json' }));
       const link = document.createElement('a');
       link.href = url;
-      const fileName = `backup-${APP_CONFIG.appName}-${new Date().toISOString().slice(0, 10)}.json`;
+      const fileName = `backup-${clientInfo.name.replace(/\s+/g, '_')}-${new Date().toISOString().slice(0, 10)}.json`;
       link.setAttribute('download', fileName);
       document.body.appendChild(link);
       link.click();
@@ -147,6 +149,75 @@ const SettingsPage: React.FC = () => {
     }
   }, [oldPassword, newPassword, confirmPassword, isUrdu]);
 
+  // ✅ PWA Install
+  const [deferredPrompt, setDeferredPrompt] = React.useState<any>(null);
+  const [isPWAInstalled, setIsPWAInstalled] = React.useState(false);
+  const [installAttempted, setInstallAttempted] = React.useState(false);
+
+  useEffect(() => {
+    // Check if already installed as PWA
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || 
+      (window.navigator as any).standalone === true;
+    setIsPWAInstalled(isStandalone);
+
+    // Listen for install prompt
+    const handler = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      console.log('📲 beforeinstallprompt fired!');
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    
+    // Listen for successful install
+    window.addEventListener('appinstalled', () => {
+      setIsPWAInstalled(true);
+      setDeferredPrompt(null);
+      toast.success(isUrdu ? '✅ ایپ انسٹال ہو گئی! 🎉' : '✅ App installed! 🎉');
+    });
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handler);
+    };
+  }, [isUrdu]);
+
+  const handleInstallPWA = async () => {
+    if (deferredPrompt) {
+      // ✅ Show the install prompt
+      deferredPrompt.prompt();
+      const result = await deferredPrompt.userChoice;
+      if (result.outcome === 'accepted') {
+        toast.success(isUrdu ? '✅ ایپ انسٹال ہو رہی ہے... 🎉' : '✅ Installing app... 🎉');
+      } else {
+        toast.error(isUrdu ? 'انسٹال منسوخ کر دیا گیا' : 'Install cancelled');
+      }
+      setDeferredPrompt(null);
+      setInstallAttempted(true);
+    } else {
+      // ✅ No deferred prompt - try alternative methods
+      setInstallAttempted(true);
+      
+      // Method 1: Try to trigger beforeinstallprompt again
+      const event = new Event('beforeinstallprompt');
+      window.dispatchEvent(event);
+      
+      // Wait a bit and check if prompt appeared
+      setTimeout(() => {
+        if (deferredPrompt) {
+          deferredPrompt.prompt();
+          setDeferredPrompt(null);
+        } else {
+          // Method 2: Show instructions
+          toast.error(
+            isUrdu 
+              ? 'براہ کرم Chrome کے تین نقطوں (⋮) والے مینو میں "Add to Home screen" کا آپشن استعمال کریں' 
+              : 'Please use Chrome menu ⋮ → "Add to Home screen"',
+            { duration: 5000 }
+          );
+        }
+      }, 500);
+    }
+  };
+
   // ✅ Check if user is admin
   const isAdmin = currentUser?.role === 'admin';
 
@@ -203,6 +274,9 @@ const SettingsPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* ✅ Client Information Card */}
+      {isAdmin && <ClientInfoSettings />}
 
       {/* ✅ Theme Card */}
       <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-sm border border-gray-200/60 dark:border-gray-700/60 overflow-hidden">
@@ -416,6 +490,70 @@ const SettingsPage: React.FC = () => {
         </div>
       </div>
 
+      {/* ✅ PWA Install Card */}
+      <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-sm border border-gray-200/60 dark:border-gray-700/60 overflow-hidden">
+        <div className="p-6">
+          <div className="flex items-start gap-4">
+            <div className="p-3 bg-cyan-100 dark:bg-cyan-900/30 rounded-xl">
+              <svg className="w-6 h-6 text-cyan-600 dark:text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
+              </svg>
+            </div>
+            <div className="flex-1">
+              <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-800 dark:text-white">
+                    {isUrdu ? 'ایپ انسٹال کریں' : 'Install App'}
+                  </h2>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                    {isPWAInstalled 
+                      ? (isUrdu ? '✅ ایپ انسٹال ہے! اب یہ ایپ کی طرح کھلے گی' : '✅ App is installed! It will open like a native app')
+                      : (isUrdu ? 'اس ایپ کو اپنے فون پر انسٹال کریں تاکہ یہ ایپ کی طرح کھلے' : 'Install this app on your phone for a native app experience')}
+                  </p>
+                </div>
+                {!isPWAInstalled && (
+                  <button
+                    onClick={handleInstallPWA}
+                    className="px-5 py-2.5 bg-gradient-to-r from-cyan-600 to-cyan-700 hover:from-cyan-700 hover:to-cyan-800 text-white rounded-2xl text-sm font-semibold shadow-lg shadow-cyan-500/25 transition-all active:scale-95 whitespace-nowrap flex items-center gap-2"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    {isUrdu ? 'انسٹال کریں' : 'Install'}
+                  </button>
+                )}
+              </div>
+              {!isPWAInstalled && !deferredPrompt && (
+                <div className="mt-3 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-2xl space-y-2">
+                  <p className="text-xs text-yellow-700 dark:text-yellow-300">
+                    {isUrdu 
+                      ? '💡 موبائل Chrome پر HTTP سائٹس پر "انسٹال ایپ" کا آپشن نہیں آتا۔ براہ کرم "Add to Home screen" استعمال کریں:'
+                      : '💡 Mobile Chrome does not show "Install app" on HTTP sites. Please use "Add to Home screen":'}
+                  </p>
+                  <ol className="text-xs text-yellow-700 dark:text-yellow-300 list-decimal list-inside space-y-1">
+                    {isUrdu ? (
+                      <>
+                        <li>براؤزر کے تین نقطوں (⋮) پر کلک کریں</li>
+                        <li>"Add to Home screen" یا "ہوم اسکرین پر شامل کریں" منتخب کریں</li>
+                        <li>"Add" پر کلک کریں</li>
+                        <li>اب یہ ایپ کی طرح کھلے گا (بغیر ایڈریس بار کے)</li>
+                      </>
+                    ) : (
+                      <>
+                        <li>Tap the three dots (⋮) in Chrome</li>
+                        <li>Select <strong>"Add to Home screen"</strong></li>
+                        <li>Tap "Add"</li>
+                        <li>It will open like an app (no address bar)</li>
+                      </>
+                    )}
+                  </ol>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* ✅ App Info */}
       <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-sm border border-gray-200/60 dark:border-gray-700/60 overflow-hidden">
         <div className="p-6">
@@ -430,9 +568,9 @@ const SettingsPage: React.FC = () => {
                 {isUrdu ? 'ایپ کے بارے میں' : 'About'}
               </h2>
               <div className="mt-2 space-y-1 text-sm text-gray-600 dark:text-gray-300">
-                <p><span className="font-medium">{isUrdu ? 'نام' : 'Name'}:</span> {APP_CONFIG.companyName}</p>
+                <p><span className="font-medium">{isUrdu ? 'نام' : 'Name'}:</span> {clientInfo.name}</p>
                 <p><span className="font-medium">{isUrdu ? 'ورژن' : 'Version'}:</span> v1.0.0</p>
-                <p><span className="font-medium">Software by:</span> {isUrdu ? APP_CONFIG.softwareByUr : APP_CONFIG.softwareBy}</p>
+                <p><span className="font-medium">Software by:</span> {isUrdu ? 'رانا اویس آٹوز اور الیکٹرانکس' : 'Rana Awais Autos and Electronics'}</p>
                 {currentUser && (
                   <p><span className="font-medium">{isUrdu ? 'صارف' : 'User'}:</span> {currentUser.displayName || currentUser.username}</p>
                 )}

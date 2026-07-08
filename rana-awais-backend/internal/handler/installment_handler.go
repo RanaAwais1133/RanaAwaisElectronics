@@ -4,17 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/config"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/domain"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/service"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/pkg/audit"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	"github.com/google/uuid"
 )
 
 type InstallmentHandler struct {
@@ -76,351 +72,213 @@ func (h *InstallmentHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	custID, err := primitive.ObjectIDFromHex(payload.CustomerID)
-	if err != nil {
-		respondError(w, r, http.StatusBadRequest, "Invalid customer ID", "غلط گاہک شناخت")
-		return
-	}
-
-	prodID, err := primitive.ObjectIDFromHex(payload.ProductID)
-	if err != nil {
-		respondError(w, r, http.StatusBadRequest, "Invalid product ID", "غلط پروڈکٹ شناخت")
-		return
-	}
-
 	startDate, err := time.Parse("2006-01-02", payload.StartDate)
 	if err != nil {
-		respondError(w, r, http.StatusBadRequest, "Invalid start date format", "شروع کی تاریخ کا فارمیٹ غلط ہے")
-		return
-	}
-	endDate, err := time.Parse("2006-01-02", payload.EndDate)
-	if err != nil {
-		respondError(w, r, http.StatusBadRequest, "Invalid end date format", "اختتامی تاریخ کا فارمیٹ غلط ہے")
+		respondError(w, r, http.StatusBadRequest, "Invalid start date", "غلط تاریخ")
 		return
 	}
 
-	var inventoryItemID primitive.ObjectID
-	if payload.InventoryItemID != "" {
-		inventoryItemID, err = primitive.ObjectIDFromHex(payload.InventoryItemID)
-		if err != nil {
-			respondError(w, r, http.StatusBadRequest, "Invalid inventory item ID", "غلط انوینٹری آئٹم شناخت")
-			return
-		}
-	}
-
-	var guarantorIDs []primitive.ObjectID
-	for _, id := range payload.GuarantorIDs {
-		if len(guarantorIDs) >= 4 {
-			break
-		}
-		oid, err := primitive.ObjectIDFromHex(id)
-		if err == nil {
-			exists := false
-			for _, existing := range guarantorIDs {
-				if existing == oid {
-					exists = true
-					break
-				}
-			}
-			if !exists {
-				guarantorIDs = append(guarantorIDs, oid)
-			}
-		}
-	}
-
-	plan := domain.InstallmentPlan{
-		CustomerID:           custID,
-		ProductID:            prodID,
-		InventoryItemID:      inventoryItemID,
-		GuarantorIDs:         guarantorIDs,
-		TotalAmount:          payload.TotalAmount,
-		DownPayment:          payload.DownPayment,
-		RemainingAmount:      payload.RemainingAmount,
+	plan := &domain.InstallmentPlan{
+		ID:                  uuid.New().String(),
+		CustomerID:          payload.CustomerID,
+		ProductID:           payload.ProductID,
+		InventoryItemID:     payload.InventoryItemID,
+		GuarantorIDs:        payload.GuarantorIDs,
+		TotalAmount:         payload.TotalAmount,
+		DownPayment:         payload.DownPayment,
+		RemainingAmount:     payload.RemainingAmount,
 		NumberOfInstallments: payload.NumberOfInstallments,
-		InstallmentAmount:    payload.InstallmentAmount,
-		StartDate:            startDate,
-		EndDate:              endDate,
-		GracePeriodDays:      payload.GracePeriodDays,
-		FinePerDay:           payload.FinePerDay,
-		SerialNumber:         payload.SerialNumber,
-		IMEI:                 payload.IMEI,
-		EngineNo:             payload.EngineNo,
-		ChassisNo:            payload.ChassisNo,
-		Model:                payload.Model,
-		Color:                payload.Color,
-		Company:              payload.Company,
-		CreatedBy:            payload.CreatedBy,
-		InstallmentDate:      payload.InstallmentDate,
-		ProcessFee:           payload.ProcessFee,
-		Discount:             payload.Discount,
-		SalaryIncome:         payload.SalaryIncome,
-		Defaulter:            payload.Defaulter,
-		PTO:                  payload.PTO,
-		VPNStatus:            payload.VPNStatus,
-		EmployeeStatus:       payload.EmployeeStatus,
-		DBMRemarks:           payload.DBMRemarks,
-		CRCRemarks:           payload.CRCRemarks,
-		ProcessAt:            payload.ProcessAt,
-		DOOfficer:            payload.DOOfficer,
-		MarkOff:              payload.MarkOff,
-		DebtMng:              payload.DebtMng,
-		SecondMng:            payload.SecondMng,
-		InspOff:              payload.InspOff,
-		SRM:                  payload.SRM,
-		MobilePhone:          payload.MobilePhone,
-		CRC:                  payload.CRC,
+		InstallmentAmount:   payload.PerMonthInstallment,
+		StartDate:           startDate,
+		GracePeriodDays:     payload.GracePeriodDays,
+		FinePerDay:          payload.FinePerDay,
+		SerialNumber:        payload.SerialNumber,
+		IMEI:                payload.IMEI,
+		EngineNo:            payload.EngineNo,
+		ChassisNo:           payload.ChassisNo,
+		Model:               payload.Model,
+		Color:               payload.Color,
+		Company:             payload.Company,
+		CreatedBy:           payload.CreatedBy,
+		InstallmentDate:     payload.InstallmentDate,
+		ProcessFee:          payload.ProcessFee,
+		Discount:            payload.Discount,
+		SalaryIncome:        payload.SalaryIncome,
+		Defaulter:           payload.Defaulter,
+		PTO:                 payload.PTO,
+		VPNStatus:           payload.VPNStatus,
+		EmployeeStatus:      payload.EmployeeStatus,
+		DBMRemarks:          payload.DBMRemarks,
+		CRCRemarks:          payload.CRCRemarks,
+		ProcessAt:           payload.ProcessAt,
+		DOOfficer:           payload.DOOfficer,
+		MarkOff:             payload.MarkOff,
+		DebtMng:             payload.DebtMng,
+		SecondMng:           payload.SecondMng,
+		InspOff:             payload.InspOff,
+		SRM:                 payload.SRM,
+		MobilePhone:         payload.MobilePhone,
+		CRC:                 payload.CRC,
 	}
 
-	if err := h.svc.CreatePlan(r.Context(), &plan); err != nil {
-		respondError(w, r, http.StatusUnprocessableEntity, err.Error(), "پلان نہیں بن سکا")
+	if payload.InstallmentAmount > 0 && payload.PerMonthInstallment == 0 {
+		plan.InstallmentAmount = payload.InstallmentAmount
+	}
+
+	if err := h.svc.CreatePlan(r.Context(), plan); err != nil {
+		respondError(w, r, http.StatusInternalServerError, err.Error(), "پلان نہیں بنایا جا سکا")
 		return
 	}
-	audit.Log(r.Context(), "CREATE", "installment_plan", plan.ID.Hex(), "", getUserID(r))
+	audit.Log(r.Context(), "CREATE", "installment", plan.ID, "", getUserID(r))
 	respondJSON(w, http.StatusCreated, plan)
 }
 
 func (h *InstallmentHandler) GetByID(w http.ResponseWriter, r *http.Request) {
-	id, err := primitive.ObjectIDFromHex(mux.Vars(r)["id"])
-	if err != nil {
-		respondError(w, r, http.StatusBadRequest, "Invalid ID", "غلط شناخت")
-		return
-	}
+	id := mux.Vars(r)["id"]
 	plan, err := h.svc.GetPlanByID(r.Context(), id)
 	if err != nil || plan == nil {
 		respondError(w, r, http.StatusNotFound, "Plan not found", "پلان نہیں ملا")
 		return
 	}
+	respondJSON(w, http.StatusOK, plan)
+}
 
-	type PlanWithProduct struct {
-		domain.InstallmentPlan
-		ProductName    string `json:"productName,omitempty"`
-		ProductNameUrdu string `json:"productNameUrdu,omitempty"`
+func (h *InstallmentHandler) ListByCustomer(w http.ResponseWriter, r *http.Request) {
+	custID := r.URL.Query().Get("customer_id")
+	if custID == "" {
+		// Try to get from URL path variable
+		custID = mux.Vars(r)["id"]
 	}
-
-	resp := PlanWithProduct{
-		InstallmentPlan: *plan,
+	plans, err := h.svc.ListByCustomer(r.Context(), custID)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "Failed to list", "فہرست نہیں لائی جا سکی")
+		return
 	}
-
-	if prod, err := h.svc.GetProductByID(r.Context(), plan.ProductID); err == nil && prod != nil {
-		resp.ProductName = prod.Name
-		resp.ProductNameUrdu = prod.NameUrdu
-	}
-
-	respondJSON(w, http.StatusOK, resp)
+	respondJSON(w, http.StatusOK, plans)
 }
 
 func (h *InstallmentHandler) RecordPayment(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
-		PlanID        string  `json:"plan_id"`
-		InstallmentNo int     `json:"installment_no"`
-		Amount        float64 `json:"amount"`
-		Method        string  `json:"method"`
-		PaymentDate   string  `json:"payment_date"`
-		DueDate       string  `json:"due_date"`
-		CollectedBy   string  `json:"collected_by"`
-		CollectedById string  `json:"collected_by_id"`
-		Remarks       string  `json:"remarks"`
+		PlanID         string  `json:"plan_id"`
+		InstallmentNo  int     `json:"installment_no"`
+		Amount         float64 `json:"amount"`
+		Method         string  `json:"method"`
+		PaymentDate    string  `json:"payment_date,omitempty"`
+		DueDate        string  `json:"due_date,omitempty"`
+		CollectedBy    string  `json:"collected_by,omitempty"`
+		CollectedById  string  `json:"collected_by_id,omitempty"`
+		Remarks        string  `json:"remarks,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		respondError(w, r, http.StatusBadRequest, "Invalid payload", "غلط مواد")
+		respondError(w, r, http.StatusBadRequest, "Invalid request", "غلط درخواست")
 		return
 	}
-	
-	planID, err := primitive.ObjectIDFromHex(payload.PlanID)
+	result, err := h.svc.RecordPayment(r.Context(), payload.PlanID, payload.InstallmentNo, payload.Amount, payload.Method, payload.PaymentDate, payload.DueDate, payload.CollectedBy, payload.CollectedById, payload.Remarks)
 	if err != nil {
-		respondError(w, r, http.StatusBadRequest, "Invalid plan ID", "غلط پلان شناخت")
+		respondError(w, r, http.StatusInternalServerError, err.Error(), "ادائیگی ناکام")
 		return
 	}
-	
-	result, err := h.svc.RecordPayment(
-		r.Context(),
-		planID,
-		payload.InstallmentNo,
-		payload.Amount,
-		payload.Method,
-		payload.PaymentDate,
-		payload.DueDate,
-		payload.CollectedBy,
-		payload.CollectedById,
-		payload.Remarks,
-	)
-	if err != nil {
-		respondError(w, r, http.StatusUnprocessableEntity, err.Error(), "ادائیگی ریکارڈ نہیں ہوئی")
-		return
-	}
-	
-	details := fmt.Sprintf("Amount: %.2f | Installment: %d | Method: %s | Remaining: %.2f | CollectedBy: %s",
-		payload.Amount, payload.InstallmentNo, payload.Method, result.RemainingBalance, payload.CollectedBy)
-	audit.Log(r.Context(), "PAYMENT", "installment_plan", planID.Hex(), details, getUserID(r))
+	audit.Log(r.Context(), "PAYMENT", "installment", payload.PlanID, fmt.Sprintf("installment_no=%d amount=%.2f", payload.InstallmentNo, payload.Amount), getUserID(r))
 	respondJSON(w, http.StatusOK, result)
 }
 
 func (h *InstallmentHandler) BulkPayment(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
-		PlanID       string                    `json:"plan_id"`
-		Method       string                    `json:"method"`
-		PaymentDate  string                    `json:"payment_date"`
-		Payments     []service.BulkPaymentItem `json:"payments"`
-		CollectedBy  string                    `json:"collected_by"`
-		CollectedById string                   `json:"collected_by_id"`
+		PlanID        string                         `json:"plan_id"`
+		Method        string                         `json:"method"`
+		PaymentDate   string                         `json:"payment_date,omitempty"`
+		CollectedBy   string                         `json:"collected_by,omitempty"`
+		CollectedById string                         `json:"collected_by_id,omitempty"`
+		Remarks       string                         `json:"remarks,omitempty"`
+		Payments      []service.BulkPaymentItem `json:"payments"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		respondError(w, r, http.StatusBadRequest, "Invalid payload", "غلط مواد")
+		respondError(w, r, http.StatusBadRequest, "Invalid request", "غلط درخواست")
 		return
 	}
-	
-	planID, err := primitive.ObjectIDFromHex(payload.PlanID)
-	if err != nil {
-		respondError(w, r, http.StatusBadRequest, "Invalid plan ID", "غلط پلان شناخت")
+	if err := h.svc.BulkPayment(r.Context(), payload.PlanID, payload.Payments, payload.Method, payload.PaymentDate, payload.CollectedBy, payload.CollectedById); err != nil {
+		respondError(w, r, http.StatusInternalServerError, err.Error(), "ادائیگی ناکام")
 		return
 	}
-	
-	err = h.svc.BulkPayment(
-		r.Context(),
-		planID,
-		payload.Payments,
-		payload.Method,
-		payload.PaymentDate,
-		payload.CollectedBy,
-		payload.CollectedById,
-	)
-	if err != nil {
-		respondError(w, r, http.StatusUnprocessableEntity, err.Error(), "بلک ادائیگی ناکام")
-		return
-	}
-	
-	totalPaid := 0.0
-	instNos := ""
-	for i, p := range payload.Payments {
-		totalPaid += p.Amount
-		if i > 0 {
-			instNos += ","
-		}
-		instNos += strconv.Itoa(p.InstallmentNo)
-	}
-	details := fmt.Sprintf("Bulk Amount: %.2f | Installments: [%s] | Method: %s | Count: %d | CollectedBy: %s",
-		totalPaid, instNos, payload.Method, len(payload.Payments), payload.CollectedBy)
-	audit.Log(r.Context(), "BULK_PAYMENT", "installment_plan", planID.Hex(), details, getUserID(r))
-	respondJSON(w, http.StatusOK, map[string]string{"message": "Bulk payment recorded"})
+	audit.Log(r.Context(), "BULK_PAYMENT", "installment", payload.PlanID, "", getUserID(r))
+	respondJSON(w, http.StatusOK, map[string]string{"message": "Payments recorded"})
 }
 
 func (h *InstallmentHandler) AdvancePayment(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
-		PlanID       string  `json:"plan_id"`
-		Amount       float64 `json:"amount"`
-		Method       string  `json:"method"`
-		PaymentDate  string  `json:"payment_date"`
-		CollectedBy  string  `json:"collected_by"`
-		CollectedById string `json:"collected_by_id"`
+		PlanID        string  `json:"plan_id"`
+		Amount        float64 `json:"amount"`
+		Method        string  `json:"method"`
+		PaymentDate   string  `json:"payment_date,omitempty"`
+		CollectedBy   string  `json:"collected_by,omitempty"`
+		CollectedById string  `json:"collected_by_id,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		respondError(w, r, http.StatusBadRequest, "Invalid payload", "غلط مواد")
+		respondError(w, r, http.StatusBadRequest, "Invalid request", "غلط درخواست")
 		return
 	}
-	
-	planID, err := primitive.ObjectIDFromHex(payload.PlanID)
-	if err != nil {
-		respondError(w, r, http.StatusBadRequest, "Invalid plan ID", "غلط پلان شناخت")
+	if err := h.svc.AdvancePayment(r.Context(), payload.PlanID, payload.Amount, payload.Method, payload.PaymentDate, payload.CollectedBy, payload.CollectedById); err != nil {
+		respondError(w, r, http.StatusInternalServerError, err.Error(), "ایڈوانس ادائیگی ناکام")
 		return
 	}
-	
-	err = h.svc.AdvancePayment(
-		r.Context(),
-		planID,
-		payload.Amount,
-		payload.Method,
-		payload.PaymentDate,
-		payload.CollectedBy,
-		payload.CollectedById,
-	)
-	if err != nil {
-		respondError(w, r, http.StatusUnprocessableEntity, err.Error(), "ایڈوانس ادائیگی ناکام")
-		return
-	}
-	
-	details := fmt.Sprintf("Advance Amount: %.2f | Method: %s | CollectedBy: %s", payload.Amount, payload.Method, payload.CollectedBy)
-	audit.Log(r.Context(), "ADVANCE_PAYMENT", "installment_plan", planID.Hex(), details, getUserID(r))
+	audit.Log(r.Context(), "ADVANCE_PAYMENT", "installment", payload.PlanID, "", getUserID(r))
 	respondJSON(w, http.StatusOK, map[string]string{"message": "Advance payment recorded"})
-}
-
-func (h *InstallmentHandler) ListByCustomer(w http.ResponseWriter, r *http.Request) {
-	custID, err := primitive.ObjectIDFromHex(r.URL.Query().Get("customer_id"))
-	if err != nil {
-		respondError(w, r, http.StatusBadRequest, "Invalid customer ID", "غلط گاہک شناخت")
-		return
-	}
-	plans, err := h.svc.ListByCustomer(r.Context(), custID)
-	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "Failed to fetch plans", "پلان لانے میں ناکامی")
-		return
-	}
-
-	db := config.DB
-	paymentsColl := db.Collection("payments")
-	type enrichedPlan struct {
-		domain.InstallmentPlan
-		Payments []bson.M `json:"payments"`
-	}
-	var enriched []enrichedPlan
-	for _, plan := range plans {
-		var payments []bson.M
-		payCursor, err := paymentsColl.Find(r.Context(), bson.M{"installment_plan_id": plan.ID}, options.Find().SetSort(bson.M{"transaction_date": 1}))
-		if err == nil {
-			payCursor.All(r.Context(), &payments)
-			payCursor.Close(r.Context())
-		}
-		if payments == nil {
-			payments = []bson.M{}
-		}
-		enriched = append(enriched, enrichedPlan{
-			InstallmentPlan: plan,
-			Payments:        payments,
-		})
-	}
-	if enriched == nil {
-		enriched = []enrichedPlan{}
-	}
-
-	respondJSON(w, http.StatusOK, enriched)
 }
 
 func (h *InstallmentHandler) Reschedule(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		PlanID             string `json:"plan_id"`
 		Option             string `json:"option"`
-		NewNumInstallments int    `json:"new_num_installments"`
-		NewStartDate       string `json:"new_start_date"`
+		NewNumInstallments int    `json:"new_num_installments,omitempty"`
+		NewStartDate       string `json:"new_start_date,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		respondError(w, r, http.StatusBadRequest, "Invalid payload", "غلط مواد")
+		respondError(w, r, http.StatusBadRequest, "Invalid request", "غلط درخواست")
 		return
 	}
-	
-	planID, err := primitive.ObjectIDFromHex(payload.PlanID)
+	if err := h.svc.ReschedulePlan(r.Context(), payload.PlanID, payload.Option, payload.NewNumInstallments, payload.NewStartDate); err != nil {
+		respondError(w, r, http.StatusInternalServerError, err.Error(), "ری شیڈول ناکام")
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]string{"message": "Rescheduled"})
+}
+
+func (h *InstallmentHandler) UndoPayment(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		PlanID string `json:"plan_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		respondError(w, r, http.StatusBadRequest, "Invalid request", "غلط درخواست")
+		return
+	}
+	if err := h.svc.UndoPayment(r.Context(), payload.PlanID); err != nil {
+		respondError(w, r, http.StatusInternalServerError, err.Error(), "واپسی ناکام")
+		return
+	}
+	audit.Log(r.Context(), "UNDO_PAYMENT", "installment", payload.PlanID, "", getUserID(r))
+	respondJSON(w, http.StatusOK, map[string]string{"message": "Payment undone"})
+}
+
+func (h *InstallmentHandler) ListAll(w http.ResponseWriter, r *http.Request) {
+	skip := parseInt64(r.URL.Query().Get("skip"), 0)
+	limit := parseInt64(r.URL.Query().Get("limit"), 100)
+	plans, err := h.svc.ListAll(r.Context(), skip, limit)
 	if err != nil {
-		respondError(w, r, http.StatusBadRequest, "Invalid plan ID", "غلط پلان شناخت")
+		respondError(w, r, http.StatusInternalServerError, err.Error(), "ڈیٹا حاصل کرنے میں ناکامی")
 		return
 	}
-	
-	err = h.svc.ReschedulePlan(r.Context(), planID, payload.Option, payload.NewNumInstallments, payload.NewStartDate)
-	if err != nil {
-		respondError(w, r, http.StatusUnprocessableEntity, err.Error(), "دوبارہ شیڈولنگ ناکام")
-		return
+	if plans == nil {
+		plans = []domain.InstallmentPlan{}
 	}
-	audit.Log(r.Context(), "RESCHEDULE", "installment_plan", planID.Hex(), "Option: "+payload.Option, getUserID(r))
-	respondJSON(w, http.StatusOK, map[string]string{"message": "Plan rescheduled"})
+	respondJSON(w, http.StatusOK, plans)
 }
 
 func (h *InstallmentHandler) Delete(w http.ResponseWriter, r *http.Request) {
-	id, err := primitive.ObjectIDFromHex(mux.Vars(r)["id"])
-	if err != nil {
-		respondError(w, r, http.StatusBadRequest, "Invalid ID", "غلط شناخت")
-		return
-	}
+	id := mux.Vars(r)["id"]
 	if err := h.svc.DeletePlan(r.Context(), id); err != nil {
-		respondError(w, r, http.StatusInternalServerError, err.Error(), "ڈیلیٹ ناکام")
+		respondError(w, r, http.StatusInternalServerError, err.Error(), "پلان ڈیلیٹ نہیں ہوا")
 		return
 	}
-	audit.Log(r.Context(), "DELETE", "installment_plan", id.Hex(), "", getUserID(r))
-	respondJSON(w, http.StatusOK, map[string]string{"message": "Plan deleted"})
+	audit.Log(r.Context(), "DELETE", "installment", id, "", getUserID(r))
+	respondJSON(w, http.StatusOK, map[string]string{"message": "Deleted"})
 }

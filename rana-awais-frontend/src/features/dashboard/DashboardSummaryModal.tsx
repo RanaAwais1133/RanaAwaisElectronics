@@ -1,8 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import api from '../../utils/api';
-import { APP_CONFIG } from '../../config/app';
 import { useAuthStore } from '../../store/useAuthStore';
+import { useClientStore } from '../../store/useClientStore';
 
 interface DashboardSummaryModalProps {
   title: string;
@@ -34,12 +34,14 @@ interface CustomerPending {
 
 const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, type, onClose, isUrdu }) => {
   const currentUser = useAuthStore((state) => state.user);
+  const clientInfo = useClientStore((s) => s.info);
   const [details, setDetails] = useState<DetailItem[]>([]);
   const [customers, setCustomers] = useState<CustomerPending[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
     setError('');
 
@@ -50,14 +52,12 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
 
     api.get(endpoint)
       .then(res => {
+        if (cancelled) return;
         const d = res.data;
         const items: DetailItem[] = [];
 
         // If response is an array (edge case), wrap it
         if (Array.isArray(d)) {
-          // If it's an array of accounting entries, we can extract revenue/profit
-          // But usually it's an object.
-          // We'll just set empty items.
           setDetails([]);
           setCustomers([]);
           return;
@@ -132,12 +132,70 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
           }
         }
 
-        setDetails(items);
+        if (!cancelled) setDetails(items);
       })
       .catch(() => {
-        setError(isUrdu ? 'ڈیٹا لوڈ کرنے میں ناکامی' : 'Failed to load data');
+        // ✅ OFFLINE FALLBACK: Try to serve from cached dashboard summary
+        if (!cancelled) {
+          import('../../db/indexeddb').then(({ offlineDB }) => {
+            offlineDB.getCachedDashboardSummary().then(cached => {
+              if (cached && !cancelled) {
+                const items: DetailItem[] = [];
+                if (type === 'today') {
+                  items.push({
+                    label: isUrdu ? 'آج کی کل آمدنی' : "Today's Total Revenue",
+                    value: `Rs. ${(cached.todayRevenue || 0).toLocaleString()}`,
+                    rawValue: cached.todayRevenue || 0,
+                  });
+                  items.push({
+                    label: isUrdu ? 'آج کا کل منافع' : "Today's Total Profit",
+                    value: `Rs. ${(cached.todayProfit || 0).toLocaleString()}`,
+                    rawValue: cached.todayProfit || 0,
+                    isNegative: (cached.todayProfit || 0) < 0,
+                  });
+                  if (cached.todayCollection?.total) {
+                    items.push({
+                      label: isUrdu ? 'آج کی وصولی' : "Today's Collection",
+                      value: `Rs. ${(cached.todayCollection.total || 0).toLocaleString()}`,
+                      rawValue: cached.todayCollection.total || 0,
+                    });
+                  }
+                } else if (type === 'month') {
+                  items.push({
+                    label: isUrdu ? 'ماہ کی کل آمدنی' : "Month's Total Revenue",
+                    value: `Rs. ${(cached.monthRevenue || 0).toLocaleString()}`,
+                    rawValue: cached.monthRevenue || 0,
+                  });
+                  items.push({
+                    label: isUrdu ? 'ماہ کا کل منافع' : "Month's Total Profit",
+                    value: `Rs. ${(cached.monthProfit || 0).toLocaleString()}`,
+                    rawValue: cached.monthProfit || 0,
+                    isNegative: (cached.monthProfit || 0) < 0,
+                  });
+                } else {
+                  // Pending
+                  items.push({
+                    label: isUrdu ? 'کل بقایا رقم' : 'Total Pending Amount',
+                    value: `Rs. ${(cached.totalPending || 0).toLocaleString()}`,
+                    rawValue: cached.totalPending || 0,
+                  });
+                }
+                setDetails(items);
+              } else if (!cancelled) {
+                setError(isUrdu ? 'ڈیٹا لوڈ کرنے میں ناکامی' : 'Failed to load data');
+              }
+            }).catch(() => {
+              if (!cancelled) setError(isUrdu ? 'ڈیٹا لوڈ کرنے میں ناکامی' : 'Failed to load data');
+            });
+          }).catch(() => {
+            if (!cancelled) setError(isUrdu ? 'ڈیٹا لوڈ کرنے میں ناکامی' : 'Failed to load data');
+          });
+        }
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
   }, [type, isUrdu]);
 
   const handlePrint = useCallback(() => {
@@ -182,7 +240,7 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
       </head>
       <body>
         <div class="header">
-          <h1>${APP_CONFIG.companyName}</h1>
+          <h1>${clientInfo?.name || ''}</h1>
           <div class="sub">${title}</div>
           <div class="date">${isUrdu ? 'پرنٹ کی تاریخ' : 'Print Date'}: ${new Date().toLocaleDateString()} | ${isUrdu ? 'تیار کردہ' : 'Generated By'}: ${currentUser?.displayName || currentUser?.username || '—'}</div>
         </div>
@@ -201,7 +259,7 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
           </tbody>
         </table>
         <div class="footer">
-          ${isUrdu ? 'یہ رپورٹ خودکار طور پر تیار کی گئی ہے' : 'This report is auto-generated'} | ${APP_CONFIG.companyName}
+          ${isUrdu ? 'یہ رپورٹ خودکار طور پر تیار کی گئی ہے' : 'This report is auto-generated'} | ${clientInfo?.name || ''}
         </div>
         <script>window.onload=function(){setTimeout(function(){window.print();window.close()},300)}</script>
       </body></html>
@@ -325,7 +383,7 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
                 </div>
               ))}
 
-              {/* Total - skip profit items to avoid double-counting */}
+              {/* Total - skip profit items and count items to avoid double-counting */}
               <div className="flex items-center justify-between p-4 bg-gray-900 dark:bg-white rounded-xl mt-4">
                 <span className="text-sm font-bold text-white dark:text-gray-900 uppercase tracking-wider">
                   {isUrdu ? 'کل' : 'Total'}
@@ -334,6 +392,10 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
                   Rs. {details.reduce((sum, item) => {
                     // Skip profit items in total since profit is derived from revenue
                     if (item.label.toLowerCase().includes('profit') || item.label.toLowerCase().includes('منافع')) {
+                      return sum;
+                    }
+                    // Skip count/quantity items (like "Affected Customers", "Transactions") - only sum financial values
+                    if (item.label.toLowerCase().includes('متاثرہ گاہک') || item.label.toLowerCase().includes('affected customers') || item.label.toLowerCase().includes('transactions') || item.label.toLowerCase().includes('لین دین')) {
                       return sum;
                     }
                     return sum + (item.rawValue || 0);

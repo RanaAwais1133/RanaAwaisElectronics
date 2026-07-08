@@ -4,7 +4,7 @@ import api from '../../utils/api';
 import toast from 'react-hot-toast';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
-import { APP_CONFIG } from '../../config/app';
+import { useClientStore } from '../../store/useClientStore';
 import { useAuthStore } from '../../store/useAuthStore';
 
 interface PendingItem {
@@ -21,6 +21,7 @@ const PendingReport: React.FC = () => {
   const { i18n } = useTranslation();
   const isUrdu = i18n.language === 'ur';
   const currentUser = useAuthStore((state) => state.user);
+  const clientInfo = useClientStore((s) => s.info);
 
   const [items, setItems] = useState<PendingItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -31,7 +32,7 @@ const PendingReport: React.FC = () => {
   const reportRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    document.title = `${isUrdu ? 'زیر التواء رپورٹ' : 'Pending Report'} | ${APP_CONFIG.companyName}`;
+    document.title = `${isUrdu ? 'زیر التواء رپورٹ' : 'Pending Report'} | ${clientInfo.name}`;
   }, [isUrdu]);
 
   useEffect(() => {
@@ -146,7 +147,7 @@ const PendingReport: React.FC = () => {
       </style>
       </head>
       <body>
-        <h1>${APP_CONFIG.companyName}</h1>
+        <h1>${clientInfo.name}</h1>
         <div class="subtitle">${isUrdu ? 'زیر التواء رپورٹ' : 'Pending Report'} — ${new Date().toLocaleDateString()}</div>
         <div class="summary">
           <div class="summary-item"><div class="label">${isUrdu ? 'کل زیر التواء' : 'Total Pending'}</div><div class="value">Rs. ${pendingTotal.toLocaleString()}</div></div>
@@ -255,7 +256,7 @@ const PendingReport: React.FC = () => {
       {/* Report Content */}
       <div ref={reportRef} className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
         <div className="hidden print:block text-center p-6 border-b border-gray-200">
-          <h2 className="text-xl font-bold text-gray-900">{APP_CONFIG.companyName}</h2>
+          <h2 className="text-xl font-bold text-gray-900">{clientInfo.name}</h2>
           <p className="text-sm text-gray-500">{isUrdu ? 'زیر التواء رپورٹ' : 'Pending Report'}</p>
           <p className="text-xs text-gray-400">{new Date().toLocaleDateString()}</p>
         </div>

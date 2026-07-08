@@ -4,8 +4,8 @@ import api from '../../utils/api';
 import toast from 'react-hot-toast';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
-import { APP_CONFIG } from '../../config/app';
 import { useAuthStore } from '../../store/useAuthStore';
+import { useClientStore } from '../../store/useClientStore';
 
 // ==================== TYPES ====================
 interface DailyReportData {
@@ -62,14 +62,18 @@ const ReportHeader: React.FC<{
     day: 'numeric',
   });
   const dayName = now.toLocaleDateString(isUrdu ? 'ur-PK' : 'en-PK', { weekday: 'long' });
+  const clientInfo = useClientStore((s) => s.info);
+  const companyName = clientInfo.name;
+  const address = clientInfo.address || '';
+  const addressUr = clientInfo.addressUr || '';
 
   return (
     <div className="text-center mb-6 pb-4 border-b-2 border-gray-300 dark:border-gray-600">
       <h1 className="text-2xl font-extrabold text-gray-800 dark:text-white tracking-tight">
-        {APP_CONFIG.companyName}
+        {companyName}
       </h1>
       <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-        {isUrdu ? APP_CONFIG.addressUr : APP_CONFIG.address}
+        {isUrdu ? addressUr : address}
       </p>
       <div className="mt-3">
         <h2 className="text-xl font-bold text-blue-700 dark:text-blue-400">{title}</h2>
@@ -312,24 +316,18 @@ const CustomerReport: React.FC = () => {
 
       switch (reportType) {
         case 'daily': {
-          // Use /reports/daily endpoint which returns full daily report data
+          // Backend /reports/daily?date=YYYY-MM-DD
           res = await api.get(`/reports/daily?date=${todayStr}`);
           break;
         }
         case 'weekly': {
-          const weekAgo = new Date();
-          weekAgo.setDate(weekAgo.getDate() - 7);
-          const start = weekAgo.toISOString().split('T')[0];
-          const end = todayStr;
-          res = await api.get(`/reports/weekly?startDate=${start}&endDate=${end}`);
+          // Backend /reports/weekly calculates internally (no params needed)
+          res = await api.get(`/reports/weekly`);
           break;
         }
         case 'monthly': {
-          const monthAgo = new Date();
-          monthAgo.setMonth(monthAgo.getMonth() - 1);
-          const start = monthAgo.toISOString().split('T')[0];
-          const end = todayStr;
-          res = await api.get(`/reports/monthly?startDate=${start}&endDate=${end}`);
+          // Backend /reports/monthly calculates internally (no params needed)
+          res = await api.get(`/reports/monthly`);
           break;
         }
         case 'date-range': {
@@ -338,7 +336,8 @@ const CustomerReport: React.FC = () => {
             setLoading(false);
             return;
           }
-          res = await api.get(`/reports/date-range?startDate=${startDate}&endDate=${endDate}`);
+          // Backend /reports/date-range?start=YYYY-MM-DD&end=YYYY-MM-DD
+          res = await api.get(`/reports/date-range?start=${startDate}&end=${endDate}`);
           break;
         }
         default: {
@@ -349,22 +348,22 @@ const CustomerReport: React.FC = () => {
       const d = res.data;
       
       // Transform backend response to DailyReportData format
-      // Backend returns: totalSales, totalInstallments, totalCollected, totalPending, totalCustomers,
-      // cashInHand, bankDeposit, recoveryRate, openAccounts, closedAccounts, netAccounts, totalOutstanding, transactions
+      // Backend returns snake_case: total_sales, total_pending, customers, cash_in_hand, bank_deposit,
+      // recoveryRate, open_accounts, closed_accounts, net_accounts, total_outstanding, transactions
       const transactions = d.transactions || [];
       
       const response: DailyReportData = {
         date: d.date || todayStr,
         dayName: d.dayName || today.toLocaleDateString(isUrdu ? 'ur-PK' : 'en-PK', { weekday: 'long' }),
-        totalSales: d.totalSales || 0,
-        totalInstallments: d.totalInstallments || transactions.length || 0,
-        totalCollected: d.totalCollected || 0,
-        totalPending: d.totalPending || 0,
-        totalCustomers: d.totalCustomers || 0,
-        cashInHand: d.cashInHand || 0,
-        bankDeposit: d.bankDeposit || 0,
-        recoveryRate: d.recoveryRate || 0,
-        outstanding: d.totalOutstanding || 0,
+        totalSales: d.total_sales || d.totalSales || 0,
+        totalInstallments: d.total_installments || d.totalInstallments || transactions.length || 0,
+        totalCollected: d.total_collected || d.totalCollected || d.total_sales || 0,
+        totalPending: d.total_pending || d.totalPending || 0,
+        totalCustomers: d.customers || d.totalCustomers || 0,
+        cashInHand: d.cash_in_hand || d.cash_in_hand_amount || d.cashInHand || 0,
+        bankDeposit: d.bank_deposit || d.bank_deposit_amount || d.bankDeposit || 0,
+        recoveryRate: d.recoveryRate || d.recovery_rate || 0,
+        outstanding: d.total_outstanding || d.totalOutstanding || 0,
         transactions: transactions.map((t: any) => ({
           id: t.id || `txn-${Date.now()}-${Math.random()}`,
           customerName: t.customer_name || 'Unknown',
@@ -385,12 +384,12 @@ const CustomerReport: React.FC = () => {
         advancePayments: d.advancePayments || 0,
         fineReceived: d.fineReceived || 0,
         processingFee: d.processingFee || 0,
-        openAccounts: d.openAccounts || 0,
-        closedAccounts: d.closedAccounts || 0,
-        netAccounts: d.netAccounts || 0,
+        openAccounts: d.open_accounts || d.openAccounts || 0,
+        closedAccounts: d.closed_accounts || d.closedAccounts || 0,
+        netAccounts: d.net_accounts || d.netAccounts || 0,
         freshOutstanding: d.freshOutstanding || 0,
         regularOutstanding: d.regularOutstanding || 0,
-        totalOutstanding: d.totalOutstanding || 0,
+        totalOutstanding: d.total_outstanding || d.totalOutstanding || 0,
       };
 
       setReportData(response);

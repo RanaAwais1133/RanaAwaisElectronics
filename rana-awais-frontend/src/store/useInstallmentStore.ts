@@ -1,4 +1,6 @@
 import { create } from 'zustand';
+import { roundMoney } from '../utils/math';
+import { undoMiddleware } from './undoMiddleware';
 
 // ✅ Types
 export interface InstallmentDetail {
@@ -65,6 +67,15 @@ export interface InstallmentPlan {
   updatedAt?: string;
 }
 
+// Undo/Redo interface added by middleware
+export interface UndoRedoActions {
+  undo: () => void;
+  redo: () => void;
+  clearHistory: () => void;
+  canUndo: () => boolean;
+  canRedo: () => boolean;
+}
+
 interface InstallmentState {
   // Plan data
   plan: InstallmentPlan;
@@ -95,7 +106,10 @@ interface InstallmentState {
   loadPlan: (plan: Partial<InstallmentPlan>) => void;
 }
 
-// ✅ Generate schedule with proper calculations
+// Full store type including undo/redo
+export type FullInstallmentState = InstallmentState & UndoRedoActions;
+
+// ✅ Generate schedule with proper calculations using math utility
 const generateSchedule = (
   remaining: number,
   months: number,
@@ -110,11 +124,11 @@ const generateSchedule = (
   if (installmentAmount && installmentAmount > 0) {
     perInstallment = installmentAmount;
   } else {
-    perInstallment = Math.round((remaining / months) * 100) / 100;
+    perInstallment = roundMoney(remaining / months);
   }
 
   const totalCalculated = perInstallment * months;
-  const adjustment = Math.round((remaining - totalCalculated) * 100) / 100;
+  const adjustment = roundMoney(remaining - totalCalculated);
 
   const schedule: InstallmentDetail[] = [];
   let totalAllocated = 0;
@@ -126,17 +140,17 @@ const generateSchedule = (
     let amount = perInstallment;
     if (i === months - 1) {
       // Last installment gets the adjustment
-      amount = Math.round((remaining - totalAllocated) * 100) / 100;
+      amount = roundMoney(remaining - totalAllocated);
     }
     totalAllocated += amount;
 
     schedule.push({
       installmentNo: i + 1,
       dueDate: dueDate.toISOString().split('T')[0],
-      amount: Math.round(amount * 100) / 100,
+      amount: roundMoney(amount),
       paid: false,
       partialPaid: 0,
-      remaining: Math.round(amount * 100) / 100,
+      remaining: roundMoney(amount),
       fine: 0,
     });
   }
@@ -161,195 +175,200 @@ const defaultPlan: InstallmentPlan = {
   schedule: [],
 };
 
-// ✅ Create store WITHOUT persist middleware to avoid infinite re-render loops
-export const useInstallmentStore = create<InstallmentState>()((set, get) => ({
-  plan: { ...defaultPlan },
-  isCalculating: false,
-  error: null,
-
-  // ✅ Setters
-  setCustomerId: (id: string) => {
-    set(state => ({
-      plan: { ...state.plan, customerId: id }
-    }));
-  },
-
-  setProductId: (id: string) => {
-    set(state => ({
-      plan: { ...state.plan, productId: id }
-    }));
-  },
-
-  setInventoryItemId: (id: string) => {
-    set(state => ({
-      plan: { ...state.plan, inventoryItemId: id }
-    }));
-  },
-
-  setTotalAmount: (amt: number) => {
-    set(state => {
-      const plan = { ...state.plan, totalAmount: amt };
-      plan.remainingAmount = amt - plan.downPayment;
-      return { plan };
-    });
-  },
-
-  setDownPayment: (amt: number) => {
-    set(state => {
-      const plan = { ...state.plan, downPayment: amt };
-      plan.remainingAmount = plan.totalAmount - amt;
-      return { plan };
-    });
-  },
-
-  setNumInstallments: (n: number) => {
-    set(state => ({
-      plan: { ...state.plan, numInstallments: n }
-    }));
-  },
-
-  setInstallmentAmount: (amt: number) => {
-    set(state => ({
-      plan: { ...state.plan, installmentAmount: amt }
-    }));
-  },
-
-  setStartDate: (date: string) => {
-    set(state => ({
-      plan: { ...state.plan, startDate: date }
-    }));
-  },
-
-  setEndDate: (date: string) => {
-    set(state => ({
-      plan: { ...state.plan, endDate: date }
-    }));
-  },
-
-  setGracePeriod: (days: number) => {
-    set(state => ({
-      plan: { ...state.plan, gracePeriodDays: days }
-    }));
-  },
-
-  setFinePerDay: (fine: number) => {
-    set(state => ({
-      plan: { ...state.plan, finePerDay: fine }
-    }));
-  },
-
-  setStatus: (status: InstallmentPlan['status']) => {
-    set(state => ({
-      plan: { ...state.plan, status }
-    }));
-  },
-
-  setCreatedBy: (name: string) => {
-    set(state => ({
-      plan: { ...state.plan, createdBy: name }
-    }));
-  },
-
-  setProductDetails: (details: Partial<InstallmentPlan>) => {
-    set(state => ({
-      plan: { ...state.plan, ...details }
-    }));
-  },
-
-  setAdditionalFields: (fields: Partial<InstallmentPlan>) => {
-    set(state => ({
-      plan: { ...state.plan, ...fields }
-    }));
-  },
-
-  setSchedule: (schedule: InstallmentDetail[]) => {
-    set(state => ({
-      plan: { ...state.plan, schedule }
-    }));
-  },
-
-  updateInstallment: (index: number, data: Partial<InstallmentDetail>) => {
-    set(state => {
-      const schedule = [...state.plan.schedule];
-      if (index >= 0 && index < schedule.length) {
-        schedule[index] = { ...schedule[index], ...data };
-      }
-      return {
-        plan: { ...state.plan, schedule }
-      };
-    });
-  },
-
-  // ✅ Calculate schedule
-  calculateSchedule: () => {
-    const { plan } = get();
-    const { totalAmount, downPayment, numInstallments, startDate, installmentAmount } = plan;
-    
-    const remaining = totalAmount - downPayment;
-    
-    if (remaining <= 0 || numInstallments <= 0) {
-      set({ 
-        plan: { ...plan, schedule: [], remainingAmount: 0 },
-        error: 'Remaining amount or number of installments is invalid'
-      });
-      return;
-    }
-
-    set({ isCalculating: true, error: null });
-
-    try {
-      const schedule = generateSchedule(remaining, numInstallments, startDate, installmentAmount);
-      const endDate = schedule.length > 0 ? schedule[schedule.length - 1].dueDate : startDate;
-      
-      set({
-        plan: {
-          ...plan,
-          remainingAmount: remaining,
-          schedule,
-          endDate,
-          installmentAmount: schedule.length > 0 ? schedule[0].amount : 0,
-        },
-        isCalculating: false,
-      });
-    } catch (error) {
-      set({
-        error: 'Failed to calculate schedule',
-        isCalculating: false,
-      });
-    }
-  },
-
-  // ✅ Reset
-  reset: () => {
-    set({
-      plan: { ...defaultPlan, startDate: new Date().toISOString().split('T')[0] },
+// ✅ Create store with undo/redo middleware
+export const useInstallmentStore = create<any>()(
+  undoMiddleware(
+    (set, get) => ({
+      plan: { ...defaultPlan },
       isCalculating: false,
       error: null,
-    });
-  },
 
-  // ✅ Clear error
-  clearError: () => {
-    set({ error: null });
-  },
+      // ✅ Setters
+      setCustomerId: (id: string) => {
+        set((state: any) => ({
+          plan: { ...state.plan, customerId: id }
+        }));
+      },
 
-  // ✅ Load plan
-  loadPlan: (planData: Partial<InstallmentPlan>) => {
-    set(state => ({
-      plan: { ...state.plan, ...planData }
-    }));
-  },
-}));
+      setProductId: (id: string) => {
+        set((state: any) => ({
+          plan: { ...state.plan, productId: id }
+        }));
+      },
+
+      setInventoryItemId: (id: string) => {
+        set((state: any) => ({
+          plan: { ...state.plan, inventoryItemId: id }
+        }));
+      },
+
+      setTotalAmount: (amt: number) => {
+        set((state: any) => {
+          const plan = { ...state.plan, totalAmount: amt };
+          plan.remainingAmount = roundMoney(amt - plan.downPayment);
+          return { plan };
+        });
+      },
+
+      setDownPayment: (amt: number) => {
+        set((state: any) => {
+          const plan = { ...state.plan, downPayment: amt };
+          plan.remainingAmount = roundMoney(plan.totalAmount - amt);
+          return { plan };
+        });
+      },
+
+      setNumInstallments: (n: number) => {
+        set((state: any) => ({
+          plan: { ...state.plan, numInstallments: n }
+        }));
+      },
+
+      setInstallmentAmount: (amt: number) => {
+        set((state: any) => ({
+          plan: { ...state.plan, installmentAmount: amt }
+        }));
+      },
+
+      setStartDate: (date: string) => {
+        set((state: any) => ({
+          plan: { ...state.plan, startDate: date }
+        }));
+      },
+
+      setEndDate: (date: string) => {
+        set((state: any) => ({
+          plan: { ...state.plan, endDate: date }
+        }));
+      },
+
+      setGracePeriod: (days: number) => {
+        set((state: any) => ({
+          plan: { ...state.plan, gracePeriodDays: days }
+        }));
+      },
+
+      setFinePerDay: (fine: number) => {
+        set((state: any) => ({
+          plan: { ...state.plan, finePerDay: fine }
+        }));
+      },
+
+      setStatus: (status: InstallmentPlan['status']) => {
+        set((state: any) => ({
+          plan: { ...state.plan, status }
+        }));
+      },
+
+      setCreatedBy: (name: string) => {
+        set((state: any) => ({
+          plan: { ...state.plan, createdBy: name }
+        }));
+      },
+
+      setProductDetails: (details: Partial<InstallmentPlan>) => {
+        set((state: any) => ({
+          plan: { ...state.plan, ...details }
+        }));
+      },
+
+      setAdditionalFields: (fields: Partial<InstallmentPlan>) => {
+        set((state: any) => ({
+          plan: { ...state.plan, ...fields }
+        }));
+      },
+
+      setSchedule: (schedule: InstallmentDetail[]) => {
+        set((state: any) => ({
+          plan: { ...state.plan, schedule }
+        }));
+      },
+
+      updateInstallment: (index: number, data: Partial<InstallmentDetail>) => {
+        set((state: any) => {
+          const schedule = [...state.plan.schedule];
+          if (index >= 0 && index < schedule.length) {
+            schedule[index] = { ...schedule[index], ...data };
+          }
+          return {
+            plan: { ...state.plan, schedule }
+          };
+        });
+      },
+
+      // ✅ Calculate schedule
+      calculateSchedule: () => {
+        const { plan } = get();
+        const { totalAmount, downPayment, numInstallments, startDate, installmentAmount } = plan;
+        
+        const remaining = roundMoney(totalAmount - downPayment);
+        
+        if (remaining <= 0 || numInstallments <= 0) {
+          set({ 
+            plan: { ...plan, schedule: [], remainingAmount: 0 },
+            error: 'Remaining amount or number of installments is invalid'
+          });
+          return;
+        }
+
+        set({ isCalculating: true, error: null });
+
+        try {
+          const schedule = generateSchedule(remaining, numInstallments, startDate, installmentAmount);
+          const endDate = schedule.length > 0 ? schedule[schedule.length - 1].dueDate : startDate;
+          
+          set({
+            plan: {
+              ...plan,
+              remainingAmount: remaining,
+              schedule,
+              endDate,
+              installmentAmount: schedule.length > 0 ? schedule[0].amount : 0,
+            },
+            isCalculating: false,
+          });
+        } catch (error) {
+          set({
+            error: 'Failed to calculate schedule',
+            isCalculating: false,
+          });
+        }
+      },
+
+      // ✅ Reset
+      reset: () => {
+        set({
+          plan: { ...defaultPlan, startDate: new Date().toISOString().split('T')[0] },
+          isCalculating: false,
+          error: null,
+        });
+      },
+
+      // ✅ Clear error
+      clearError: () => {
+        set({ error: null });
+      },
+
+      // ✅ Load plan
+      loadPlan: (planData: Partial<InstallmentPlan>) => {
+        set((state: any) => ({
+          plan: { ...state.plan, ...planData }
+        }));
+      },
+    }),
+    { maxHistory: 50 }
+  )
+);
 
 // ✅ Helper hooks
-export const useInstallmentPlan = () => useInstallmentStore((state) => state.plan);
-export const useInstallmentSchedule = () => useInstallmentStore((state) => state.plan.schedule);
-export const useInstallmentCalculating = () => useInstallmentStore((state) => state.isCalculating);
-export const useInstallmentError = () => useInstallmentStore((state) => state.error);
+export const useInstallmentPlan = () => useInstallmentStore((state: any) => state.plan);
+export const useInstallmentSchedule = () => useInstallmentStore((state: any) => state.plan.schedule);
+export const useInstallmentCalculating = () => useInstallmentStore((state: any) => state.isCalculating);
+export const useInstallmentError = () => useInstallmentStore((state: any) => state.error);
 
 // ✅ Utility functions
 export const getTotalInstallmentAmount = (schedule: InstallmentDetail[]): number => {
-  return schedule.reduce((sum, inst) => sum + inst.amount, 0);
+  return roundMoney(schedule.reduce((sum, inst) => sum + inst.amount, 0));
 };
 
 export const getPaidInstallments = (schedule: InstallmentDetail[]): InstallmentDetail[] => {
@@ -361,11 +380,17 @@ export const getPendingInstallments = (schedule: InstallmentDetail[]): Installme
 };
 
 export const getTotalPaidAmount = (schedule: InstallmentDetail[]): number => {
-  return schedule.reduce((sum, inst) => sum + (inst.partialPaid || 0), 0);
+  return roundMoney(schedule.reduce((sum, inst) => sum + (inst.partialPaid || 0), 0));
 };
 
 export const getTotalRemainingAmount = (schedule: InstallmentDetail[]): number => {
-  return schedule.reduce((sum, inst) => sum + (inst.remaining || inst.amount || 0), 0);
+  return roundMoney(schedule.reduce((sum, inst) => {
+    // Only count remaining for unpaid installments
+    if (inst.paid) return sum;
+    // Use explicit remaining value; fallback to (amount - partialPaid) if remaining is undefined
+    const remaining = inst.remaining !== undefined ? inst.remaining : (inst.amount - (inst.partialPaid || 0));
+    return sum + Math.max(0, remaining);
+  }, 0));
 };
 
 export default useInstallmentStore;

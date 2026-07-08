@@ -2,31 +2,35 @@ import React, { useMemo } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../../store/useAuthStore';
-import { APP_CONFIG } from '../../config/app'; // ✅ NEW: Import config
+import { useClientStore } from '../../store/useClientStore';
 
 interface SidebarProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-// ✅ Define links with icons
+// ✅ Define links with icons - Updated for 3 roles
 const baseLinks = [
   { to: '/', labelKey: 'dashboard', shortcut: 'Alt+D', icon: '📊', roles: ['admin', 'manager', 'staff'] },
-  { to: '/customers', labelKey: 'customers', shortcut: 'Alt+C', icon: '👤', roles: ['admin', 'manager'] },
+  { to: '/customers', labelKey: 'customers', shortcut: 'Alt+C', icon: '👤', roles: ['admin', 'manager', 'staff'] },
   { to: '/products', labelKey: 'products', shortcut: 'Alt+P', icon: '📦', roles: ['admin', 'manager'] },
   { to: '/installments', labelKey: 'installments', shortcut: 'Alt+I', icon: '📋', roles: ['admin', 'manager', 'staff'] },
-  { to: '/installments/new', labelKey: 'new_installment', shortcut: 'Alt+N', icon: '➕', roles: ['admin', 'manager'] },
+  { to: '/installments/new', labelKey: 'new_installment', shortcut: 'Alt+N', icon: '➕', roles: ['admin', 'manager', 'staff'] },
   { to: '/guarantors', labelKey: 'guarantors', shortcut: 'Alt+G', icon: '🤝', roles: ['admin', 'manager'] },
   { to: '/reports', labelKey: 'reports', shortcut: 'Alt+R', icon: '📄', roles: ['admin', 'manager'] },
   { to: '/reminders', labelKey: 'reminders', shortcut: 'Alt+M', icon: '🔔', roles: ['admin', 'manager'] },
   { to: '/audit-logs', labelKey: 'audit_logs', shortcut: 'Alt+L', icon: '📜', roles: ['admin', 'manager'] },
+  { to: '/backup', labelKey: 'backup', shortcut: 'Alt+B', icon: '💾', roles: ['admin'] },
   { to: '/settings', labelKey: 'settings', shortcut: 'Alt+S', icon: '⚙️', roles: ['admin'] },
 ];
+
 
 const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   const { t } = useTranslation();
   const location = useLocation();
   const user = useAuthStore((s) => s.user);
+  // ✅ Global store se company name - settings change karte hi update ho jayega
+  const companyName = useClientStore((s) => s.info.name);
 
   const isActiveLink = (path: string) => {
     if (path === '/') return location.pathname === '/';
@@ -63,7 +67,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
         {/* Mobile header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700 md:hidden">
           <span className="font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600">
-            {APP_CONFIG.companyName}
+            {companyName}
           </span>
           <button 
             onClick={onClose} 
@@ -104,10 +108,10 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
             );
           })}
           
-          {/* ✅ Footer with app version */}
+          {/* ✅ Footer with company name */}
           <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
             <p className="text-xs text-gray-400 dark:text-gray-500 text-center">
-              {APP_CONFIG.appName} v1.0.0
+              {companyName} v1.0.0
             </p>
           </div>
         </nav>

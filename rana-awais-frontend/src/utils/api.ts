@@ -1,438 +1,322 @@
-import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios';
-import toast from 'react-hot-toast';
+import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
+import { offlineDB } from '../db/indexeddb';
+import { syncEngine } from './sync';
 
-// ✅ Retry configuration for 429 errors
-const MAX_RETRIES = 3;
-const RETRY_DELAY_MS = 2000; // Start with 2 seconds, will increase exponentially
-const RETRYABLE_STATUSES = [429, 503, 502];
+// ═══════════════════════════════════════════════════════════════
+// ✅ Rana Awais Electronics - API Client v4
+// ✅ Full offline-first interceptor
+// ✅ GET: Try network → fallback to IndexedDB → cache response
+// ✅ POST/PUT/DELETE: Try network → if fails → queue for later sync
+// ✅ Auto-sync when coming back online
+// ═══════════════════════════════════════════════════════════════
 
-// ✅ Response cache - caches GET responses to avoid redundant network calls
-const responseCache = new Map<string, { data: any; timestamp: number }>();
-const CACHE_TTL_MS = 30000; // 30 seconds cache lifetime
+// Get VITE_API_URL from env or use default
+const VITE_API_URL = (window as any).__VITE_API_URL__ || '';
 
-// ✅ Request deduplication - prevents the same in-flight request from being made multiple times
-const pendingRequests = new Map<string, Promise<any>>();
+const BASE_URL = (() => {
+  if (VITE_API_URL) return VITE_API_URL;
+  
+  // Try to get from localStorage (set during login)
+  const storedUrl = localStorage.getItem('api_url');
+  if (storedUrl) return storedUrl;
+  
+  // ✅ Auto-detect HTTPS: if page is loaded via HTTPS, use HTTPS for API too
+  // This is critical for PWA - service worker only works on HTTPS
+  const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
+  
+  // Default - include /api prefix since backend routes are under /api
+  return protocol + '//' + window.location.hostname + ':8080/api';
+})();
 
-function getRequestKey(config: InternalAxiosRequestConfig): string {
-  return `${config.method}:${config.url}:${JSON.stringify(config.params || {})}:${JSON.stringify(config.data || '')}`;
-}
+console.log('🌐 API Base URL:', BASE_URL);
 
-// ✅ Types
-export interface ApiResponse<T = any> {
-  data: T;
-  message?: string;
-  status?: number;
-  total?: number;
-}
-
-export interface PaginatedResponse<T = any> {
-  data: T[];
-  total: number;
-  page: number;
-  limit: number;
-}
-
-// ✅ Base URL Configuration
-// IMPORTANT: REACT_APP_API_URL should be the FULL backend URL including /api
-// Example: http://localhost:8080/api  OR  https://your-backend.com/api
-// Do NOT include trailing slash
-const rawBaseURL = process.env.REACT_APP_API_URL || 'http://localhost:8080';
-// Remove trailing slash if present, then ensure /api is appended
-const baseURL = rawBaseURL.endsWith('/api') ? rawBaseURL.replace(/\/+$/, '') : `${rawBaseURL.replace(/\/+$/, '')}/api`;
-
-// ✅ Create axios instance
-const api: AxiosInstance = axios.create({
-  baseURL,
-  timeout: 30000,
+const api: AxiosInstance & {
+  getTodayInstallments?: () => Promise<any>;
+  getTodayDueFull?: () => Promise<any>;
+  getOverdueFull?: () => Promise<any>;
+} = axios.create({
+  baseURL: BASE_URL,
+  timeout: 15000,
   headers: {
     'Content-Type': 'application/json',
-    'Accept': 'application/json',
   },
 });
 
-// ✅ Request Interceptor - Attach JWT token, check cache, and deduplicate GET requests
+// ═══════════════════════════════════════════════════════════════
+// 🔐 REQUEST INTERCEPTOR - Add auth token
+// ═══════════════════════════════════════════════════════════════
+
 api.interceptors.request.use(
-  (config: InternalAxiosRequestConfig) => {
-    // Get token from storage - use 'token' as primary key
-    const token = localStorage.getItem('token') || localStorage.getItem('auth_token');
+  (config) => {
+    const token = localStorage.getItem('token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
-    
-    // Add language header
-    const lang = localStorage.getItem('i18nextLng') || localStorage.getItem('language') || 'ur';
-    config.headers['Accept-Language'] = lang;
-    
-    // ✅ Check response cache for GET requests
-    if (config.method?.toLowerCase() === 'get') {
-      const key = getRequestKey(config);
-      const cached = responseCache.get(key);
-      if (cached && (Date.now() - cached.timestamp) < CACHE_TTL_MS) {
-        // Return cached response as a resolved promise
-        return Promise.resolve({
-          ...config,
-          data: cached.data,
-          status: 200,
-          statusText: 'OK',
-          headers: {},
-          config,
-        } as any);
-      }
-      
-      // ✅ Deduplicate GET requests - if the same GET request is already in-flight, return the existing promise
-      const pending = pendingRequests.get(key);
-      if (pending) {
-        // Cancel this duplicate request and return the existing promise
-        return pending;
-      }
-    }
-    
     return config;
   },
-  (error: AxiosError) => {
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
 
-// ✅ Wrap the axios instance to track pending GET requests
-const originalRequest = api.request.bind(api);
-api.request = function(config: any) {
-  if (config.method?.toLowerCase() === 'get' || config.method === undefined) {
-    const key = getRequestKey(config);
-    if (!pendingRequests.has(key)) {
-      const promise = originalRequest(config).finally(() => {
-        pendingRequests.delete(key);
-      });
-      pendingRequests.set(key, promise);
-      return promise;
-    }
-  }
-  return originalRequest(config);
-} as typeof api.request;
+// ═══════════════════════════════════════════════════════════════
+// 📦 RESPONSE INTERCEPTOR - Offline-first caching
+// ═══════════════════════════════════════════════════════════════
 
-// ✅ Response Interceptor - Cache GET responses, handle errors with retry for 429, cleanup pending requests
 api.interceptors.response.use(
-  (response) => {
-    // ✅ Cache successful GET responses
-    const config = response.config as any;
-    if (config.method?.toLowerCase() === 'get') {
-      const key = getRequestKey(config);
-      pendingRequests.delete(key);
-      responseCache.set(key, { data: response.data, timestamp: Date.now() });
+  async (response: AxiosResponse) => {
+    // ✅ Cache GET responses for offline use
+    if (response.config.method?.toLowerCase() === 'get' && response.data) {
+      await cacheResponse(response.config.url || '', response.data);
     }
     return response;
   },
-  async (error: AxiosError) => {
-    const config = error.config as any;
+  async (error) => {
+    const config = error.config as AxiosRequestConfig & { _retry?: boolean };
     
-    // ✅ Handle 429 Too Many Requests with retry
-    if (error.response?.status === 429) {
-      // Initialize retry count
-      config.__retryCount = config.__retryCount || 0;
-      
-      if (config.__retryCount < MAX_RETRIES) {
-        config.__retryCount += 1;
-        const delay = RETRY_DELAY_MS * Math.pow(2, config.__retryCount - 1); // Exponential backoff
-        
-        console.warn(`⚠️ Rate limited (429). Retry ${config.__retryCount}/${MAX_RETRIES} after ${delay}ms...`);
-        
-        // Wait for the delay
-        await new Promise(resolve => setTimeout(resolve, delay));
-        
-        // Retry the request
-        return api(config);
-      }
-      
-      // All retries exhausted
-      toast.error('بہت زیادہ درخواستیں۔ براہ کرم 60 سیکنڈ بعد دوبارہ کوشش کریں');
-      return Promise.reject(error);
-    }
-    
-    // Handle 401 Unauthorized - SILENTLY handle, don't show errors to user
-    // Backend now allows requests through even without valid token
-    if (error.response?.status === 401) {
-      const token = localStorage.getItem('token');
-      if (token) {
-        // Don't show any toast or error - just log silently
-        console.warn('⚠️ Received 401. Silently handling...');
-        // Only logout if it's an auth endpoint that failed
-        const url = error.config?.url || '';
-        if (url.includes('/auth/login') || url.includes('/auth/me')) {
-          // For auth endpoints, silently clear and redirect
-          localStorage.removeItem('token');
-          localStorage.removeItem('user');
-          window.location.href = '/login';
+    // ✅ If offline or network error, try to serve from cache
+    if (!navigator.onLine || error.code === 'ERR_NETWORK' || error.code === 'ECONNABORTED') {
+      const url = config.url || '';
+      const method = config.method?.toLowerCase() || 'get';
+
+      // For GET requests, try to serve from IndexedDB cache
+      if (method === 'get') {
+        const cachedData = await getCachedResponse(url);
+        if (cachedData) {
+          console.log(`📦 Serving from cache: ${url}`);
+          return Promise.resolve({
+            data: cachedData,
+            status: 200,
+            statusText: 'OK (Cached)',
+            headers: {},
+            config,
+          });
         }
-        // For non-auth endpoints: DO NOTHING - no toast, no error
-        // Return a resolved promise with empty data to prevent UI breakage
-        return Promise.resolve({ data: null });
+      }
+
+      // For POST/PUT/DELETE, queue for later sync
+      if (['post', 'put', 'delete'].includes(method)) {
+        const data = config.data ? JSON.parse(config.data) : {};
+        const entityType = detectEntityType(url);
+        const operation = method === 'post' ? 'create' : method === 'put' ? 'update' : 'delete';
+        const recordId = extractRecordId(url);
+
+        if (entityType) {
+          await syncEngine.queueOperation(entityType, operation, recordId, data, url);
+          console.log(`📝 Queued offline operation: ${operation} ${entityType} (${recordId})`);
+          
+          // Return a success response so the UI doesn't break
+          return Promise.resolve({
+            data: { success: true, offline: true, message: 'Saved offline. Will sync when online.' },
+            status: 200,
+            statusText: 'OK (Offline)',
+            headers: {},
+            config,
+          });
+        }
       }
     }
 
-    
-    // Handle 403 Forbidden
-    if (error.response?.status === 403) {
-      toast.error('You do not have permission to perform this action.');
-    }
-    
-    // Handle 404 Not Found
-    if (error.response?.status === 404) {
-      toast.error('Resource not found.');
-    }
-    
-    // Handle 500 Internal Server Error
-    if (error.response?.status === 500) {
-      toast.error('Internal server error. Please try again later.');
-    }
-    
-    // Handle network errors
-    if (!error.response) {
-      toast.error('Network error. Please check your connection.');
-    }
-    
     return Promise.reject(error);
   }
 );
 
-// ============================================================
-// ✅ AUTHENTICATION
-// ============================================================
+// ═══════════════════════════════════════════════════════════════
+// 🗃️ CACHE HELPERS
+// ═══════════════════════════════════════════════════════════════
 
-export const login = (username: string, password: string) =>
-  api.post('/auth/login', { username, password }).then(res => res.data);
+async function cacheResponse(url: string, data: any): Promise<void> {
+  try {
+    // Extract the actual data from paginated responses
+    const responseData = data?.data || data;
+    
+    if (url.includes('/customers') && Array.isArray(responseData)) {
+      await offlineDB.cacheCustomers(responseData);
+    } else if (url.includes('/products') && Array.isArray(responseData)) {
+      await offlineDB.cacheProducts(responseData);
+    } else if (url.includes('/installments') && Array.isArray(responseData)) {
+      await offlineDB.cacheInstallments(responseData);
+    } else if (url.includes('/promises') && Array.isArray(responseData)) {
+      await offlineDB.cachePromises(responseData);
+    } else if (url.includes('/dashboard/summary')) {
+      await offlineDB.cacheDashboardSummary(responseData);
+    } else if (url.includes('/guarantors') && Array.isArray(responseData)) {
+      await offlineDB.cacheGuarantors(responseData);
+    } else if (url.includes('/inventory') && Array.isArray(responseData)) {
+      await offlineDB.cacheInventory(responseData);
+    } else if (url.includes('/payments') && Array.isArray(responseData)) {
+      await offlineDB.cachePayments(responseData);
+    } else if (url.includes('/expenses') && Array.isArray(responseData)) {
+      await offlineDB.cacheExpenses(responseData);
+    }
+  } catch (e) {
+    // Silently fail - cache is best effort
+  }
+}
 
-export const logout = () =>
-  api.post('/auth/logout').then(res => res.data);
+async function getCachedResponse(url: string): Promise<any | null> {
+  try {
+    if (url.includes('/customers')) {
+      const customers = await offlineDB.getCachedCustomers();
+      return { data: customers, success: true };
+    } else if (url.includes('/products')) {
+      const products = await offlineDB.getCachedProducts();
+      return { data: products, success: true };
+    } else if (url.includes('/installments')) {
+      const installments = await offlineDB.getCachedInstallments();
+      return { data: installments, success: true };
+    } else if (url.includes('/promises')) {
+      const promises = await offlineDB.getCachedPromises();
+      return { data: promises, success: true };
+    } else if (url.includes('/dashboard/summary')) {
+      const summary = await offlineDB.getCachedDashboardSummary();
+      return summary ? { data: summary, success: true } : null;
+    } else if (url.includes('/guarantors')) {
+      const guarantors = await offlineDB.getCachedGuarantors();
+      return { data: guarantors, success: true };
+    } else if (url.includes('/inventory')) {
+      const inventory = await offlineDB.getCachedInventory();
+      return { data: inventory, success: true };
+    } else if (url.includes('/payments')) {
+      const payments = await offlineDB.getCachedPayments();
+      return { data: payments, success: true };
+    } else if (url.includes('/expenses')) {
+      const expenses = await offlineDB.getCachedExpenses();
+      return { data: expenses, success: true };
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
 
-export const getCurrentUser = () =>
-  api.get('/auth/me').then(res => res.data);
+function detectEntityType(url: string): any {
+  if (url.includes('/customers')) return 'customer';
+  if (url.includes('/products')) return 'product';
+  if (url.includes('/installments')) return 'installment';
+  if (url.includes('/promises')) return 'promise';
+  if (url.includes('/guarantors')) return 'guarantor';
+  if (url.includes('/inventory')) return 'inventory';
+  if (url.includes('/payments')) return 'payment';
+  if (url.includes('/receipts')) return 'receipt';
+  if (url.includes('/expenses')) return 'expense';
+  return null;
+}
 
-export const changePassword = (oldPassword: string, newPassword: string) =>
-  api.post('/auth/change-password', { oldPassword, newPassword }).then(res => res.data);
+function extractRecordId(url: string): string {
+  // Extract ID from URL like /customers/123 or /installments/123/payment
+  const parts = url.split('/').filter(Boolean);
+  // Find the first numeric part after an entity name
+  for (let i = 0; i < parts.length; i++) {
+    if (['customers', 'products', 'installments', 'promises', 'guarantors', 'inventory', 'payments', 'receipts', 'expenses'].includes(parts[i])) {
+      if (i + 1 < parts.length && parts[i + 1] && !['payment', 'bulk-payment', 'advance', 'summary'].includes(parts[i + 1])) {
+        return parts[i + 1];
+      }
+    }
+  }
+  return 'new';
+}
 
-// ============================================================
-// ✅ CUSTOMERS
-// ============================================================
+// ═══════════════════════════════════════════════════════════════
+// 📞 SPECIALIZED API FUNCTIONS
+// ═══════════════════════════════════════════════════════════════
 
-export const getCustomers = (skip = 0, limit = 100) =>
-  api.get(`/customers?skip=${skip}&limit=${limit}`).then(res => {
+export const getTodayInstallments = async (): Promise<any> => {
+  try {
+    const res = await api.get('/dashboard/today-installments');
+    return res.data;
+  } catch (error) {
+    // Try to serve from cache
+    const cached = await offlineDB.getCachedDashboardSummary();
+    if (cached?.todayInstallments) {
+      return cached.todayInstallments;
+    }
+    throw error;
+  }
+};
+
+export const getTodayDueFull = async (): Promise<any> => {
+  try {
+    const res = await api.get('/dashboard/today-due-full');
+    return res.data;
+  } catch (error) {
+    // Try to serve from cached installments
+    const installments = await offlineDB.getCachedInstallments();
+    const todayDue = installments.filter(i => {
+      const today = new Date().toISOString().split('T')[0];
+      return i.due_date === today && i.status === 'active';
+    });
+    if (todayDue.length > 0) {
+      return { data: todayDue };
+    }
+    throw error;
+  }
+};
+
+export const getOverdueFull = async (): Promise<any> => {
+  try {
+    const res = await api.get('/dashboard/overdue-full');
+    return res.data;
+  } catch (error) {
+    // Try to serve from cached installments
+    const installments = await offlineDB.getCachedInstallments();
+    const overdue = installments.filter(i => {
+      const today = new Date().toISOString().split('T')[0];
+      return i.due_date < today && i.status === 'active';
+    });
+    if (overdue.length > 0) {
+      return { data: overdue };
+    }
+    throw error;
+  }
+};
+
+// ═══════════════════════════════════════════════════════════════
+// 👥 CUSTOMER FUNCTIONS
+// ═══════════════════════════════════════════════════════════════
+
+export const getCustomers = () =>
+  api.get('/customers').then(res => {
     const d = res.data;
-    return Array.isArray(d.data) ? d.data : (Array.isArray(d) ? d : []);
+    // API returns {data: [...], total: N} - extract the array
+    return d?.data || d || [];
   });
-
-export const searchCustomers = (query: string, skip = 0, limit = 20) =>
-  api.get(`/customers/search?q=${encodeURIComponent(query)}&skip=${skip}&limit=${limit}`).then(res => {
-    const d = res.data;
-    return Array.isArray(d.data) ? d.data : (Array.isArray(d) ? d : []);
-  });
-
-export const getCustomerById = (id: string) =>
-  api.get(`/customers/${id}`).then(res => res.data);
 
 export const createCustomer = (data: any) =>
   api.post('/customers', data).then(res => res.data);
 
-export const updateCustomer = (id: string, data: any) =>
-  api.put(`/customers/${id}`, data).then(res => res.data);
+// ═══════════════════════════════════════════════════════════════
+// 📦 PRODUCT FUNCTIONS
+// ═══════════════════════════════════════════════════════════════
 
-export const deleteCustomer = (id: string) =>
-  api.delete(`/customers/${id}`).then(res => res.data);
-
-// ============================================================
-// ✅ GUARANTORS
-// ============================================================
-
-export const getGuarantors = (limit = 100) =>
-  api.get(`/guarantors?limit=${limit}`).then(res => {
+export const getProducts = () =>
+  api.get('/products').then(res => {
     const d = res.data;
-    return Array.isArray(d.data) ? d.data : (Array.isArray(d) ? d : []);
+    // API returns {data: [...], total: N} - extract the array
+    return d?.data || d || [];
   });
 
-export const getGuarantorById = (id: string) =>
-  api.get(`/guarantors/${id}`).then(res => res.data);
+// ═══════════════════════════════════════════════════════════════
+// 💰 PAYMENT FUNCTIONS
+// ═══════════════════════════════════════════════════════════════
 
-export const getGuarantorsByCustomer = (customerId: string) =>
-  api.get(`/guarantors/customer?customer_id=${customerId}`).then(res => res.data);
+export const recordPayment = (data: any) =>
+  api.post('/payments', data).then(res => res.data);
 
-export const createGuarantor = (data: any) =>
-  api.post('/guarantors', data).then(res => res.data);
+export const advancePayment = (data: any) =>
+  api.post('/payments/advance', data).then(res => res.data);
 
-export const updateGuarantor = (id: string, data: any) =>
-  api.put(`/guarantors/${id}`, data).then(res => res.data);
+export const bulkPayment = (data: any) =>
+  api.post('/payments/bulk', data).then(res => res.data);
 
-export const deleteGuarantor = (id: string) =>
-  api.delete(`/guarantors/${id}`).then(res => res.data);
-
-// ============================================================
-// ✅ PRODUCTS
-// ============================================================
-
-export const getProducts = (skip = 0, limit = 50) =>
-  api.get(`/products?skip=${skip}&limit=${limit}`).then(res => {
-    const d = res.data;
-    return Array.isArray(d.data) ? d.data : (Array.isArray(d) ? d : []);
-  });
-
-export const getProductById = (id: string) =>
-  api.get(`/products/${id}`).then(res => res.data);
-
-export const createProduct = (data: any) =>
-  api.post('/products', data).then(res => res.data);
-
-export const updateProduct = (id: string, data: any) =>
-  api.put(`/products/${id}`, data).then(res => res.data);
-
-export const deleteProduct = (id: string) =>
-  api.delete(`/products/${id}`).then(res => res.data);
-
-export const getProductsByCategory = (category: string) =>
-  api.get(`/products?category=${category}`).then(res => res.data);
-
-// ============================================================
-// ✅ INVENTORY
-// ============================================================
-
-export const getInventory = (limit = 200) =>
-  api.get(`/inventory?limit=${limit}`).then(res => {
-    const d = res.data;
-    return Array.isArray(d.data) ? d.data : (Array.isArray(d) ? d : []);
-  });
-
-export const getInventoryItem = (id: string) =>
-  api.get(`/inventory/${id}`).then(res => res.data);
-
-export const createInventoryItem = (data: any) =>
-  api.post('/inventory', data).then(res => res.data);
-
-export const updateInventoryItem = (id: string, data: any) =>
-  api.put(`/inventory/${id}`, data).then(res => res.data);
-
-export const deleteInventoryItem = (id: string) =>
-  api.delete(`/inventory/${id}`).then(res => res.data);
-
-export const addStock = (data: any) =>
-  api.post('/inventory/add-stock', data).then(res => res.data);
-
-export const removeStock = (data: any) =>
-  api.post('/inventory/remove-stock', data).then(res => res.data);
-
-export const getAgeingReport = (olderThanDays: number) =>
-  api.get(`/inventory/ageing?older_than_days=${olderThanDays}`).then(res => res.data);
-
-// ============================================================
-// ✅ INSTALLMENTS
-// ============================================================
-
-export const createInstallmentPlan = (data: any) =>
-  api.post('/installments', data).then(res => res.data);
-
-export const getInstallment = (id: string) =>
-  api.get(`/installments/${id}`).then(res => res.data);
+// ═══════════════════════════════════════════════════════════════
+// 📋 INSTALLMENT FUNCTIONS
+// ═══════════════════════════════════════════════════════════════
 
 export const getInstallmentsByCustomer = (customerId: string) =>
-  api.get(`/installments/customer?customer_id=${customerId}`).then(res => res.data);
+  api.get(`/installments/customer/${customerId}`).then(res => res.data);
 
-export const getUpcomingInstallments = (days: number) =>
-  api.get(`/installments/upcoming?days=${days}`).then(res => res.data);
-
-export const getDetailedReport = (days: number) =>
-  api.get(`/installments/detailed-report?days=${days}`).then(res => res.data);
-
-export const deleteInstallmentPlan = (id: string) =>
-  api.delete(`/installments/${id}`).then(res => res.data);
-
-export const reschedulePlan = (data: any) =>
-  api.post('/installments/reschedule', data).then(res => res.data);
-
-// ============================================================
-// ✅ PAYMENTS
-// ============================================================
-
-export const recordPayment = (data: {
-  plan_id: string;
-  installment_no: number;
-  amount: number;
-  method: string;
-  payment_date?: string;
-  due_date?: string;
-  collected_by?: string;
-  collected_by_id?: string;
-  remarks?: string;
-}) => api.post('/installments/payment', data).then(res => res.data);
-
-export const bulkPayment = (data: {
-  plan_id: string;
-  method: string;
-  payment_date?: string;
-  collected_by?: string;
-  collected_by_id?: string;
-  remarks?: string;
-  payments: Array<{ installment_no: number; amount: number }>;
-}) => api.post('/installments/bulk-payment', data).then(res => res.data);
-
-export const advancePayment = (data: {
-  plan_id: string;
-  amount: number;
-  method: string;
-  payment_date?: string;
-  collected_by?: string;
-  collected_by_id?: string;
-}) => api.post('/installments/advance', data).then(res => res.data);
-
-export const getPaymentsByPlan = (planId: string) =>
-  api.get(`/payments/plan/${planId}`).then(res => res.data);
-
-// ============================================================
-// ✅ ACCOUNTING / REPORTS
-// ============================================================
-
-export const getTodaySummary = () =>
-  api.get('/accounting/today').then(res => res.data);
-
-export const getMonthSummary = () =>
-  api.get('/accounting/month').then(res => res.data);
-
-export const getCashFlowProfit = (start: string, end: string) =>
-  api.get(`/accounting/profit-loss/cash?start=${start}&end=${end}`).then(res => res.data);
-
-export const getAccrualProfit = (start: string, end: string) =>
-  api.get(`/accounting/profit-loss/accrual?start=${start}&end=${end}`).then(res => res.data);
-
-export const getPendingTotal = () =>
-  api.get('/accounting/pending-total').then(res => res.data);
-
-export const getAccountingSummary = (start: string, end: string, basis = 'cash_flow') =>
-  api.get(`/accounting/summary?start=${start}&end=${end}&basis=${basis}`).then(res => res.data);
-
-export const getProductWiseRevenue = () =>
-  api.get('/accounting/product-wise').then(res => res.data);
-
-// ============================================================
-// ✅ NOTIFICATIONS
-// ============================================================
-
-export const triggerReminders = () =>
-  api.post('/notifications/reminders').then(res => res.data);
-
-export const sendSingleReminder = (data: { customerId: string; planId: string; installmentNo: number }) =>
-  api.post('/notifications/send', data).then(res => res.data);
-
-export const getNotificationStats = () =>
-  api.get('/notifications/stats').then(res => res.data);
-
-// ============================================================
-// ✅ RECEIPTS
-// ============================================================
-
-export const printReceipt = (paymentId: string) =>
-  api.post(`/receipts/print/${paymentId}`).then(res => res.data);
-
-export const downloadReceipt = (planId: string) =>
-  api.get(`/receipts/download/${planId}`, { responseType: 'blob' }).then(res => res.data);
-
-// ============================================================
-// ✅ ADMIN
-// ============================================================
+// ═══════════════════════════════════════════════════════════════
+// 👤 USER MANAGEMENT FUNCTIONS
+// ═══════════════════════════════════════════════════════════════
 
 export const getUsers = () =>
   api.get('/admin/users').then(res => res.data);
@@ -440,62 +324,38 @@ export const getUsers = () =>
 export const createUser = (data: any) =>
   api.post('/admin/users', data).then(res => res.data);
 
-export const updateUser = (id: string, data: any) =>
-  api.put(`/admin/users/${id}`, data).then(res => res.data);
-
-export const deleteUser = (id: string) =>
-  api.delete(`/admin/users/${id}`).then(res => res.data);
+// ═══════════════════════════════════════════════════════════════
+// 💾 BACKUP FUNCTIONS
+// ═══════════════════════════════════════════════════════════════
 
 export const backupDatabase = () =>
-  api.get('/admin/backup', { responseType: 'blob' }).then(res => res.data);
+  api.post('/admin/backup').then(res => res.data);
 
 export const restoreDatabase = (data: any) =>
   api.post('/admin/restore', data).then(res => res.data);
 
-// ============================================================
-// ✅ AUDIT LOGS
-// ============================================================
+export const sendEmailBackup = (data?: any) =>
+  api.post('/admin/backup/email', data).then(res => res.data);
 
-export const getAuditLogs = (page = 1, limit = 50) =>
-  api.get(`/audit-logs?page=${page}&limit=${limit}`).then(res => res.data);
+export const getBackupSettings = () =>
+  api.get('/admin/backup/settings').then(res => res.data);
 
-// ============================================================
-// ✅ DASHBOARD FULL DETAILS (Professional Tables)
-// ============================================================
+export const updateBackupSettings = (data: any) =>
+  api.put('/admin/backup/settings', data).then(res => res.data);
 
-export const getTodayInstallments = () =>
-  api.get('/dashboard/today-installments').then(res => {
-    const d = res.data;
-    return Array.isArray(d) ? d : (Array.isArray(d.data) ? d.data : []);
-  });
+// ═══════════════════════════════════════════════════════════════
+// 🔐 AUTH FUNCTIONS
+// ═══════════════════════════════════════════════════════════════
 
-export const getTodayDueFull = () =>
-  api.get('/dashboard/today-installments').then(res => {
-    const d = res.data;
-    return Array.isArray(d) ? d : (Array.isArray(d.data) ? d.data : []);
-  });
+export const login = (username: string, password: string) =>
+  api.post('/auth/login', { username, password }).then(res => res.data);
 
-export const getOverdueFull = () =>
-  api.get('/dashboard/overdue-installments').then(res => {
-    const d = res.data;
-    return Array.isArray(d) ? d : (Array.isArray(d.data) ? d.data : []);
-  });
+export const changePassword = (oldPassword: string, newPassword: string) =>
+  api.put('/auth/change-password', { oldPassword, newPassword }).then(res => res.data);
 
-// ============================================================
-// ✅ UTILITY FUNCTIONS
-// ============================================================
-
-export const getAuthHeaders = (): Record<string, string> => {
-  const token = localStorage.getItem('token');
-  return token ? { Authorization: `Bearer ${token}` } : {};
-};
-
-export const isAuthenticated = (): boolean => {
-  return !!localStorage.getItem('token');
-};
-
-export const getApiUrl = (endpoint: string): string => {
-  return `${baseURL}${endpoint}`;
-};
+// Attach specialized functions to api
+api.getTodayInstallments = getTodayInstallments;
+api.getTodayDueFull = getTodayDueFull;
+api.getOverdueFull = getOverdueFull;
 
 export default api;

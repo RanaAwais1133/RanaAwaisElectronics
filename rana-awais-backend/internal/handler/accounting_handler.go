@@ -1,14 +1,11 @@
 package handler
 
 import (
-	"errors"
 	"net/http"
 	"time"
 
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/config"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/service"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
 )
 
 type AccountingHandler struct {
@@ -19,7 +16,6 @@ func NewAccountingHandler(svc *service.AccountingService) *AccountingHandler {
 	return &AccountingHandler{svc: svc}
 }
 
-// TodaySummary returns revenue and profit for today.
 func (h *AccountingHandler) TodaySummary(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
@@ -30,141 +26,142 @@ func (h *AccountingHandler) TodaySummary(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Get today's pending total
 	db := config.DB
-	installmentsColl := db.Collection(config.ColInstallments)
-	pendingPipeline := mongo.Pipeline{
-		{{Key: "$match", Value: bson.M{"status": "active"}}},
-		{{Key: "$unwind", Value: "$installments"}},
-		{{Key: "$match", Value: bson.M{
-			"installments.paid":     false,
-			"installments.due_date": bson.M{"$gte": start, "$lt": end},
-		}}},
-		{{Key: "$group", Value: bson.M{
-			"_id":   nil,
-			"total": bson.M{"$sum": bson.M{"$subtract": bson.A{bson.M{"$add": bson.A{"$installments.amount", "$installments.fine"}}, "$installments.partial_paid"}}},
-		}}},
-	}
-	pendingCursor, _ := installmentsColl.Aggregate(r.Context(), pendingPipeline)
-	pending := 0.0
-	if pendingCursor != nil {
-		var pendingResults []struct {
-			Total float64 `bson:"total"`
-		}
-		if pendingCursor.All(r.Context(), &pendingResults) == nil && len(pendingResults) > 0 {
-			pending = pendingResults[0].Total
-		}
-		pendingCursor.Close(r.Context())
+	var pendingTotal float64
+	err = db.QueryRowContext(r.Context(), `
+		SELECT COALESCE(SUM(COALESCE(d.amount, 0) + COALESCE(d.fine, 0) - COALESCE(d.partial_paid, 0)), 0)
+		FROM installment_details d
+		JOIN installment_plans p ON d.plan_id = p.id
+		WHERE d.paid = 0 AND p.status = 'active' AND d.due_date >= ? AND d.due_date < ?
+	`, start, end).Scan(&pendingTotal)
+	if err != nil {
+		pendingTotal = 0
 	}
 
-	// Get today's total sales (installment plans created today)
-	salesPipeline := mongo.Pipeline{
-		{{Key: "$match", Value: bson.M{"created_at": bson.M{"$gte": start, "$lt": end}}}},
-		{{Key: "$group", Value: bson.M{"_id": nil, "total": bson.M{"$sum": "$total_amount"}}}},
-	}
-	salesCursor, _ := installmentsColl.Aggregate(r.Context(), salesPipeline)
-	totalSales := 0.0
-	if salesCursor != nil {
-		var salesResults []struct {
-			Total float64 `bson:"total"`
-		}
-		if salesCursor.All(r.Context(), &salesResults) == nil && len(salesResults) > 0 {
-			totalSales = salesResults[0].Total
-		}
-		salesCursor.Close(r.Context())
-	}
+	var customerCount int
+	db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM customers").Scan(&customerCount)
 
-	// Get today's customers count
-	paymentsColl := db.Collection(config.ColPayments)
-	custPipeline := mongo.Pipeline{
-		{{Key: "$match", Value: bson.M{"transaction_date": bson.M{"$gte": start, "$lt": end}}}},
-		{{Key: "$group", Value: bson.M{"_id": "$customer_id"}}},
-		{{Key: "$count", Value: "count"}},
-	}
-	custCursor, _ := paymentsColl.Aggregate(r.Context(), custPipeline)
-	customers := 0
-	if custCursor != nil {
-		var custResults []struct {
-			Count int `bson:"count"`
-		}
-		if custCursor.All(r.Context(), &custResults) == nil && len(custResults) > 0 {
-			customers = custResults[0].Count
-		}
-		custCursor.Close(r.Context())
-	}
+	var collectionCount int
+	db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM payments WHERE transaction_date >= ? AND transaction_date < ?", start, end).Scan(&collectionCount)
+
+	var activePlans int
+	db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM installment_plans WHERE status IN ('active','overdue')").Scan(&activePlans)
+
+	var totalOutstanding float64
+	db.QueryRowContext(r.Context(), `
+		SELECT COALESCE(SUM(COALESCE(d.amount,0)+COALESCE(d.fine,0)-COALESCE(d.partial_paid,0)), 0)
+		FROM installment_details d JOIN installment_plans p ON d.plan_id = p.id
+		WHERE d.paid = 0 AND p.status IN ('active','overdue')
+	`).Scan(&totalOutstanding)
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"revenue":      revenue,
-		"profit":       profit,
-		"pending":      pending,
-		"total_sales":  totalSales,
-		"customers":    customers,
+		"revenue":         revenue,
+		"profit":          profit,
+		"pending_total":   pendingTotal,
+		"customers":       customerCount,
+		"date":            now.Format("2006-01-02"),
+		"collection_count": collectionCount,
+		"active_plans":    activePlans,
+		"total_outstanding": totalOutstanding,
 	})
 }
 
-// MonthSummary returns revenue and profit for current month.
 func (h *AccountingHandler) MonthSummary(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	start := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
 	end := start.AddDate(0, 1, 0)
 	revenue, profit, err := h.svc.GetRevenueAndProfit(r.Context(), start, end)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "Failed to get month", "ماہانہ ڈیٹا نہیں آیا")
+		respondError(w, r, http.StatusInternalServerError, "Failed to get month", "مہینے کا ڈیٹا نہیں آیا")
 		return
 	}
+
+	db := config.DB
+	var pendingTotal float64
+	db.QueryRowContext(r.Context(), `
+		SELECT COALESCE(SUM(COALESCE(d.amount, 0) + COALESCE(d.fine, 0) - COALESCE(d.partial_paid, 0)), 0)
+		FROM installment_details d
+		JOIN installment_plans p ON d.plan_id = p.id
+		WHERE d.paid = 0 AND p.status = 'active' AND d.due_date >= ? AND d.due_date < ?
+	`, start, end).Scan(&pendingTotal)
+
+	var customerCount int
+	db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM customers").Scan(&customerCount)
+
+	var collectionCount int
+	db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM payments WHERE transaction_date >= ? AND transaction_date < ?", start, end).Scan(&collectionCount)
+
+	var activePlans int
+	db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM installment_plans WHERE status IN ('active','overdue')").Scan(&activePlans)
+
+	var totalOutstanding float64
+	db.QueryRowContext(r.Context(), `
+		SELECT COALESCE(SUM(COALESCE(d.amount,0)+COALESCE(d.fine,0)-COALESCE(d.partial_paid,0)), 0)
+		FROM installment_details d JOIN installment_plans p ON d.plan_id = p.id
+		WHERE d.paid = 0 AND p.status IN ('active','overdue')
+	`).Scan(&totalOutstanding)
+
 	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"revenue": revenue,
-		"profit":  profit,
+		"revenue":          revenue,
+		"profit":           profit,
+		"pending_total":    pendingTotal,
+		"customers":        customerCount,
+		"month":            now.Format("2006-01"),
+		"collection_count": collectionCount,
+		"active_plans":     activePlans,
+		"total_outstanding": totalOutstanding,
 	})
 }
 
-// ProfitLossCashFlow returns cash_flow profit for a custom date range.
 func (h *AccountingHandler) ProfitLossCashFlow(w http.ResponseWriter, r *http.Request) {
 	start, end, err := parseDateRange(r)
 	if err != nil {
 		respondError(w, r, http.StatusBadRequest, "Invalid date range", "غلط تاریخ کی حد")
 		return
 	}
-	profit, err := h.svc.GetProfitLossCashFlow(r.Context(), start, end)
+	revenue, profit, err := h.svc.GetRevenueAndProfit(r.Context(), start, end)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "Report failed", "رپورٹ نہیں بن سکی")
+		respondError(w, r, http.StatusInternalServerError, "Failed to get profit/loss", "منافع/نقصان نہیں آیا")
 		return
 	}
-	respondJSON(w, http.StatusOK, map[string]float64{"profit": profit})
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"revenue": revenue,
+		"profit":  profit,
+		"start":   start.Format("2006-01-02"),
+		"end":     end.Format("2006-01-02"),
+	})
 }
 
-// ProfitLossAccrual returns accrual profit for a custom date range.
 func (h *AccountingHandler) ProfitLossAccrual(w http.ResponseWriter, r *http.Request) {
 	start, end, err := parseDateRange(r)
 	if err != nil {
 		respondError(w, r, http.StatusBadRequest, "Invalid date range", "غلط تاریخ کی حد")
 		return
 	}
-	profit, err := h.svc.GetProfitLossAccrual(r.Context(), start, end)
+	db := config.DB
+	rows, err := db.QueryContext(r.Context(), `
+		SELECT type, amount FROM accounting_entries 
+		WHERE basis = 'accrual' AND date >= ? AND date <= ?
+	`, start, end)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "Report failed", "رپورٹ نہیں بن سکی")
+		respondError(w, r, http.StatusInternalServerError, "Failed to get accrual report", "اکروئل رپورٹ نہیں آئی")
 		return
 	}
-	respondJSON(w, http.StatusOK, map[string]float64{"profit": profit})
-}
-
-func parseDateRange(r *http.Request) (time.Time, time.Time, error) {
-	startStr := r.URL.Query().Get("start")
-	endStr := r.URL.Query().Get("end")
-	if startStr == "" || endStr == "" {
-		return time.Time{}, time.Time{}, errors.New("start and end dates are required")
+	defer rows.Close()
+	var income, expense float64
+	for rows.Next() {
+		var typ string
+		var amt float64
+		rows.Scan(&typ, &amt)
+		if typ == "income" {
+			income += amt
+		} else {
+			expense += amt
+		}
 	}
-	start, err := time.Parse("2006-01-02", startStr)
-	if err != nil {
-		return time.Time{}, time.Time{}, err
-	}
-	end, err := time.Parse("2006-01-02", endStr)
-	if err != nil {
-		return time.Time{}, time.Time{}, err
-	}
-	if end.Before(start) {
-		return time.Time{}, time.Time{}, errors.New("end date must be on or after start date")
-	}
-	end = end.Add(24*time.Hour - time.Nanosecond)
-	return start, end, nil
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"income":  income,
+		"expense": expense,
+		"profit":  income - expense,
+	})
 }

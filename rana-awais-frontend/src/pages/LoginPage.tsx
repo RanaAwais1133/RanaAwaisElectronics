@@ -6,11 +6,12 @@ import { login } from '../utils/api';
 import toast from 'react-hot-toast';
 import LanguageToggle from '../components/bilingual/LanguageToggle';
 import ThemeToggle from '../components/bilingual/ThemeToggle';
-import { APP_CONFIG } from '../config/app';
+import { useClientStore } from '../store/useClientStore';
 
 const LoginPage: React.FC = () => {
   const { t, i18n } = useTranslation();
   const isUrdu = i18n.language === 'ur';
+  const clientInfo = useClientStore((s) => s.info);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -29,12 +30,28 @@ const LoginPage: React.FC = () => {
     
     setLoading(true);
     try {
+      console.log("🔐 LoginPage: Sending login request...");
+      console.log("   username:", username);
+      console.log("   password length:", password.length);
+      
       const data = await login(username, password);
+      
+      console.log("✅ LoginPage: Login response received:", data);
+      
       setAuth(data.token, data.user);
       
       toast.success(isUrdu ? 'خوش آمدید! لاگ ان کامیاب' : t('login_success'));
       navigate('/');
     } catch (err: any) {
+      console.error("❌ LoginPage: Login failed!");
+      console.error("   Error object:", err);
+      console.error("   Error message:", err.message);
+      console.error("   Error response:", err.response);
+      console.error("   Error response status:", err.response?.status);
+      console.error("   Error response data:", JSON.stringify(err.response?.data));
+      console.error("   Error response headers:", JSON.stringify(err.response?.headers));
+      console.error("   Error config:", JSON.stringify(err.config));
+      
       const errorMsg = err.response?.data?.error || err.response?.data?.message || 
                        (isUrdu ? 'لاگ ان ناکام' : t('login_failed'));
       toast.error(errorMsg);
@@ -51,7 +68,7 @@ const LoginPage: React.FC = () => {
     return isUrdu ? 'شب بخیر' : 'Good Evening';
   };
 
-  const companyName = isUrdu ? APP_CONFIG.companyNameUr : APP_CONFIG.companyName;
+  const companyName = isUrdu ? (clientInfo.nameUr || clientInfo.name) : clientInfo.name;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-indigo-50/30 to-purple-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 p-4">
@@ -148,7 +165,7 @@ const LoginPage: React.FC = () => {
 
             {/* ✅ Footer */}
             <div className="text-center text-[11px] text-gray-400 dark:text-gray-500">
-              {isUrdu ? 'سافٹ ویئر بذریعہ' : 'Software by'} {isUrdu ? APP_CONFIG.softwareByUr : APP_CONFIG.softwareBy}
+              {isUrdu ? 'سافٹ ویئر بذریعہ' : 'Software by'} {isUrdu ? (clientInfo.softwareByUr || clientInfo.softwareBy) : clientInfo.softwareBy}
             </div>
           </form>
         </div>

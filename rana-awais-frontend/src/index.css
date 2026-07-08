@@ -465,6 +465,129 @@
 }
 
 /* ============================================================
+   ✅ MOBILE OPTIMIZATIONS (PWA)
+   ============================================================ */
+
+/* ✅ Prevent 300ms tap delay on mobile */
+html {
+  touch-action: manipulation;
+}
+
+/* ✅ Smooth scrolling on mobile */
+* {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ✅ Mobile tap highlight */
+* {
+  -webkit-tap-highlight-color: rgba(37, 99, 235, 0.15);
+}
+
+/* ✅ Prevent zoom on input focus (iOS fix) */
+@media screen and (max-width: 768px) {
+  input, select, textarea {
+    font-size: 16px !important; /* Prevents iOS zoom on focus */
+  }
+  
+  /* ✅ Better touch targets */
+  button, a, .btn, [role="button"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  
+  /* ✅ Prevent horizontal scroll */
+  .table-container {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  /* ✅ Better modal on mobile */
+  .modal {
+    max-width: 100% !important;
+    margin: 0 8px;
+    max-height: 85vh;
+  }
+  
+  /* ✅ Sidebar full width on mobile */
+  .sidebar-mobile {
+    width: 280px !important;
+  }
+  
+  /* ✅ Card padding reduction on mobile */
+  .card-body {
+    padding: 12px !important;
+  }
+  
+  /* ✅ Reduce padding on mobile */
+  .p-6 {
+    padding: 12px !important;
+  }
+  
+  /* ✅ Better spacing for mobile grids */
+  .grid {
+    gap: 8px !important;
+  }
+  
+  /* ✅ Full width buttons on mobile */
+  .btn-mobile-full {
+    width: 100%;
+  }
+}
+
+/* ✅ Landscape mode optimization */
+@media screen and (max-height: 500px) {
+  .modal {
+    max-height: 95vh;
+    margin: 4px;
+  }
+  
+  .modal-body {
+    padding: 12px !important;
+  }
+}
+
+/* ✅ Dark mode mobile adjustments */
+@media (prefers-color-scheme: dark) {
+  html {
+    background-color: #1a1a2e;
+  }
+}
+
+/* ✅ Safe area for notched phones */
+@supports (padding: env(safe-area-inset-top)) {
+  .safe-area-top {
+    padding-top: env(safe-area-inset-top);
+  }
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .safe-area-left {
+    padding-left: env(safe-area-inset-left);
+  }
+  .safe-area-right {
+    padding-right: env(safe-area-inset-right);
+  }
+}
+
+/* ✅ Prevent pull-to-refresh on PWA */
+html, body {
+  overscroll-behavior: none;
+}
+
+/* ✅ Better scrollbar for mobile */
+@media (hover: none) and (pointer: coarse) {
+  ::-webkit-scrollbar {
+    width: 3px;
+    height: 3px;
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    background-color: rgba(0, 0, 0, 0.2);
+    border-radius: 2px;
+  }
+}
+
+/* ============================================================
    ✅ UTILITY CLASSES
    ============================================================ */
 

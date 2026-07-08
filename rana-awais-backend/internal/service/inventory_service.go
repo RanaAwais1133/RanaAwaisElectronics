@@ -7,7 +7,6 @@ import (
 
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/domain"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/repository"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type InventoryService struct {
@@ -22,7 +21,7 @@ func (s *InventoryService) Create(ctx context.Context, item *domain.InventoryIte
 	return s.inventoryRepo.Create(ctx, item)
 }
 
-func (s *InventoryService) GetByID(ctx context.Context, id primitive.ObjectID) (*domain.InventoryItem, error) {
+func (s *InventoryService) GetByID(ctx context.Context, id string) (*domain.InventoryItem, error) {
 	return s.inventoryRepo.GetByID(ctx, id)
 }
 
@@ -34,7 +33,7 @@ func (s *InventoryService) GetAgeingReport(ctx context.Context, olderThanDays in
 	return s.inventoryRepo.GetAgeingReport(ctx, olderThanDays)
 }
 
-func (s *InventoryService) MarkAsSold(ctx context.Context, id primitive.ObjectID) error {
+func (s *InventoryService) MarkAsSold(ctx context.Context, id string) error {
 	item, err := s.inventoryRepo.GetByID(ctx, id)
 	if err != nil || item == nil {
 		return errors.New("item not found")
@@ -49,19 +48,19 @@ func (s *InventoryService) Count(ctx context.Context) (int64, error) {
 	return s.inventoryRepo.Count(ctx)
 }
 
-func (s *InventoryService) ListByProduct(ctx context.Context, productID primitive.ObjectID) ([]domain.InventoryItem, error) {
+func (s *InventoryService) ListByProduct(ctx context.Context, productID string) ([]domain.InventoryItem, error) {
 	return s.inventoryRepo.ListByProduct(ctx, productID)
 }
 
-func (s *InventoryService) Update(ctx context.Context, id primitive.ObjectID, item *domain.InventoryItem) error {
+func (s *InventoryService) Update(ctx context.Context, id string, item *domain.InventoryItem) error {
 	return s.inventoryRepo.Update(ctx, id, item)
 }
 
-func (s *InventoryService) Delete(ctx context.Context, id primitive.ObjectID) error {
+func (s *InventoryService) Delete(ctx context.Context, id string) error {
 	return s.inventoryRepo.Delete(ctx, id)
 }
 
-// ✅ NEW: GetTotalStockWorth - Total value of all stock
+// GetTotalStockWorth calculates total value of all stock
 func (s *InventoryService) GetTotalStockWorth(ctx context.Context) (float64, error) {
 	items, err := s.inventoryRepo.List(ctx, 0, 999999)
 	if err != nil {
@@ -76,7 +75,7 @@ func (s *InventoryService) GetTotalStockWorth(ctx context.Context) (float64, err
 	return total, nil
 }
 
-// ✅ NEW: GetInventorySummary
+// GetInventorySummary returns a summary of inventory
 func (s *InventoryService) GetInventorySummary(ctx context.Context) (map[string]interface{}, error) {
 	items, err := s.inventoryRepo.List(ctx, 0, 999999)
 	if err != nil {

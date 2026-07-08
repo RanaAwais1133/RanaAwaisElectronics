@@ -1,0 +1,55 @@
+{
+  "_comment": "🔧 CLIENT CONFIGURATION - Is file mein client ki details change karein",
+  "_comment2": "Har client ke liye alag config banayein, phir build karein",
+  "_comment3": "License key: Huziafaish1133@#$% - PERMANENT, kabhi expire nahi hoti",
+
+  "client": {
+    "name": "Rana Awais Autos and Electronics",
+    "nameUr": "رانا اویس آٹوز اور الیکٹرانکس",
+    "branch": "Main",
+    "branchUr": "مین",
+    "address": "Behari Colony, Disposal Chowk, Bismillah Service Station, Opposite Noor Super Store, Kacha Aiemanabad Road, Gujranwala",
+    "addressUr": "بہاری کالونی، ڈسپوزل چوک، بسم اللہ سروس اسٹیشن، نور سپر اسٹور کے سامنے، کچّہ ایمن آباد روڈ، گوجرانوالہ",
+    "phones": ["0324-9959800", "0319-6429407", "0318-7311277"],
+    "softwareBy": "Huzaifa (0313-6487199)",
+    "softwareByUr": "حذیفہ (0313-6487199)",
+    "invoiceNote": "",
+    "invoiceNoteUr": "نوٹ: مذکورہ بالا تفصیلات درست اور تصدیق شدہ ہیں۔",
+    "serviceNote": "",
+    "serviceNoteUr": "سروس چارجز میں صرف ایڈوانس شامل ہے"
+  },
+
+  "server": {
+    "port": 8080,
+    "environment": "production",
+    "frontendUrl": "http://localhost:3000"
+  },
+
+  "database": {
+    "path": "./rana-awais.db"
+  },
+
+  "auth": {
+    "jwtSecret": "change-me-in-production",
+    "jwtExpiryHours": 87600,
+    "adminUsername": "admin",
+    "adminPassword": "admin123",
+    "adminDisplayName": "Admin"
+  },
+
+  "license": {
+    "key": "Huziafaish1133@#$%"
+  },
+
+  "fine": {
+    "perDay": 0,
+    "maxPercent": 0,
+    "gracePeriodDays": 0
+  },
+
+  "integrations": {
+    "smsEndpoint": "",
+    "whatsappApi": "",
+    "thermalEndpoint": ""
+  }
+}

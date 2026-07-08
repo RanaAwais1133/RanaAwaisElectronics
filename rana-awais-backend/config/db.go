@@ -2,324 +2,312 @@ package config
 
 import (
 	"context"
+	"database/sql"
 	"log"
+	"os"
+	"path/filepath"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson"
+	_ "github.com/mattn/go-sqlite3"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/repository/sqlite"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-	"go.mongodb.org/mongo-driver/mongo/readpref"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // ═══════════════════════════════════════
 // 📦 GLOBAL VARIABLES
 // ═══════════════════════════════════════
 
-// DB holds the active database connection.
-var DB *mongo.Database
+// DB holds the active SQLite database connection.
+var DB *sql.DB
 
-// Client holds the MongoDB client (useful for transactions or advanced operations).
-var Client *mongo.Client
+// MongoClient holds the active MongoDB client connection.
+var MongoClient *mongo.Client
 
-// ═══════════════════════════════════════
-// 🔌 COLLECTION NAMES (DRY)
-// ═══════════════════════════════════════
-
-const (
-	ColCustomers     = "customers"
-	ColGuarantors    = "guarantors"
-	ColProducts      = "products"
-	ColInventory     = "inventory"
-	ColInstallments  = "installments"
-	ColPayments      = "payments"
-	ColAuditLogs     = "audit_logs"
-	ColNotifications = "notifications"
-	ColAccounting    = "accounting"
-	ColUsers         = "users"
-)
+// MongoDatabase holds the active MongoDB database instance.
+var MongoDatabase *mongo.Database
 
 // ═══════════════════════════════════════
 // 🔌 CONNECT TO DATABASE
 // ═══════════════════════════════════════
 
-// ConnectDB establishes a connection to MongoDB using the provided configuration.
-// It will retry up to 3 times before failing.
+// ConnectDB establishes a connection to SQLite database.
 func ConnectDB(cfg *Config) {
-	var client *mongo.Client
 	var err error
 
-	maxRetries := 3
-	retryDelay := 2 * time.Second
-
-	for attempt := 1; attempt <= maxRetries; attempt++ {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-
-		clientOpts := options.Client().
-			ApplyURI(cfg.MongoURI).
-			SetMaxPoolSize(50).
-			SetMinPoolSize(10).
-			SetMaxConnIdleTime(5 * time.Minute).
-			SetServerSelectionTimeout(5 * time.Second).
-			SetConnectTimeout(10 * time.Second)
-
-		// Log the MongoDB URI (with masked password) for debugging
-		if attempt == 1 {
-			log.Printf("🔌 Connecting to MongoDB: %s", cfg.GetMongoURI())
-		} else {
-			log.Printf("🔄 Retry %d/%d: Connecting to MongoDB...", attempt, maxRetries)
-		}
-
-		client, err = mongo.Connect(ctx, clientOpts)
-		cancel()
-
-		if err != nil {
-			log.Printf("   ⚠️  Attempt %d failed: %v", attempt, err)
-			if attempt < maxRetries {
-				time.Sleep(retryDelay)
-				retryDelay *= 2 // Exponential backoff
-			}
-			continue
-		}
-
-		// Ping the primary to verify the connection is alive
-		pingCtx, pingCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		err = client.Ping(pingCtx, readpref.Primary())
-		pingCancel()
-
-		if err == nil {
-			// Success!
-			Client = client
-			DB = client.Database(cfg.DBName)
-			log.Printf("✅ MongoDB connected successfully to database: %s", cfg.DBName)
-
-			// Create indexes in background
-			go createIndexes()
-
-			return
-		}
-
-		log.Printf("   ⚠️  Ping failed (attempt %d): %v", attempt, err)
-		if attempt < maxRetries {
-			time.Sleep(retryDelay)
-			retryDelay *= 2
-		}
+	// Determine database path
+	dbPath := cfg.SQLitePath
+	if dbPath == "" {
+		dbPath = getEnv("SQLITE_PATH", "./rana-awais.db")
 	}
 
-	// All retries exhausted
-	log.Fatalf("❌ MongoDB connection failed after %d attempts\n"+
-		"🔧 TROUBLESHOOTING:\n"+
-		"   1. Check MONGO_URI in .env or environment variables\n"+
-		"   2. Whitelist IP 0.0.0.0/0 in MongoDB Atlas Network Access\n"+
-		"   3. Verify database user credentials (username/password)\n"+
-		"   4. Ensure database user has read/write permissions\n"+
-		"   5. Add &tls=true&authMechanism=SCRAM-SHA-256 if using Atlas", maxRetries)
+	// Ensure directory exists
+	dbDir := filepath.Dir(dbPath)
+	if err := os.MkdirAll(dbDir, 0755); err != nil {
+		log.Printf("⚠️  Could not create database directory: %v", err)
+	}
+
+	log.Printf("🔌 Connecting to SQLite: %s", dbPath)
+
+	// Connect to SQLite with WAL mode for better concurrency
+	DB, err = sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=on")
+	if err != nil {
+		log.Fatalf("❌ Failed to open SQLite database: %v", err)
+	}
+
+	// Configure connection pool
+	DB.SetMaxOpenConns(25)
+	DB.SetMaxIdleConns(5)
+	DB.SetConnMaxLifetime(5 * time.Minute)
+
+	// Test connection
+	if err := DB.Ping(); err != nil {
+		log.Fatalf("❌ Failed to ping SQLite database: %v", err)
+	}
+
+	log.Printf("✅ SQLite connected successfully: %s", dbPath)
+
+	// Initialize schema
+	if err := sqlite.InitSchema(DB); err != nil {
+		log.Fatalf("❌ Failed to initialize database schema: %v", err)
+	}
+
+	// Run first-time setup
+	runFirstTimeSetup(DB, cfg)
 }
 
 // ═══════════════════════════════════════
-// 📇 CREATE INDEXES
+// 🔌 CONNECT TO MONGODB ATLAS
 // ═══════════════════════════════════════
 
-func createIndexes() {
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+// ConnectMongoDB establishes a connection to MongoDB Atlas.
+func ConnectMongoDB(cfg *Config) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	log.Println("📇 Verifying/Creating database indexes...")
+	log.Printf("🔌 Connecting to MongoDB Atlas: %s/%s", cfg.MongoURI, cfg.MongoDBName)
 
-	var totalCreated, totalErrors int
+	// Set up MongoDB client options
+	clientOptions := options.Client().ApplyURI(cfg.MongoURI)
 
-	// ═══════════════════════════════════════
-	// INSTALLMENTS INDEXES
-	// ═══════════════════════════════════════
-	installmentIndexes := []mongo.IndexModel{
-		{Keys: bson.D{{Key: "customer_id", Value: 1}}},
-		{Keys: bson.D{{Key: "status", Value: 1}}},
-		{Keys: bson.D{{Key: "product_id", Value: 1}}},
-		{Keys: bson.D{{Key: "installments.due_date", Value: 1}}},
-		{
-			Keys: bson.D{
-				{Key: "installments.due_date", Value: 1},
-				{Key: "installments.paid", Value: 1},
-			},
-		},
-		{Keys: bson.D{{Key: "created_at", Value: -1}}},
-	}
-	c, e := createCollectionIndexes(ctx, ColInstallments, installmentIndexes)
-	totalCreated += c
-	totalErrors += e
-
-	// ═══════════════════════════════════════
-	// CUSTOMERS INDEXES
-	// ═══════════════════════════════════════
-	customerIndexes := []mongo.IndexModel{
-		{
-			Keys:    bson.D{{Key: "phone", Value: 1}},
-			Options: options.Index().SetUnique(true),
-		},
-		{Keys: bson.D{{Key: "name", Value: 1}}},
-		{Keys: bson.D{{Key: "account_no", Value: 1}}},
-		{Keys: bson.D{{Key: "cnic", Value: 1}}},
-		{Keys: bson.D{{Key: "created_at", Value: -1}}},
-	}
-	c, e = createCollectionIndexes(ctx, ColCustomers, customerIndexes)
-	totalCreated += c
-	totalErrors += e
-
-	// ═══════════════════════════════════════
-	// PRODUCTS INDEXES
-	// ═══════════════════════════════════════
-	// Drop old unique SKU index if it exists (migration from unique to non-unique)
-	prodColl := DB.Collection(ColProducts)
-	if _, err := prodColl.Indexes().DropOne(ctx, "sku_1"); err != nil {
-		// Index might not exist, that's fine
+	// Connect to MongoDB
+	client, err := mongo.Connect(ctx, clientOptions)
+	if err != nil {
+		log.Fatalf("❌ Failed to connect to MongoDB: %v", err)
 	}
 
-	productIndexes := []mongo.IndexModel{
-		{Keys: bson.D{{Key: "name", Value: 1}}},
-		{Keys: bson.D{{Key: "category", Value: 1}}},
-		{Keys: bson.D{{Key: "sku", Value: 1}}},
-		{Keys: bson.D{{Key: "serial_number", Value: 1}}},
+	// Test connection
+	if err := client.Ping(ctx, nil); err != nil {
+		log.Fatalf("❌ Failed to ping MongoDB: %v", err)
 	}
-	c, e = createCollectionIndexes(ctx, ColProducts, productIndexes)
-	totalCreated += c
-	totalErrors += e
 
-	// ═══════════════════════════════════════
-	// INVENTORY INDEXES
-	// ═══════════════════════════════════════
-	inventoryIndexes := []mongo.IndexModel{
-		{Keys: bson.D{{Key: "product_id", Value: 1}}},
-		{Keys: bson.D{{Key: "status", Value: 1}}},
-		{
-			Keys: bson.D{
-				{Key: "product_id", Value: 1},
-				{Key: "status", Value: 1},
-			},
-		},
+	log.Printf("✅ MongoDB Atlas connected successfully: %s/%s", cfg.MongoURI, cfg.MongoDBName)
+
+	// Set global variables
+	MongoClient = client
+	MongoDatabase = client.Database(cfg.MongoDBName)
+
+	// Create indexes for better performance
+	createMongoIndexes(ctx)
+
+	// Run first-time setup for MongoDB
+	runMongoFirstTimeSetup(ctx, cfg)
+}
+
+
+// createMongoIndexes creates indexes for MongoDB collections
+func createMongoIndexes(ctx context.Context) {
+	if MongoDatabase == nil {
+		return
 	}
-	c, e = createCollectionIndexes(ctx, ColInventory, inventoryIndexes)
-	totalCreated += c
-	totalErrors += e
 
-	// ═══════════════════════════════════════
-	// AUDIT LOGS INDEXES
-	// ═══════════════════════════════════════
-	auditIndexes := []mongo.IndexModel{
-		{Keys: bson.D{{Key: "timestamp", Value: -1}}},
-		{Keys: bson.D{{Key: "user_id", Value: 1}}},
-		{Keys: bson.D{{Key: "action", Value: 1}}},
-		{Keys: bson.D{{Key: "entity_id", Value: 1}}},
+	// Customers indexes
+	customersColl := MongoDatabase.Collection("customers")
+	customersColl.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: map[string]interface{}{"phone": 1},
+	})
+	customersColl.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: map[string]interface{}{"cnic": 1},
+	})
+
+	// Installment plans indexes
+	plansColl := MongoDatabase.Collection("installment_plans")
+	plansColl.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: map[string]interface{}{"customerid": 1},
+	})
+	plansColl.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: map[string]interface{}{"status": 1},
+	})
+
+	// Installment details indexes
+	detailsColl := MongoDatabase.Collection("installment_details")
+	detailsColl.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: map[string]interface{}{"plan_id": 1},
+	})
+	detailsColl.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: map[string]interface{}{"due_date": 1, "paid": 1},
+	})
+
+	// Payments indexes
+	paymentsColl := MongoDatabase.Collection("payments")
+	paymentsColl.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: map[string]interface{}{"installmentplanid": 1},
+	})
+	paymentsColl.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: map[string]interface{}{"transactiondate": 1},
+	})
+
+	// Users indexes
+	usersColl := MongoDatabase.Collection("users")
+	usersColl.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    map[string]interface{}{"username": 1},
+		Options: options.Index().SetUnique(true),
+	})
+
+	log.Println("✅ MongoDB indexes created successfully")
+}
+
+// CloseMongoDB closes the MongoDB connection
+func CloseMongoDB() {
+	if MongoClient != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := MongoClient.Disconnect(ctx); err != nil {
+			log.Printf("⚠️  Error disconnecting MongoDB: %v", err)
+		} else {
+			log.Println("✅ MongoDB connection closed")
+		}
 	}
-	c, e = createCollectionIndexes(ctx, ColAuditLogs, auditIndexes)
-	totalCreated += c
-	totalErrors += e
+}
 
-	// ═══════════════════════════════════════
-	// PAYMENTS INDEXES
-	// ═══════════════════════════════════════
-	paymentIndexes := []mongo.IndexModel{
-		{Keys: bson.D{{Key: "plan_id", Value: 1}}},
-		{Keys: bson.D{{Key: "transaction_date", Value: -1}}},
-		{Keys: bson.D{{Key: "payment_date", Value: -1}}},
-		{Keys: bson.D{{Key: "installment_no", Value: 1}}},
-		{Keys: bson.D{{Key: "method", Value: 1}}},
+
+// ═══════════════════════════════════════
+// 🚀 FIRST-TIME SETUP (MongoDB)
+// ═══════════════════════════════════════
+
+func runMongoFirstTimeSetup(ctx context.Context, cfg *Config) {
+	if MongoDatabase == nil {
+		return
 	}
-	c, e = createCollectionIndexes(ctx, ColPayments, paymentIndexes)
-	totalCreated += c
-	totalErrors += e
 
-	// ═══════════════════════════════════════
-	// GUARANTORS INDEXES
-	// ═══════════════════════════════════════
-	guarantorIndexes := []mongo.IndexModel{
-		{Keys: bson.D{{Key: "customer_id", Value: 1}}},
-		{Keys: bson.D{{Key: "phone", Value: 1}}},
-		{Keys: bson.D{{Key: "cnic", Value: 1}}},
+	usersColl := MongoDatabase.Collection("users")
+
+	// Check if any users exist
+	count, err := usersColl.CountDocuments(ctx, map[string]interface{}{})
+	if err != nil {
+		log.Printf("⚠️  Error checking users in MongoDB: %v", err)
+		return
 	}
-	c, e = createCollectionIndexes(ctx, ColGuarantors, guarantorIndexes)
-	totalCreated += c
-	totalErrors += e
 
-	// ═══════════════════════════════════════
-	// USERS INDEXES
-	// ═══════════════════════════════════════
-	userIndexes := []mongo.IndexModel{
-		{
-			Keys:    bson.D{{Key: "username", Value: 1}},
-			Options: options.Index().SetUnique(true),
-		},
-		{Keys: bson.D{{Key: "role", Value: 1}}},
+	// If no users, create default admin
+	if count == 0 {
+		log.Println("👤 No users found in MongoDB. Creating default admin user...")
+		hashedPassword := hashPassword(cfg.AdminPassword)
+		_, err := usersColl.InsertOne(ctx, map[string]interface{}{
+			"id":           "admin-default-id",
+			"username":     cfg.AdminUsername,
+			"passwordhash": hashedPassword,
+			"role":         "admin",
+			"displayname":  cfg.AdminDisplayName,
+			"phone":        "",
+			"createdat":    time.Now(),
+			"updatedat":    time.Now(),
+		})
+		if err != nil {
+			log.Printf("⚠️  Failed to create admin user in MongoDB: %v", err)
+			return
+		}
+		log.Printf("✅ Default admin user created: %s / %s", cfg.AdminUsername, cfg.AdminPassword)
 	}
-	c, e = createCollectionIndexes(ctx, ColUsers, userIndexes)
-	totalCreated += c
-	totalErrors += e
-
-	// ═══════════════════════════════════════
-	// NOTIFICATIONS INDEXES
-	// ═══════════════════════════════════════
-	notificationIndexes := []mongo.IndexModel{
-		{Keys: bson.D{{Key: "customer_id", Value: 1}}},
-		{Keys: bson.D{{Key: "status", Value: 1}}},
-		{Keys: bson.D{{Key: "created_at", Value: -1}}},
-		{Keys: bson.D{{Key: "due_date", Value: 1}}},
-	}
-	c, e = createCollectionIndexes(ctx, ColNotifications, notificationIndexes)
-	totalCreated += c
-	totalErrors += e
-
-	// ═══════════════════════════════════════
-	// ACCOUNTING INDEXES
-	// ═══════════════════════════════════════
-	accountingIndexes := []mongo.IndexModel{
-		{Keys: bson.D{{Key: "transaction_date", Value: -1}}},
-		{Keys: bson.D{{Key: "type", Value: 1}}},
-		{Keys: bson.D{{Key: "plan_id", Value: 1}}},
-		{Keys: bson.D{{Key: "customer_id", Value: 1}}},
-	}
-	c, e = createCollectionIndexes(ctx, ColAccounting, accountingIndexes)
-	totalCreated += c
-	totalErrors += e
-
-	// ═══════════════════════════════════════
-	// SUMMARY
-	// ═══════════════════════════════════════
-	log.Printf("📇 Indexes: %d created/verified, %d errors", totalCreated, totalErrors)
 }
 
 // ═══════════════════════════════════════
-// 🔧 INDEX HELPER
+// 🚀 FIRST-TIME SETUP (SQLite)
 // ═══════════════════════════════════════
 
-func createCollectionIndexes(ctx context.Context, collectionName string, indexes []mongo.IndexModel) (created int, errors int) {
-	coll := DB.Collection(collectionName)
-	names, err := coll.Indexes().CreateMany(ctx, indexes)
+func runFirstTimeSetup(db *sql.DB, cfg *Config) {
+
+	// 1. Check if any users exist
+	var userCount int
+	err := db.QueryRow("SELECT COUNT(*) FROM users").Scan(&userCount)
 	if err != nil {
-		log.Printf("   ⚠️  Failed to create indexes for '%s': %v", collectionName, err)
-		return 0, 1
+		log.Printf("⚠️  Error checking users: %v", err)
+		return
 	}
-	log.Printf("   ✅ %s: %d indexes verified", collectionName, len(names))
-	return len(names), 0
+
+	// 2. If no users, create default admin
+	if userCount == 0 {
+		log.Println("👤 No users found. Creating default admin user...")
+		createDefaultAdmin(db, cfg)
+	}
+
+	// 3. Check if license exists
+	var licenseCount int
+	err = db.QueryRow("SELECT COUNT(*) FROM license").Scan(&licenseCount)
+	if err != nil {
+		log.Printf("⚠️  Error checking license: %v", err)
+		return
+	}
+
+	// 4. If no license, create 30-day trial
+	if licenseCount == 0 {
+		log.Println("🔑 No license found. Creating 30-day trial license...")
+		createTrialLicense(db)
+	}
+}
+
+func createDefaultAdmin(db *sql.DB, cfg *Config) {
+	// Use bcrypt to hash the password
+	hashedPassword := hashPassword(cfg.AdminPassword)
+
+	_, err := db.Exec(`
+		INSERT INTO users (id, username, password_hash, role, display_name, phone, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		"admin-default-id", cfg.AdminUsername, hashedPassword, "admin", cfg.AdminDisplayName, "", time.Now(), time.Now())
+	if err != nil {
+		log.Printf("⚠️  Failed to create admin user: %v", err)
+		return
+	}
+	log.Printf("✅ Default admin user created: %s / %s", cfg.AdminUsername, cfg.AdminPassword)
+}
+
+func createTrialLicense(db *sql.DB) {
+	expiryDate := time.Now().AddDate(0, 1, 0).Format("2006-01-02") // 1 month trial
+	_, err := db.Exec(`
+		INSERT INTO license (license_key, client_name, expiry_date, is_active, created_at)
+		VALUES (?, ?, ?, ?, ?)`,
+		"TRIAL-30-DAYS", "Trial User", expiryDate, 1, time.Now())
+	if err != nil {
+		log.Printf("⚠️  Failed to create trial license: %v", err)
+		return
+	}
+	log.Printf("✅ 30-day trial license created (expires: %s)", expiryDate)
+}
+
+// hashPassword hashes a password using bcrypt
+func hashPassword(password string) string {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		log.Printf("⚠️  Failed to hash password: %v", err)
+		return password // Fallback to plain text (should never happen)
+	}
+	return string(hash)
 }
 
 // ═══════════════════════════════════════
 // 📦 UTILITY FUNCTIONS
 // ═══════════════════════════════════════
 
-// GetCollection returns a collection from the database
-func GetCollection(name string) *mongo.Collection {
-	return DB.Collection(name)
-}
-
 // HealthCheck checks if the database is reachable
 func HealthCheck() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	return Client.Ping(ctx, readpref.Primary())
+	return DB.Ping()
 }
 
 // IsConnected returns true if the database is connected
 func IsConnected() bool {
-	if Client == nil {
+	if DB == nil {
 		return false
 	}
-	return HealthCheck() == nil
+	return DB.Ping() == nil
 }

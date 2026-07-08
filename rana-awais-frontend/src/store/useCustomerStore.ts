@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { getCustomers } from '../utils/api';
+import { offlineDB } from '../db/indexeddb';
 import toast from 'react-hot-toast';
 
 // ✅ Types
@@ -35,6 +36,7 @@ interface CustomerState {
   loading: boolean;
   error: string | null;
   lastFetched: number | null;
+  isFetching: boolean;
   searchQuery: string;
   selectedCustomerId: string | null;
   fetchCustomers: (force?: boolean) => Promise<void>;
@@ -50,8 +52,8 @@ interface CustomerState {
   reset: () => void;
 }
 
-// ✅ Cache TTL - 5 minutes
-const CACHE_TTL = 5 * 60 * 1000;
+// ✅ Cache TTL - 15 seconds for near real-time updates
+const CACHE_TTL = 15 * 1000;
 
 // ✅ Storage keys
 const STORAGE_KEYS = {
@@ -92,39 +94,79 @@ export const useCustomerStore = create<CustomerState>()((set, get) => {
     loading: false,
     error: null,
     lastFetched: cached.lastFetched,
+    isFetching: false,
     searchQuery: '',
     selectedCustomerId: null,
 
-    // ✅ Fetch customers with cache
+    // ✅ Fetch customers with offline-first fallback
     fetchCustomers: async (force = false) => {
       const state = get();
       
-      // Check cache
+      // Prevent concurrent fetches (unless forced)
+      if (state.isFetching && !force) return;
+      
+      // Check cache (skip if forced)
       if (!force && state.lastFetched && 
           Date.now() - state.lastFetched < CACHE_TTL && 
           state.customers.length > 0) {
         return;
       }
 
-      set({ loading: true, error: null });
+      set({ loading: true, isFetching: true, error: null });
       
       try {
-        const data = await getCustomers(0, 10000);
-        const customers = Array.isArray(data) ? data : [];
+        const response = await getCustomers();
+        // API returns {data: [...], total: N} - extract the data array
+        const customers = Array.isArray(response) ? response : (response?.data ? (Array.isArray(response.data) ? response.data : []) : []);
         const lastFetched = Date.now();
         saveCache(customers, lastFetched);
+        // Also cache in IndexedDB for offline use
+        try { await offlineDB.cacheCustomers(customers); } catch {}
         set({ 
           customers, 
           loading: false, 
+          isFetching: false,
           lastFetched,
           error: null 
         });
       } catch (err: any) {
         const errorMsg = err.response?.data?.error || err.message || 'Failed to fetch customers';
         console.error('Failed to fetch customers:', err);
+        
+        // ✅ OFFLINE FALLBACK: Try IndexedDB cache first
+        try {
+          const cachedCustomers = await offlineDB.getCachedCustomers();
+          if (cachedCustomers && cachedCustomers.length > 0) {
+            console.log('📦 Serving customers from IndexedDB cache (offline)');
+            set({ 
+              customers: cachedCustomers as any, 
+              loading: false, 
+              isFetching: false,
+              error: null,
+              lastFetched: Date.now()
+            });
+            return;
+          }
+        } catch {}
+        
+        // ✅ SECOND FALLBACK: Try localStorage cache
+        const cached = loadCachedCustomers();
+        if (cached.customers.length > 0) {
+          console.log('📦 Serving customers from localStorage cache (offline)');
+          set({ 
+            customers: cached.customers, 
+            loading: false, 
+            isFetching: false,
+            error: null,
+            lastFetched: cached.lastFetched
+          });
+          return;
+        }
+        
         set({ 
           customers: [], 
           loading: false, 
+          isFetching: false,
           error: errorMsg 
         });
         toast.error(errorMsg);

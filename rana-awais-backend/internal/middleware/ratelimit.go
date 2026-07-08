@@ -43,10 +43,16 @@ func (rl *RateLimiter) cleanup() {
 	}
 }
 
-// RateLimit middleware limits requests per IP using a sliding window approach.
-// The window resets based on the first request in the window, not the last request.
+// RateLimit middleware limits requests per IP using a fixed-window approach.
+// The count resets when the window duration has elapsed since the window started.
 func (rl *RateLimiter) RateLimit(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Skip rate limiting for health/keepalive endpoints
+		if r.URL.Path == "/api/health" || r.URL.Path == "/api/ping" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		// Get real IP from headers (for proxy/load balancer)
 		ip := r.Header.Get("X-Forwarded-For")
 		if ip == "" {
@@ -59,25 +65,27 @@ func (rl *RateLimiter) RateLimit(next http.Handler) http.Handler {
 		rl.mu.Lock()
 
 		v, exists := rl.visitors[ip]
+		now := time.Now()
+
 		if !exists {
-			rl.visitors[ip] = &visitor{count: 1, lastSeen: time.Now()}
+			// First request from this IP - start a new window
+			rl.visitors[ip] = &visitor{count: 1, lastSeen: now}
 			rl.mu.Unlock()
 			next.ServeHTTP(w, r)
 			return
 		}
 
-		// Reset if window has passed (based on lastSeen which is the start of the window)
-		if time.Since(v.lastSeen) > rl.window {
+		// If the window has expired since the window start time, reset the counter
+		if now.Sub(v.lastSeen) > rl.window {
 			v.count = 1
-			v.lastSeen = time.Now()
+			v.lastSeen = now
 			rl.mu.Unlock()
 			next.ServeHTTP(w, r)
 			return
 		}
 
+		// Still within the window - increment count
 		v.count++
-		// Update lastSeen to now so the window slides forward
-		v.lastSeen = time.Now()
 
 		if v.count > rl.limit {
 			rl.mu.Unlock()

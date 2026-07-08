@@ -7,6 +7,8 @@ import { recordPayment, advancePayment } from '../../utils/api';
 import FormField from '../../components/forms/FormField';
 import PaymentReceipt from './PaymentReceipt';
 import { useAuthStore } from '../../store/useAuthStore';
+import { offlineCreatePayment } from '../../db/offlineActions';
+import { syncEngine } from '../../utils/sync';
 
 interface Props {
   planId: string;
@@ -147,6 +149,58 @@ const PaymentModal: React.FC<Props> = ({
       setPaymentDone(true);
       onSuccess();
     } catch (err: any) {
+      // ✅ OFFLINE FALLBACK: Save payment locally and queue for sync
+      if (!navigator.onLine || err.code === 'ERR_NETWORK' || err.message?.includes('Network Error')) {
+        console.log('📦 Offline: Caching payment locally');
+        try {
+          const paymentData = {
+            id: `offline_pay_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            plan_id: planId,
+            installment_no: mode === 'single' ? installmentNo : undefined,
+            amount,
+            method,
+            payment_date: paymentDate,
+            due_date: installmentDueDate || undefined,
+            collected_by: collectedBy || currentUser?.displayName || currentUser?.username || '',
+            collected_by_id: collectedById || currentUser?.id || '',
+            remarks: remarks || '',
+            advance_payment: mode === 'advance',
+            bulk_payment: false,
+          };
+          
+          // Save to IndexedDB cache
+          await offlineCreatePayment(paymentData);
+          
+          // Also queue via sync engine for server sync
+          await syncEngine.queueOperation('payment', 'create', paymentData.id, paymentData);
+          
+          // ✅ Update the cached plan's installment status to reflect payment
+          try {
+            const { offlineDB } = await import('../../db/indexeddb');
+            const cachedPlan = await offlineDB.getCachedPlan(planId);
+            if (cachedPlan && cachedPlan.installments) {
+              const updatedInstallments = cachedPlan.installments.map((inst: any) => {
+                if (mode === 'single' && inst.installmentNo === installmentNo) {
+                  return { ...inst, paid: true, paidDate: paymentDate, collectedBy: collectedBy || currentUser?.displayName || currentUser?.username || '' };
+                }
+                return inst;
+              });
+              await offlineDB.updateCachedPlan(planId, { ...cachedPlan, installments: updatedInstallments });
+            }
+          } catch (cacheErr) {
+            console.error('Failed to update cached plan:', cacheErr);
+          }
+          
+          toast.success(isUrdu ? 'ادائیگی آف لائن محفوظ ہو گئی' : 'Payment saved offline');
+          setPaymentDone(true);
+          onSuccess();
+          setLoading(false);
+          return;
+        } catch (offlineErr) {
+          // Fallback to showing error
+        }
+      }
+      
       const errMsg = err.response?.data?.error || err.response?.data?.message || 
                      (isUrdu ? 'ادائیگی ناکام' : t('payment_failed'));
       setError(errMsg);

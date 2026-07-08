@@ -5,6 +5,8 @@ import api from '../../utils/api';
 import FormField from '../../components/forms/FormField';
 import PhoneField from '../../components/forms/PhoneField';
 import CNICField from '../../components/forms/CNICField';
+import { offlineUpdateCustomer } from '../../db/offlineActions';
+import { useCustomerStore } from '../../store/useCustomerStore';
 
 const formatPhoneForDisplay = (phone: string): string => {
   const digits = (phone || '').replace(/\D/g, '').slice(0, 11);
@@ -38,6 +40,10 @@ const CustomerEditModal: React.FC<Props> = ({ customerId, onClose, onSuccess }) 
   const [reprAsCost, setReprAsCost] = useState('');
   const [reprAsGar, setReprAsGar] = useState('');
   const [prepAC, setPrepAC] = useState('');
+  
+  // ✅ Remarks fields
+  const [remarks, setRemarks] = useState('');
+  const [completedRemarks, setCompletedRemarks] = useState('');
 
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -68,11 +74,17 @@ const CustomerEditModal: React.FC<Props> = ({ customerId, onClose, onSuccess }) 
         setReprAsGar(c.reprAsGar || '');
         setPrepAC(c.prepAC || '');
         
+        // ✅ Populate remarks
+        setRemarks(c.remarks || '');
+        setCompletedRemarks(c.completedRemarks || '');
+        
         setError('');
       })
       .catch(() => setError(t('customer_not_found')))
       .finally(() => setFetching(false));
   }, [customerId, t]);
+
+  const updateCustomer = useCustomerStore((s) => s.updateCustomer);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -81,32 +93,53 @@ const CustomerEditModal: React.FC<Props> = ({ customerId, onClose, onSuccess }) 
     setLoading(true);
     setError('');
     const rawPhone = phone.replace(/\D/g, '');
+    
+    const payload = {
+      name: name || nameUrdu,
+      nameUrdu: nameUrdu || name,
+      fatherName: fatherName || fatherNameUrdu,
+      fatherNameUrdu: fatherNameUrdu || fatherName,
+      phone: rawPhone,
+      cnic,
+      address: address || addressUrdu,
+      addressUrdu: addressUrdu || address,
+      // ✅ NEW: Send additional fields
+      residential,
+      occupant,
+      residentialAddress: residentialAddress || address || addressUrdu,
+      officeAddress,
+      accountNo,
+      costNo,
+      processNo,
+      reprAsCost,
+      reprAsGar,
+      prepAC,
+      // ✅ Send remarks
+      remarks,
+      completedRemarks,
+    };
+    
     try {
-      await api.put(`/customers/${customerId}`, {
-        name: name || nameUrdu,
-        nameUrdu: nameUrdu || name,
-        fatherName: fatherName || fatherNameUrdu,
-        fatherNameUrdu: fatherNameUrdu || fatherName,
-        phone: rawPhone,
-        cnic,
-        address: address || addressUrdu,
-        addressUrdu: addressUrdu || address,
-        // ✅ NEW: Send additional fields
-        residential,
-        occupant,
-        residentialAddress: residentialAddress || address || addressUrdu,
-        officeAddress,
-        accountNo,
-        costNo,
-        processNo,
-        reprAsCost,
-        reprAsGar,
-        prepAC,
-      });
+      // ✅ Try online first
+      await api.put(`/customers/${customerId}`, payload);
       toast.success(t('customer_updated'));
-      onSuccess(); onClose();
-    } catch (err: any) { setError(err.response?.data?.error || t('error_updating_customer')); }
-    finally { setLoading(false); }
+    } catch (err: any) {
+      // ✅ OFFLINE FALLBACK: Update locally and queue for sync
+      console.log('📦 Offline: Caching customer update locally');
+      
+      // Update IndexedDB cache
+      await offlineUpdateCustomer(customerId, payload);
+      
+      // Update Zustand store (immediate UI update)
+      updateCustomer(customerId, payload);
+      
+      toast.success(isUrdu ? 'گاہک آف لائن اپ ڈیٹ ہو گیا' : 'Customer updated offline');
+    }
+    finally { 
+      setLoading(false);
+      onSuccess(); 
+      onClose(); 
+    }
   };
 
   if (fetching) return (
@@ -213,6 +246,39 @@ const CustomerEditModal: React.FC<Props> = ({ customerId, onClose, onSuccess }) 
                   name="prepAC"
                   value={prepAC}
                   onChange={e => setPrepAC(e.target.value)}
+                />
+              </div>
+            </div>
+          </details>
+
+          {/* ✅ Remarks Section */}
+          <details className="text-sm text-gray-500 dark:text-gray-400">
+            <summary className="cursor-pointer hover:text-gray-700 dark:hover:text-gray-200 font-medium">
+              {isUrdu ? 'ریمارکس' : 'Remarks'}
+            </summary>
+            <div className="mt-3 space-y-3 p-3 border border-gray-200 dark:border-gray-700 rounded-xl">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                  {isUrdu ? 'ریمارکس' : 'Remarks'}
+                </label>
+                <textarea
+                  value={remarks}
+                  onChange={e => setRemarks(e.target.value)}
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-400 focus:border-transparent resize-none"
+                  placeholder={isUrdu ? 'گاہک کے بارے میں کوئی نوٹ...' : 'Any notes about the customer...'}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                  {isUrdu ? 'مکمل ہونے کے ریمارکس' : 'Completed Remarks'}
+                </label>
+                <textarea
+                  value={completedRemarks}
+                  onChange={e => setCompletedRemarks(e.target.value)}
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-400 focus:border-transparent resize-none"
+                  placeholder={isUrdu ? 'ادائیگی مکمل ہونے پر نوٹ...' : 'Notes when payment is completed...'}
                 />
               </div>
             </div>

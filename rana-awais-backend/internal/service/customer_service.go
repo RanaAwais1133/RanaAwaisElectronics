@@ -6,7 +6,6 @@ import (
 
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/domain"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/repository"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type CustomerService struct {
@@ -25,7 +24,7 @@ func (s *CustomerService) Create(ctx context.Context, c *domain.Customer) error 
 	return s.custRepo.Create(ctx, c)
 }
 
-func (s *CustomerService) GetByID(ctx context.Context, id primitive.ObjectID) (*domain.Customer, error) {
+func (s *CustomerService) GetByID(ctx context.Context, id string) (*domain.Customer, error) {
 	return s.custRepo.GetByID(ctx, id)
 }
 
@@ -33,11 +32,11 @@ func (s *CustomerService) List(ctx context.Context, skip, limit int64) ([]domain
 	return s.custRepo.List(ctx, skip, limit)
 }
 
-func (s *CustomerService) Update(ctx context.Context, id primitive.ObjectID, c *domain.Customer) error {
+func (s *CustomerService) Update(ctx context.Context, id string, c *domain.Customer) error {
 	return s.custRepo.Update(ctx, id, c)
 }
 
-func (s *CustomerService) Delete(ctx context.Context, id primitive.ObjectID) error {
+func (s *CustomerService) Delete(ctx context.Context, id string) error {
 	return s.custRepo.Delete(ctx, id)
 }
 
@@ -53,7 +52,7 @@ func (s *CustomerService) Search(ctx context.Context, query string, skip, limit 
 	return s.custRepo.Search(ctx, query, skip, limit)
 }
 
-// ✅ NEW: Get customer with full details including guarantors
-func (s *CustomerService) GetByIDWithDetails(ctx context.Context, id primitive.ObjectID) (*domain.Customer, error) {
+// Get customer with full details including guarantors
+func (s *CustomerService) GetByIDWithDetails(ctx context.Context, id string) (*domain.Customer, error) {
 	return s.custRepo.GetByID(ctx, id)
 }

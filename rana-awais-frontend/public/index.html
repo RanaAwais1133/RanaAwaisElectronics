@@ -1,29 +1,87 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ur">
   <head>
     <meta charset="utf-8" />
     <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    
+    <!-- ✅ Mobile Viewport - CRITICAL for mobile performance -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="%REACT_APP_THEME_COLOR%" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Rana Awais ERP" />
     <meta
       name="description"
       content="%REACT_APP_DESCRIPTION%"
     />
+    
+    <!-- ✅ PWA Tags -->
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
-
-    <!-- Google Fonts for Urdu -->
+    
+    <!-- ✅ Preconnect for faster font loading -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    
+    <!-- ✅ Google Fonts - Noto Nastaliq Urdu (lighter weight for mobile) -->
     <link
-      href="https://fonts.googleapis.com/css2?family=Jameel+Noori+Nastaleeq&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Noto+Nastaliq+Urdu:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    
+    <!-- ✅ Inter font for English -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
       rel="stylesheet"
     />
 
+    <!-- ✅ Preload critical assets -->
+    <link rel="preload" href="%PUBLIC_URL%/logo192.png" as="image" />
+    
+    <!-- ✅ Touch icons for iOS -->
+    <link rel="apple-touch-icon" sizes="180x180" href="%PUBLIC_URL%/logo192.png" />
+    
+    <!-- ✅ Splash screen for iOS -->
+    <link rel="apple-touch-startup-image" href="%PUBLIC_URL%/logo512.png" />
+
     <title>%REACT_APP_APP_NAME%</title>
+    
+    <!-- ✅ Inline critical CSS to prevent FOUC -->
+    <style>
+      html, body, #root {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        width: 100%;
+        overflow-x: hidden;
+        -webkit-overflow-scrolling: touch;
+      }
+      body {
+        font-family: 'Noto Nastaliq Urdu', 'Segoe UI', Tahoma, sans-serif;
+        background-color: #f8fafc;
+      }
+      /* Prevent text size adjustment on orientation change */
+      html {
+        -webkit-text-size-adjust: 100%;
+        -ms-text-size-adjust: 100%;
+      }
+      /* Prevent callout on long press */
+      * {
+        -webkit-touch-callout: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+      /* Allow text selection in inputs */
+      input, textarea, select {
+        -webkit-touch-callout: default;
+      }
+    </style>
   </head>
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>
     <div id="root"></div>
+    
+    <!-- ✅ Service Worker is registered in App.tsx to avoid double registration -->
+
   </body>
 </html>

@@ -6,7 +6,6 @@ import (
 
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/domain"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/repository"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type GuarantorService struct {
@@ -20,7 +19,7 @@ func NewGuarantorService(guarRepo repository.GuarantorRepository, custRepo repos
 
 // Create creates a guarantor, attaches it to the customer, and sets default verification status if empty.
 func (s *GuarantorService) Create(ctx context.Context, g *domain.Guarantor) error {
-	if g.CustomerID.IsZero() {
+	if g.CustomerID == "" {
 		return errors.New("customer id is required")
 	}
 	if g.VerificationStatus == "" {
@@ -44,7 +43,7 @@ func (s *GuarantorService) Create(ctx context.Context, g *domain.Guarantor) erro
 	return nil
 }
 
-func (s *GuarantorService) GetByID(ctx context.Context, id primitive.ObjectID) (*domain.Guarantor, error) {
+func (s *GuarantorService) GetByID(ctx context.Context, id string) (*domain.Guarantor, error) {
 	return s.guarRepo.GetByID(ctx, id)
 }
 
@@ -56,24 +55,24 @@ func (s *GuarantorService) Count(ctx context.Context) (int64, error) {
 	return s.guarRepo.Count(ctx)
 }
 
-func (s *GuarantorService) ListByCustomer(ctx context.Context, customerID primitive.ObjectID) ([]domain.Guarantor, error) {
+func (s *GuarantorService) ListByCustomer(ctx context.Context, customerID string) ([]domain.Guarantor, error) {
 	return s.guarRepo.ListByCustomer(ctx, customerID)
 }
 
-func (s *GuarantorService) Update(ctx context.Context, id primitive.ObjectID, g *domain.Guarantor) error {
+func (s *GuarantorService) Update(ctx context.Context, id string, g *domain.Guarantor) error {
 	return s.guarRepo.Update(ctx, id, g)
 }
 
-func (s *GuarantorService) Delete(ctx context.Context, id primitive.ObjectID) error {
+func (s *GuarantorService) Delete(ctx context.Context, id string) error {
 	g, err := s.guarRepo.GetByID(ctx, id)
 	if err != nil || g == nil {
 		return errors.New("guarantor not found")
 	}
 
-	if !g.CustomerID.IsZero() {
+	if g.CustomerID != "" {
 		cust, err := s.custRepo.GetByID(ctx, g.CustomerID)
 		if err == nil && cust != nil {
-			newGuarantorIDs := make([]primitive.ObjectID, 0)
+			newGuarantorIDs := make([]string, 0)
 			for _, gid := range cust.GuarantorIDs {
 				if gid != id {
 					newGuarantorIDs = append(newGuarantorIDs, gid)
@@ -88,7 +87,7 @@ func (s *GuarantorService) Delete(ctx context.Context, id primitive.ObjectID) er
 }
 
 // Verify changes the verification status of a guarantor.
-func (s *GuarantorService) Verify(ctx context.Context, id primitive.ObjectID, status string) error {
+func (s *GuarantorService) Verify(ctx context.Context, id string, status string) error {
 	g, err := s.guarRepo.GetByID(ctx, id)
 	if err != nil || g == nil {
 		return errors.New("guarantor not found")
@@ -97,8 +96,8 @@ func (s *GuarantorService) Verify(ctx context.Context, id primitive.ObjectID, st
 	return s.guarRepo.Update(ctx, id, g)
 }
 
-// ✅ NEW: Get verified guarantors count for a customer
-func (s *GuarantorService) GetVerifiedCount(ctx context.Context, customerID primitive.ObjectID) (int, error) {
+// GetVerifiedCount gets the count of verified guarantors for a customer
+func (s *GuarantorService) GetVerifiedCount(ctx context.Context, customerID string) (int, error) {
 	guarantors, err := s.guarRepo.ListByCustomer(ctx, customerID)
 	if err != nil {
 		return 0, err

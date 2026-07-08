@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getTodayDueFull, getOverdueFull } from '../../utils/api';
+import { useClientStore } from '../../store/useClientStore';
 
 interface InstallmentDetail {
   plan_id: string;
@@ -40,6 +41,7 @@ const InstallmentDetailTable: React.FC<InstallmentDetailTableProps> = ({ type, i
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const tableRef = useRef<HTMLDivElement>(null);
+  const clientInfo = useClientStore((s) => s.info);
 
   const title = type === 'today-due'
     ? (isUrdu ? 'آج کی واجب الادا اقساط' : "Today's Due Installments")
@@ -50,18 +52,55 @@ const InstallmentDetailTable: React.FC<InstallmentDetailTableProps> = ({ type, i
     : (isUrdu ? 'وہ اقساط جن کی تاریخ گزر چکی ہے' : 'Installments past their due date');
 
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
     setError('');
     const fetcher = type === 'today-due' ? getTodayDueFull : getOverdueFull;
     fetcher()
       .then((res: any) => {
+        if (cancelled) return;
         const items = Array.isArray(res) ? res : (res?.data ? (Array.isArray(res.data) ? res.data : []) : []);
         setData(items);
       })
       .catch(() => {
-        setError(isUrdu ? 'ڈیٹا لوڈ کرنے میں ناکامی' : 'Failed to load data');
+        // ✅ OFFLINE FALLBACK: Try to load from IndexedDB cached installments
+        if (!cancelled) {
+          import('../../db/indexeddb').then(({ offlineDB }) => {
+            offlineDB.getCachedInstallments().then(cached => {
+              if (cached && cached.length > 0 && !cancelled) {
+                const today = new Date().toISOString().split('T')[0];
+                let filtered;
+                if (type === 'today-due') {
+                  filtered = cached.filter((inst: any) => 
+                    (inst.due_date === today || inst.dueDate === today) && 
+                    (inst.status === 'active' || inst.paid === false || inst.paid === 0)
+                  );
+                } else {
+                  filtered = cached.filter((inst: any) => 
+                    (inst.due_date < today || inst.dueDate < today) && 
+                    (inst.status === 'active' || inst.paid === false || inst.paid === 0)
+                  );
+                }
+                if (filtered.length > 0) {
+                  setData(filtered as any);
+                } else {
+                  setError(isUrdu ? 'ڈیٹا لوڈ کرنے میں ناکامی' : 'Failed to load data');
+                }
+              } else if (!cancelled) {
+                setError(isUrdu ? 'ڈیٹا لوڈ کرنے میں ناکامی' : 'Failed to load data');
+              }
+            }).catch(() => {
+              if (!cancelled) setError(isUrdu ? 'ڈیٹا لوڈ کرنے میں ناکامی' : 'Failed to load data');
+            });
+          }).catch(() => {
+            if (!cancelled) setError(isUrdu ? 'ڈیٹا لوڈ کرنے میں ناکامی' : 'Failed to load data');
+          });
+        }
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
   }, [type, isUrdu]);
 
   const handlePrint = () => {
@@ -136,7 +175,7 @@ const InstallmentDetailTable: React.FC<InstallmentDetailTableProps> = ({ type, i
           </tr></thead>
           <tbody>${rows}</tbody>
         </table>
-        <div class="footer">Rana Awais Autos and Electronics — ${new Date().toLocaleDateString()}</div>
+        <div class="footer">${clientInfo.name} — ${new Date().toLocaleDateString()}</div>
         <script>window.onload=function(){setTimeout(function(){window.print();window.close()},300)}</script>
       </body></html>
     `);

@@ -1,37 +1,44 @@
-# Task Progress - Fix All Reports & Dashboard
+# MongoDB Atlas Migration - Task Progress
 
-## Issues Found:
+## ✅ Completed
 
-### 1. CustomerReport.tsx (Daily/Weekly/Monthly/Date-to-Date)
-- Uses `/accounting/today`, `/accounting/month`, `/accounting/profit-loss/cash` endpoints
-- These endpoints return only `{revenue, profit}` or `{profit}` - NOT the full report data
-- Frontend expects: `total_sales`, `pending`, `customers`, `cash_in_hand`, `bank_deposit`, `open_accounts`, `closed_accounts`, `total_outstanding`, `transactions`, `recoveryRate`
-- **Fix**: Use the actual `/reports/daily`, `/reports/weekly`, `/reports/monthly`, `/reports/date-range` endpoints
+### Phase 1: MongoDB Repository Package ✅
+- [x] Create `internal/repository/mongodb/` package
+- [x] Create MongoDB customer repository
+- [x] Create MongoDB product repository
+- [x] Create MongoDB inventory repository
+- [x] Create MongoDB guarantor repository
+- [x] Create MongoDB installment repository
+- [x] Create MongoDB payment repository
+- [x] Create MongoDB accounting repository
+- [x] Create MongoDB notification repository
+- [x] Create MongoDB user repository
 
-### 2. Backend report_handler.go - Missing fields
-- DailyReport, WeeklyReport, MonthlyReport, DateRangeReport don't return:
-  - `cashInHand`, `bankDeposit`, `recoveryRate`, `openAccounts`, `closedAccounts`, `netAccounts`, `totalOutstanding`
-- **Fix**: Add all these fields to the report responses
+### Phase 2: Config Changes ✅
+- [x] Add MongoDB config fields (MongoURI, MongoDBName, UseMongoDB)
+- [x] Create MongoDB connection function in config/db.go
+- [x] Create MongoDB indexes
+- [x] Add MongoDB first-time setup (default admin user)
+- [x] Add MongoDB cleanup on shutdown
 
-### 3. Inventory Report - Field name mismatch
-- Backend returns: `purchasePrice` (camelCase), `product_name`, `product_urdu`
-- Frontend expects: `purchase_price` (snake_case), `product_name`, `product_name_urdu`
-- **Fix**: Update backend to return `purchase_price` and `product_name_urdu` OR update frontend to match
+### Phase 3: Main.go Changes ✅
+- [x] Update main.go to use MongoDB or SQLite based on config
+- [x] Update repository variable types to use interfaces
+- [x] Add MongoDB driver as direct dependency in go.mod
 
-### 4. Profit & Loss - Profit shows Rs. 0
-- `GetRevenueAndProfit` calculates profit from sold inventory items with `sold_date` in range
-- If items don't have `sold_date` set, profit = 0
-- **Fix**: Calculate profit as revenue - expenses from accounting entries, or use a fallback
+### Phase 4: Build Verification ✅
+- [x] Project builds successfully with `go build`
+- [x] Passes `go vet` with no issues
 
-### 5. Accounting handler - Today/Month endpoints return minimal data
-- `/accounting/today` returns `{revenue, profit}` only
-- `/accounting/month` returns `{revenue, profit}` only
-- **Fix**: Add more fields to these responses
+## How to Use
 
-## Plan:
-- [ ] Fix backend report_handler.go - add cashInHand, bankDeposit, recoveryRate, openAccounts, closedAccounts, netAccounts, totalOutstanding
-- [ ] Fix backend inventory_handler.go - return purchase_price (snake_case) and product_name_urdu
-- [ ] Fix backend accounting_handler.go - add more fields to today/month responses
-- [ ] Fix frontend CustomerReport.tsx - use /reports/daily, /reports/weekly, /reports/monthly, /reports/date-range endpoints
-- [ ] Fix frontend InventoryReport.tsx - match field names from backend
-- [ ] Verify backend compiles
+1. Set environment variable `USE_MONGO_DB=true`
+2. Set `MONGO_URI` to your MongoDB Atlas connection string
+3. Set `MONGO_DB_NAME` to your database name (default: "myelectronics")
+4. Run the server normally
+
+The system will automatically:
+- Connect to MongoDB Atlas instead of SQLite
+- Create necessary indexes
+- Create default admin user on first run
+- Use all MongoDB repositories seamlessly

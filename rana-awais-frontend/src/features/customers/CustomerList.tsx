@@ -2,39 +2,59 @@ import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 import { useCustomerStore } from '../../store/useCustomerStore';
+import { useAuthStore } from '../../store/useAuthStore';
 import CustomerCreateModal from './CustomerCreateModal';
 import CustomerEditModal from './CustomerEditModal';
+import CustomerHistory from './CustomerHistory';
 import api from '../../utils/api';
 import { formatPhone, formatCNIC } from '../../utils/helpers';
-import { APP_CONFIG } from '../../config/app'; // ✅ NEW: Import config
+import { APP_CONFIG } from '../../config/app';
+import { offlineDeleteCustomer } from '../../db/offlineActions';
 
 // ✅ Action buttons component for reusability
 const ActionButtons: React.FC<{
   onEdit: () => void;
   onDelete: () => void;
+  onHistory: () => void;
   t: (key: string) => string;
-}> = ({ onEdit, onDelete, t }) => (
+  canEdit: boolean;
+  canDelete: boolean;
+}> = ({ onEdit, onDelete, onHistory, t, canEdit, canDelete }) => (
   <div className="flex justify-center gap-1.5">
     <button
-      onClick={onEdit}
-      className="p-2 rounded-xl bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-all active:scale-95"
-      title={t('edit')}
-      aria-label={t('edit')}
+      onClick={onHistory}
+      className="p-2 rounded-xl bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-900/50 transition-all active:scale-95"
+      title="History"
+      aria-label="History"
     >
       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9a2 2 0 00-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z" />
       </svg>
     </button>
-    <button
-      onClick={onDelete}
-      className="p-2 rounded-xl bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/50 transition-all active:scale-95"
-      title={t('delete')}
-      aria-label={t('delete')}
-    >
-      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-      </svg>
-    </button>
+    {canEdit && (
+      <button
+        onClick={onEdit}
+        className="p-2 rounded-xl bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-all active:scale-95"
+        title={t('edit')}
+        aria-label={t('edit')}
+      >
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+        </svg>
+      </button>
+    )}
+    {canDelete && (
+      <button
+        onClick={onDelete}
+        className="p-2 rounded-xl bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/50 transition-all active:scale-95"
+        title={t('delete')}
+        aria-label={t('delete')}
+      >
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+        </svg>
+      </button>
+    )}
   </div>
 );
 
@@ -45,8 +65,11 @@ const CustomerRow: React.FC<{
   getGuarantorNames: (ids?: string[]) => string;
   onEdit: (id: string) => void;
   onDelete: (id: string) => void;
+  onHistory: (id: string) => void;
   index: number;
-}> = ({ customer, isUrdu, getGuarantorNames, onEdit, onDelete, index }) => (
+  canEdit: boolean;
+  canDelete: boolean;
+}> = ({ customer, isUrdu, getGuarantorNames, onEdit, onDelete, onHistory, index, canEdit, canDelete }) => (
   <tr className={`hover:bg-blue-50/30 dark:hover:bg-blue-900/10 transition-all duration-200 ${
     index % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50/30 dark:bg-gray-800/50'
   }`}>
@@ -72,7 +95,10 @@ const CustomerRow: React.FC<{
       <ActionButtons
         onEdit={() => onEdit(customer.id)}
         onDelete={() => onDelete(customer.id)}
+        onHistory={() => onHistory(customer.id)}
         t={(key) => key}
+        canEdit={canEdit}
+        canDelete={canDelete}
       />
     </td>
   </tr>
@@ -85,7 +111,9 @@ const CustomerCard: React.FC<{
   getGuarantorNames: (ids?: string[]) => string;
   onEdit: (id: string) => void;
   onDelete: (id: string) => void;
-}> = ({ customer, isUrdu, getGuarantorNames, onEdit, onDelete }) => (
+  canEdit: boolean;
+  canDelete: boolean;
+}> = ({ customer, isUrdu, getGuarantorNames, onEdit, onDelete, canEdit, canDelete }) => (
   <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200/60 dark:border-gray-700/60 p-4 space-y-3 shadow-sm">
     <div className="flex items-start justify-between">
       <div>
@@ -97,22 +125,26 @@ const CustomerCard: React.FC<{
         </p>
       </div>
       <div className="flex gap-1">
-        <button
-          onClick={() => onEdit(customer.id)}
-          className="p-2 rounded-xl bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-all"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-          </svg>
-        </button>
-        <button
-          onClick={() => onDelete(customer.id)}
-          className="p-2 rounded-xl bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/50 transition-all"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-          </svg>
-        </button>
+        {canEdit && (
+          <button
+            onClick={() => onEdit(customer.id)}
+            className="p-2 rounded-xl bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-all"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+            </svg>
+          </button>
+        )}
+        {canDelete && (
+          <button
+            onClick={() => onDelete(customer.id)}
+            className="p-2 rounded-xl bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/50 transition-all"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+          </button>
+        )}
       </div>
     </div>
     <div className="grid grid-cols-2 gap-2 text-xs">
@@ -139,10 +171,12 @@ const CustomerCard: React.FC<{
 const CustomerList: React.FC = () => {
   const { t, i18n } = useTranslation();
   const { customers, loading, fetchCustomers } = useCustomerStore();
+  const user = useAuthStore((s) => s.user);
   const [search, setSearch] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [editCustomerId, setEditCustomerId] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [historyCustomerId, setHistoryCustomerId] = useState<string | null>(null);
   const [allGuarantors, setAllGuarantors] = useState<any[]>([]);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -169,6 +203,9 @@ const CustomerList: React.FC = () => {
   }, [customers]);
 
   const isUrdu = i18n.language === 'ur';
+  const isStaff = user?.role === 'staff';
+  const canEdit = !isStaff;
+  const canDelete = !isStaff;
 
   // ✅ Get guarantor names
   const getGuarantorNames = useCallback((ids?: string[]) => {
@@ -198,6 +235,8 @@ const CustomerList: React.FC = () => {
     [customers, search, getGuarantorNames]
   );
 
+  const removeCustomer = useCustomerStore(s => s.removeCustomer);
+
   // ✅ Handle delete
   const handleDelete = useCallback(async (id: string) => {
     setIsDeleting(true);
@@ -206,12 +245,16 @@ const CustomerList: React.FC = () => {
       toast.success(isUrdu ? 'گاہک ڈیلیٹ ہو گیا' : t('customer_deleted'));
       await fetchCustomers(true);
     } catch (e) {
-      toast.error(isUrdu ? 'گاہک ڈیلیٹ کرنے میں ناکامی' : t('error_deleting_customer'));
+      // OFFLINE FALLBACK: Delete locally and queue for sync
+      console.log('📦 Offline: Caching customer delete locally');
+      await offlineDeleteCustomer(id);
+      removeCustomer(id); // ✅ Immediate UI update
+      toast.success(isUrdu ? 'گاہک آف لائن ڈیلیٹ ہو گیا' : 'Customer deleted offline');
     } finally {
       setIsDeleting(false);
       setDeleteConfirm(null);
     }
-  }, [t, fetchCustomers, isUrdu]);
+  }, [t, fetchCustomers, isUrdu, removeCustomer]);
 
   // ✅ Loading state
   if (loading) {
@@ -303,6 +346,8 @@ const CustomerList: React.FC = () => {
                 getGuarantorNames={getGuarantorNames}
                 onEdit={setEditCustomerId}
                 onDelete={setDeleteConfirm}
+                canEdit={canEdit}
+                canDelete={canDelete}
               />
             ))}
           </div>
@@ -331,7 +376,10 @@ const CustomerList: React.FC = () => {
                       getGuarantorNames={getGuarantorNames}
                       onEdit={setEditCustomerId}
                       onDelete={setDeleteConfirm}
+                      onHistory={setHistoryCustomerId}
                       index={idx}
+                      canEdit={canEdit}
+                      canDelete={canDelete}
                     />
                   ))}
                 </tbody>
@@ -360,6 +408,14 @@ const CustomerList: React.FC = () => {
             fetchCustomers(true); 
             setEditCustomerId(null); 
           }} 
+        />
+      )}
+
+      {/* ✅ History Modal */}
+      {historyCustomerId && (
+        <CustomerHistory
+          customerId={historyCustomerId}
+          onClose={() => setHistoryCustomerId(null)}
         />
       )}
 

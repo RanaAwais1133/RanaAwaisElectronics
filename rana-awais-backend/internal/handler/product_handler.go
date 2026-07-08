@@ -9,7 +9,6 @@ import (
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/domain"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/service"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/pkg/audit"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type ProductHandler struct {
@@ -26,148 +25,70 @@ func (h *ProductHandler) Create(w http.ResponseWriter, r *http.Request) {
 		respondError(w, r, http.StatusBadRequest, "Invalid body", "غلط مواد")
 		return
 	}
-
-	if p.Name == "" && p.NameUrdu == "" {
+	if p.Name == "" {
 		respondError(w, r, http.StatusBadRequest, "Name is required", "نام ضروری ہے")
 		return
 	}
-	if p.Name == "" {
-		p.Name = p.NameUrdu
-	}
-	if p.NameUrdu == "" {
-		p.NameUrdu = p.Name
-	}
-
-	if p.Company == "" && p.CompanyUrdu != "" {
-		p.Company = p.CompanyUrdu
-	}
-	if p.CompanyUrdu == "" && p.Company != "" {
-		p.CompanyUrdu = p.Company
-	}
-
 	if err := h.svc.Create(r.Context(), &p); err != nil {
-		respondError(w, r, http.StatusInternalServerError, "Creation failed", "پروڈکٹ نہیں بنی")
+		respondError(w, r, http.StatusConflict, err.Error(), "پروڈکٹ نہیں بن سکی")
 		return
 	}
-	audit.Log(r.Context(), "CREATE", "product", p.ID.Hex(), "", getUserID(r))
+	audit.Log(r.Context(), "CREATE", "product", p.ID, "", getUserID(r))
 	respondJSON(w, http.StatusCreated, p)
 }
 
 func (h *ProductHandler) GetByID(w http.ResponseWriter, r *http.Request) {
-	id, err := primitive.ObjectIDFromHex(mux.Vars(r)["id"])
-	if err != nil {
-		respondError(w, r, http.StatusBadRequest, "Invalid ID", "غلط شناخت")
-		return
-	}
-	product, err := h.svc.GetByIDWithStock(r.Context(), id)
-	if err != nil || product == nil {
+	id := mux.Vars(r)["id"]
+	p, err := h.svc.GetByID(r.Context(), id)
+	if err != nil || p == nil {
 		respondError(w, r, http.StatusNotFound, "Product not found", "پروڈکٹ نہیں ملی")
 		return
 	}
-	respondJSON(w, http.StatusOK, product)
+	respondJSON(w, http.StatusOK, p)
 }
 
 func (h *ProductHandler) Update(w http.ResponseWriter, r *http.Request) {
-	id, err := primitive.ObjectIDFromHex(mux.Vars(r)["id"])
-	if err != nil {
-		respondError(w, r, http.StatusBadRequest, "Invalid ID", "غلط شناخت")
-		return
-	}
-	existing, err := h.svc.GetByID(r.Context(), id)
-	if err != nil || existing == nil {
-		respondError(w, r, http.StatusNotFound, "Product not found", "پروڈکٹ نہیں ملی")
-		return
-	}
+	id := mux.Vars(r)["id"]
 	var input domain.Product
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		respondError(w, r, http.StatusBadRequest, "Invalid body", "غلط مواد")
 		return
 	}
-
-	if input.Name != "" || input.NameUrdu != "" {
-		if input.Name != "" {
-			existing.Name = input.Name
-		}
-		if input.NameUrdu != "" {
-			existing.NameUrdu = input.NameUrdu
-		}
-		if existing.Name == "" {
-			existing.Name = existing.NameUrdu
-		}
-		if existing.NameUrdu == "" {
-			existing.NameUrdu = existing.Name
-		}
-	}
-	if input.Company != "" || input.CompanyUrdu != "" {
-		if input.Company != "" {
-			existing.Company = input.Company
-		}
-		if input.CompanyUrdu != "" {
-			existing.CompanyUrdu = input.CompanyUrdu
-		}
-		if existing.Company == "" {
-			existing.Company = existing.CompanyUrdu
-		}
-		if existing.CompanyUrdu == "" {
-			existing.CompanyUrdu = existing.Company
-		}
-	}
-	if input.Category != "" {
-		existing.Category = input.Category
-	}
-	if input.Price != 0 {
-		existing.Price = input.Price
-	}
-	if input.PurchasePrice != 0 {
-		existing.PurchasePrice = input.PurchasePrice
-	}
-	if input.Description != "" {
-		existing.Description = input.Description
-	}
-	if input.SKU != "" {
-		existing.SKU = input.SKU
-	}
-
-	if err := h.svc.Update(r.Context(), id, existing); err != nil {
+	if err := h.svc.Update(r.Context(), id, &input); err != nil {
 		respondError(w, r, http.StatusInternalServerError, "Update failed", "اپڈیٹ ناکام")
 		return
 	}
-	audit.Log(r.Context(), "UPDATE", "product", id.Hex(), "", getUserID(r))
-	respondJSON(w, http.StatusOK, existing)
+	audit.Log(r.Context(), "UPDATE", "product", id, "", getUserID(r))
+	respondJSON(w, http.StatusOK, input)
 }
 
 func (h *ProductHandler) Delete(w http.ResponseWriter, r *http.Request) {
-	id, err := primitive.ObjectIDFromHex(mux.Vars(r)["id"])
-	if err != nil {
-		respondError(w, r, http.StatusBadRequest, "Invalid ID", "غلط شناخت")
-		return
-	}
+	id := mux.Vars(r)["id"]
 	if err := h.svc.Delete(r.Context(), id); err != nil {
 		respondError(w, r, http.StatusInternalServerError, "Delete failed", "ڈیلیٹ ناکام")
 		return
 	}
-	audit.Log(r.Context(), "DELETE", "product", id.Hex(), "", getUserID(r))
+	audit.Log(r.Context(), "DELETE", "product", id, "", getUserID(r))
 	respondJSON(w, http.StatusOK, map[string]string{"message": "Product deleted"})
 }
 
 func (h *ProductHandler) List(w http.ResponseWriter, r *http.Request) {
 	skip, _ := strconv.ParseInt(r.URL.Query().Get("skip"), 10, 64)
 	limit, _ := strconv.ParseInt(r.URL.Query().Get("limit"), 10, 64)
-	if limit == 0 {
-		limit = 20
+	if limit == 0 { limit = 10000 }
+	category := r.URL.Query().Get("category")
+
+	var prods []domain.Product
+	var err error
+	if category != "" {
+		prods, err = h.svc.ListByCategory(r.Context(), category)
+	} else {
+		prods, err = h.svc.List(r.Context(), skip, limit)
 	}
-	products, err := h.svc.List(r.Context(), skip, limit)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "Failed to list", "پروڈکٹس نہیں لائی جا سکیں")
+		respondError(w, r, http.StatusInternalServerError, "Failed to list", "پروڈکٹ فہرست نہیں لائی جا سکی")
 		return
 	}
-	total, err := h.svc.Count(r.Context())
-	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "Failed to count", "گنتی نہیں ہو سکی")
-		return
-	}
-	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"data":  products,
-		"total": total,
-	})
+	total, _ := h.svc.Count(r.Context())
+	respondJSON(w, http.StatusOK, map[string]interface{}{"data": prods, "total": total})
 }

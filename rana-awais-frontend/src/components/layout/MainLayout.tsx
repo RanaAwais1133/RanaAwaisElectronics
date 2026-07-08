@@ -1,11 +1,13 @@
 import React, { useState, useEffect, Suspense, lazy } from 'react';
-import { Routes, Route, useLocation } from 'react-router-dom';
+import { Routes, Route, useLocation, Navigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import Navbar from './Navbar';
 import Sidebar from './Sidebar';
 import RequireRole from '../auth/RequireRole';
 import { useShortcuts } from '../../hooks/useShortcuts';
 import { APP_CONFIG } from '../../config/app';
+import { useAuthStore } from '../../store/useAuthStore';
+import { SyncStatus } from '../common/SyncStatus';
 
 // ✅ Lazy load all page components for code splitting
 const DashboardPage = lazy(() => import('../../features/dashboard/DashboardPage'));
@@ -18,6 +20,7 @@ const ReportsPage = lazy(() => import('../../features/reports/ReportsPage'));
 const NotificationPage = lazy(() => import('../../features/notifications/NotificationPage'));
 const ReminderPage = lazy(() => import('../../features/reminders/ReminderPage'));
 const SettingsPage = lazy(() => import('../../features/settings/SettingPage'));
+const BackupPage = lazy(() => import('../../features/settings/BackupPage'));
 const AuditLogsPage = lazy(() => import('../../features/audit/AuditLogsPage'));
 const NotFoundPage = lazy(() => import('../../pages/NotFoundPage'));
 
@@ -27,6 +30,15 @@ const MainLayout: React.FC = () => {
   const { t } = useTranslation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  
+  // ✅ Auth guard - redirect to login if not authenticated
+  const user = useAuthStore((s) => s.user);
+  const token = useAuthStore((s) => s.token);
+  const isAuthenticated = !!token && !!user;
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
 
   // ✅ Check if mobile
   useEffect(() => {
@@ -81,6 +93,7 @@ const MainLayout: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50/50 dark:bg-gray-900 flex flex-col">
+      <SyncStatus />
       <Navbar onMenuToggle={toggleSidebar} />
       <div className="flex flex-1">
         <Sidebar isOpen={sidebarOpen} onClose={closeSidebar} />
@@ -92,52 +105,80 @@ const MainLayout: React.FC = () => {
           }>
           <Routes>
             <Route path="/" element={<DashboardPage />} />
+            
+            {/* ✅ Customers - Staff can VIEW only, Manager/Admin can manage */}
             <Route path="/customers" element={
-              <RequireRole roles={['admin', 'manager']}>
+              <RequireRole roles={['admin', 'manager', 'staff']}>
                 <CustomerList />
               </RequireRole>
             } />
+            
+            {/* ✅ Products - Manager/Admin only */}
             <Route path="/products" element={
               <RequireRole roles={['admin', 'manager']}>
                 <ProductList />
               </RequireRole>
             } />
+            
+            {/* ✅ Installments - All roles can view */}
             <Route path="/installments" element={<InstallmentList />} />
+            
+            {/* ✅ New Installment - All roles can create (Staff included) */}
             <Route path="/installments/new" element={
-              <RequireRole roles={['admin', 'manager']}>
+              <RequireRole roles={['admin', 'manager', 'staff']}>
                 <InstallmentCreate />
               </RequireRole>
             } />
+            
+            {/* ✅ Guarantors - Manager/Admin only */}
             <Route path="/guarantors" element={
               <RequireRole roles={['admin', 'manager']}>
                 <GuarantorList />
               </RequireRole>
             } />
+            
+            {/* ✅ Reports - Manager/Admin only */}
             <Route path="/reports" element={
               <RequireRole roles={['admin', 'manager']}>
                 <ReportsPage />
               </RequireRole>
             } />
+            
+            {/* ✅ Reminders - Manager/Admin only */}
             <Route path="/reminders" element={
               <RequireRole roles={['admin', 'manager']}>
                 <ReminderPage />
               </RequireRole>
             } />
+            
+            {/* ✅ Notifications - Manager/Admin only */}
             <Route path="/notifications" element={
               <RequireRole roles={['admin', 'manager']}>
                 <NotificationPage />
               </RequireRole>
             } />
+            
+            {/* ✅ Audit Logs - Manager/Admin only */}
             <Route path="/audit-logs" element={
               <RequireRole roles={['admin', 'manager']}>
                 <AuditLogsPage />
               </RequireRole>
             } />
+            
+            {/* ✅ Settings - Admin only */}
             <Route path="/settings" element={
               <RequireRole roles={['admin']}>
                 <SettingsPage />
               </RequireRole>
             } />
+            
+            {/* ✅ Backup - Admin only */}
+            <Route path="/backup" element={
+              <RequireRole roles={['admin']}>
+                <BackupPage />
+              </RequireRole>
+            } />
+            
             <Route path="*" element={<NotFoundPage />} />
           </Routes>
           </Suspense>

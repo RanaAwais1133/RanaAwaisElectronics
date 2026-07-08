@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rana Awais - Diagnostic</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; background: #1a1a2e; color: #eee; padding: 20px; }
+        h1 { color: #e94560; margin-bottom: 20px; }
+        .card { background: #16213e; border-radius: 10px; padding: 20px; margin-bottom: 15px; }
+        .card h2 { color: #0f3460; margin-bottom: 10px; }
+        .success { color: #4ecca3; }
+        .error { color: #e94560; }
+        .info { color: #f0a500; }
+        pre { background: #0f3460; padding: 10px; border-radius: 5px; overflow-x: auto; font-size: 12px; white-space: pre-wrap; }
+        button { background: #e94560; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin: 5px; }
+        button:hover { background: #c73652; }
+        .test-btn { background: #4ecca3; }
+        .test-btn:hover { background: #3db88b; }
+        .status-dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 8px; }
+        .dot-green { background: #4ecca3; }
+        .dot-red { background: #e94560; }
+        .dot-yellow { background: #f0a500; }
+        #log { max-height: 400px; overflow-y: auto; }
+        input { background: #0f3460; border: 1px solid #1a1a2e; color: #eee; padding: 8px; border-radius: 5px; margin: 5px; width: 200px; }
+        label { color: #f0a500; margin: 5px; }
+    </style>
+</head>
+<body>
+    <h1>🔍 Rana Awais Electronics - Mobile Diagnostic</h1>
+    
+    <div class="card">
+        <h2>📋 System Info</h2>
+        <div id="systemInfo">Loading...</div>
+    </div>
+
+    <div class="card">
+        <h2>📱 PWA Install</h2>
+        <div id="pwaStatus">
+            <p class="info">⏳ Checking PWA status...</p>
+        </div>
+        <button class="test-btn" onclick="installPWA()">📲 Install PWA App</button>
+        <button onclick="checkPWA()">🔍 Check PWA Status</button>
+        <div id="pwaResult" style="margin-top: 10px;"></div>
+    </div>
+
+    <div class="card">
+        <h2>🔐 Login Test</h2>
+        <div>
+            <label>Username:</label>
+            <input type="text" id="loginUser" value="admin" />
+            <label>Password:</label>
+            <input type="password" id="loginPass" value="admin123" />
+        </div>
+        <button class="test-btn" onclick="testLoginDebug()">🔍 Test Login (Debug)</button>
+        <button class="test-btn" onclick="testLogin()">🔐 Test Login (Normal)</button>
+        <button class="test-btn" onclick="testHealth()">💓 Test Health</button>
+        <button onclick="clearCache()">🗑️ Clear Cache & Reload</button>
+        <button onclick="unregisterSW()">📴 Unregister Service Worker</button>
+        <div id="apiResult" style="margin-top: 10px;"></div>
+    </div>
+
+    <div class="card">
+        <h2>📝 Detailed Log</h2>
+        <div id="log"></div>
+    </div>
+
+    <script>
+        function log(msg, type = 'info') {
+            const logDiv = document.getElementById('log');
+            const time = new Date().toLocaleTimeString();
+            const color = type === 'error' ? '#e94560' : type === 'success' ? '#4ecca3' : '#f0a500';
+            logDiv.innerHTML += `<div style="color: ${color}; margin: 2px 0;">[${time}] ${msg}</div>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        // System Info
+        const sysInfo = document.getElementById('systemInfo');
+        sysInfo.innerHTML = `
+            <p><span class="status-dot dot-green"></span> <strong>Current URL:</strong> ${window.location.href}</p>
+            <p><span class="status-dot dot-green"></span> <strong>Origin:</strong> ${window.location.origin}</p>
+            <p><span class="status-dot dot-green"></span> <strong>Host:</strong> ${window.location.host}</p>
+            <p><span class="status-dot dot-green"></span> <strong>Protocol:</strong> ${window.location.protocol}</p>
+            <p><span class="status-dot dot-green"></span> <strong>User Agent:</strong> ${navigator.userAgent}</p>
+            <p><span class="status-dot dot-green"></span> <strong>Online:</strong> ${navigator.onLine ? '✅ Yes' : '❌ No'}</p>
+            <p><span class="status-dot dot-green"></span> <strong>Service Worker:</strong> ${'serviceWorker' in navigator ? '✅ Supported' : '❌ Not Supported'}</p>
+        `;
+
+        // Check service worker status
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistration().then(reg => {
+                if (reg) {
+                    log(`✅ Service Worker registered (scope: ${reg.scope})`, 'success');
+                } else {
+                    log(`ℹ️ No Service Worker registered`, 'info');
+                }
+            });
+        }
+
+        async function testHealth() {
+            const resultDiv = document.getElementById('apiResult');
+            resultDiv.innerHTML = '<p class="info">⏳ Testing health endpoint...</p>';
+            log('Testing /api/health...');
+            
+            try {
+                const response = await fetch('/api/health', {
+                    method: 'GET',
+                    headers: { 'Accept': 'application/json' }
+                });
+                const text = await response.text();
+                log(`✅ Health response (${response.status}): ${text}`, 'success');
+                resultDiv.innerHTML = `<p class="success">✅ Health API: ${response.status} - ${text}</p>`;
+            } catch (err) {
+                log(`❌ Health error: ${err.message}`, 'error');
+                resultDiv.innerHTML = `<p class="error">❌ Health API Failed: ${err.message}</p>`;
+                if (err.name === 'TypeError') {
+                    resultDiv.innerHTML += `<p class="error">⚠️ Network error - Server unreachable or CORS issue</p>`;
+                }
+            }
+        }
+
+        async function testLoginDebug() {
+            const resultDiv = document.getElementById('apiResult');
+            const username = document.getElementById('loginUser').value;
+            const password = document.getElementById('loginPass').value;
+            
+            resultDiv.innerHTML = '<p class="info">⏳ Testing login debug endpoint...</p>';
+            log(`Testing /api/auth/debug with username=${username}...`);
+            
+            try {
+                const response = await fetch('/api/auth/debug', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                const data = await response.json();
+                log(`✅ Debug response (${response.status}): ${JSON.stringify(data)}`, 'success');
+                
+                let html = `<p class="${data.success ? 'success' : 'error'}">${data.success ? '✅' : '❌'} Debug: ${data.success ? 'Login OK' : data.error}</p>`;
+                html += `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+                if (data.hint) {
+                    html += `<p class="info">💡 ${data.hint}</p>`;
+                }
+                resultDiv.innerHTML = html;
+            } catch (err) {
+                log(`❌ Debug error: ${err.message}`, 'error');
+                resultDiv.innerHTML = `<p class="error">❌ Debug API Failed: ${err.message}</p>`;
+                if (err.name === 'TypeError') {
+                    resultDiv.innerHTML += `<p class="error">⚠️ Network error - Server unreachable or CORS issue</p>`;
+                }
+            }
+        }
+
+        async function testLogin() {
+            const resultDiv = document.getElementById('apiResult');
+            const username = document.getElementById('loginUser').value;
+            const password = document.getElementById('loginPass').value;
+            
+            resultDiv.innerHTML = '<p class="info">⏳ Testing login endpoint...</p>';
+            log(`Testing /api/auth/login with username=${username}...`);
+            
+            try {
+                const response = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                const text = await response.text();
+                log(`✅ Login response (${response.status}): ${text.substring(0, 200)}`, 'success');
+                
+                let html = `<p class="${response.ok ? 'success' : 'error'}">${response.ok ? '✅' : '❌'} Login: ${response.status}</p>`;
+                html += `<pre>${text.substring(0, 300)}</pre>`;
+                if (!response.ok) {
+                    html += `<p class="error">⚠️ Login failed! Try the Debug button for details.</p>`;
+                }
+                resultDiv.innerHTML = html;
+            } catch (err) {
+                log(`❌ Login error: ${err.message}`, 'error');
+                resultDiv.innerHTML = `<p class="error">❌ Login API Failed: ${err.message}</p>`;
+                if (err.name === 'TypeError') {
+                    resultDiv.innerHTML += `<p class="error">⚠️ Network error - Server unreachable or CORS issue</p>`;
+                }
+            }
+        }
+
+        async function clearCache() {
+            log('Clearing all caches...');
+            if ('caches' in window) {
+                const keys = await caches.keys();
+                await Promise.all(keys.map(key => caches.delete(key)));
+                log(`✅ Cleared ${keys.length} caches`, 'success');
+            }
+            alert('Cache cleared! Reloading page...');
+            window.location.reload();
+        }
+
+        async function unregisterSW() {
+            log('Unregistering Service Worker...');
+            if ('serviceWorker' in navigator) {
+                const reg = await navigator.serviceWorker.getRegistration();
+                if (reg) {
+                    await reg.unregister();
+                    log('✅ Service Worker unregistered!', 'success');
+                    alert('Service Worker unregistered! Reloading page...');
+                    window.location.reload();
+                } else {
+                    log('ℹ️ No Service Worker to unregister', 'info');
+                }
+            }
+        }
+
+        // ✅ PWA Install Functions
+        let deferredPrompt = null;
+
+        // Listen for beforeinstallprompt
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            log('📲 Install prompt available!', 'success');
+            updatePWAStatus();
+        });
+
+        window.addEventListener('appinstalled', () => {
+            log('✅ App installed successfully! 🎉', 'success');
+            deferredPrompt = null;
+            updatePWAStatus();
+        });
+
+        function updatePWAStatus() {
+            const pwaDiv = document.getElementById('pwaStatus');
+            const isStandalone = window.matchMedia('(display-mode: standalone)').matches || 
+                window.navigator.standalone === true;
+            
+            let html = '';
+            html += `<p><span class="status-dot ${isStandalone ? 'dot-green' : 'dot-red'}"></span> <strong>Display Mode:</strong> ${isStandalone ? '✅ Standalone (App Mode)' : '❌ Browser Tab'}</p>`;
+            html += `<p><span class="status-dot ${deferredPrompt ? 'dot-green' : 'dot-yellow'}"></span> <strong>Install Prompt:</strong> ${deferredPrompt ? '✅ Available - Click "Install PWA App" button!' : '❌ Not available'}</p>`;
+            html += `<p><span class="status-dot dot-green"></span> <strong>Protocol:</strong> ${window.location.protocol}</p>`;
+            
+            if (!deferredPrompt && !isStandalone) {
+                html += `<p class="error">⚠️ Chrome on mobile does NOT show "Install app" on HTTP sites (${window.location.protocol}//).</p>`;
+                html += `<p class="info">💡 Solution 1: Use <strong>⋮ → "Add to Home screen"</strong> - works like an app!</p>`;
+                html += `<p class="info">💡 Solution 2: Open Settings page in the app and click "Install" button there</p>`;
+            }
+            
+            pwaDiv.innerHTML = html;
+        }
+
+        async function checkPWA() {
+            log('Checking PWA status...');
+            updatePWAStatus();
+            log('✅ PWA status updated', 'success');
+        }
+
+        async function installPWA() {
+            log('Attempting PWA install...');
+            const resultDiv = document.getElementById('pwaResult');
+            
+            if (deferredPrompt) {
+                log('📲 Showing install prompt...', 'success');
+                deferredPrompt.prompt();
+                const result = await deferredPrompt.userChoice;
+                if (result.outcome === 'accepted') {
+                    log('✅ User accepted install! 🎉', 'success');
+                    resultDiv.innerHTML = '<p class="success">✅ App installation started! 🎉</p>';
+                } else {
+                    log('❌ User dismissed install', 'error');
+                    resultDiv.innerHTML = '<p class="error">❌ Install dismissed by user</p>';
+                }
+                deferredPrompt = null;
+                updatePWAStatus();
+            } else {
+                log('❌ No install prompt available', 'error');
+                resultDiv.innerHTML = `
+                    <p class="error">❌ Install prompt not available on this browser/connection.</p>
+                    <p class="info">💡 Try these instead:</p>
+                    <p class="info">1. Chrome ⋮ → <strong>"Add to Home screen"</strong> (works like an app)</p>
+                    <p class="info">2. Open Settings page in the app → click "Install" button</p>
+                    <p class="info">3. Use Chrome on HTTPS (not available on HTTP)</p>
+                `;
+            }
+        }
+
+        // Initial PWA status check
+        setTimeout(updatePWAStatus, 1000);
+
+        log('✅ Diagnostic page loaded successfully', 'success');
+        log(`📍 Current URL: ${window.location.href}`, 'info');
+    </script>
+</body>
+</html>

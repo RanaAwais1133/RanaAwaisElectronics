@@ -3,8 +3,8 @@ import { useTranslation } from 'react-i18next';
 import api from '../../utils/api';
 import toast from 'react-hot-toast';
 import { formatPhone } from '../../utils/helpers';
-import { APP_CONFIG } from '../../config/app';
 import { useAuthStore } from '../../store/useAuthStore';
+import { useClientStore } from '../../store/useClientStore';
 
 // ✅ Reminder Card Component for Mobile
 const ReminderCard: React.FC<{
@@ -101,9 +101,10 @@ const ReminderPage: React.FC = () => {
   const [search, setSearch] = useState('');
 
   // ✅ Page title
+  const clientInfo = useClientStore((s) => s.info);
   useEffect(() => {
-    document.title = `${t('reminders')} | ${APP_CONFIG.companyName}`;
-  }, [t]);
+    document.title = `${t('reminders')} | ${clientInfo.name}`;
+  }, [t, clientInfo.name]);
 
   // ✅ Fetch upcoming installments
   const fetchUpcoming = useCallback(async () => {
@@ -112,6 +113,23 @@ const ReminderPage: React.FC = () => {
       const res = await api.get('/installments/upcoming?days=7');
       setItems(res.data || []);
     } catch (err) {
+      // ✅ OFFLINE FALLBACK: Try to load from IndexedDB cached installments
+      try {
+        const { offlineDB } = await import('../../db/indexeddb');
+        const cached = await offlineDB.getCachedInstallments();
+        if (cached && cached.length > 0) {
+          const today = new Date();
+          const nextWeek = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
+          const upcoming = cached.filter((inst: any) => {
+            const due = new Date(inst.due_date || inst.dueDate);
+            return due >= today && due <= nextWeek && (inst.status === 'active' || inst.paid === false || inst.paid === 0);
+          });
+          if (upcoming.length > 0) {
+            setItems(upcoming);
+            return;
+          }
+        }
+      } catch {}
       toast.error(isUrdu ? 'ڈیٹا لوڈ کرنے میں ناکامی' : t('error_loading'));
     } finally {
       setLoading(false);
@@ -216,7 +234,7 @@ const ReminderPage: React.FC = () => {
     const diffDays = Math.ceil((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
     const urgencyText = diffDays <= 1 ? (isUrdu ? '⚠️ فوری! ' : '⚠️ URGENT! ') : '';
 
-    const companyName = isUrdu ? APP_CONFIG.companyNameUr : APP_CONFIG.companyName;
+    const companyName = isUrdu ? (clientInfo.nameUr || clientInfo.name) : clientInfo.name;
 
     const msg = isUrdu
       ? `${urgencyText}محترم ${item.customer_name || ''} صاحب،\n\nآپ کی قسط نمبر ${item.installment_no} (کل ${item.total_installments || '?'} میں سے) بمبلغ Rs. ${item.amount} مورخہ ${due.toLocaleDateString('ur-PK', { year: 'numeric', month: 'long', day: 'numeric' })} کو واجب الادا ہے۔\n\nباقی ماندہ اقساط: ${item.remaining_installments || '?'}\n\nبراہ کرم بروقت ادائیگی کریں تاکہ جرمانے سے بچ سکیں۔\n\nشکریہ\n${companyName}`
