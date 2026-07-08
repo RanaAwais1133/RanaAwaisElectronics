@@ -29,11 +29,20 @@ func (h *CollectionHelper) InsertOne(ctx context.Context, doc interface{}) (stri
 	return result.InsertedID.(primitive.ObjectID).Hex(), nil
 }
 
-// FindByID finds a document by its string ID (converts to ObjectID)
+// FindByID finds a document by its ID - tries string match first, then ObjectID
 func (h *CollectionHelper) FindByID(ctx context.Context, id string, result interface{}) error {
-	objID, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
+	// Try string match first (our domain models use string _id)
+	err := h.Collection.FindOne(ctx, bson.M{"_id": id}).Decode(result)
+	if err == nil {
+		return nil
+	}
+	if err != mongo.ErrNoDocuments {
 		return err
+	}
+	// If not found by string, try ObjectID for legacy data
+	objID, objErr := primitive.ObjectIDFromHex(id)
+	if objErr != nil {
+		return mongo.ErrNoDocuments
 	}
 	return h.Collection.FindOne(ctx, bson.M{"_id": objID}).Decode(result)
 }
@@ -67,21 +76,39 @@ func (h *CollectionHelper) FindAll(ctx context.Context, results interface{}, ski
 	return cursor.All(ctx, results)
 }
 
-// UpdateByID updates a document by its string ID
+// UpdateByID updates a document by its string ID - tries string match first, then ObjectID
 func (h *CollectionHelper) UpdateByID(ctx context.Context, id string, update bson.M) error {
-	objID, err := primitive.ObjectIDFromHex(id)
+	// Try string match first
+	result, err := h.Collection.UpdateOne(ctx, bson.M{"_id": id}, bson.M{"$set": update})
 	if err != nil {
 		return err
+	}
+	if result.MatchedCount > 0 {
+		return nil
+	}
+	// Fallback to ObjectID
+	objID, objErr := primitive.ObjectIDFromHex(id)
+	if objErr != nil {
+		return mongo.ErrNoDocuments
 	}
 	_, err = h.Collection.UpdateOne(ctx, bson.M{"_id": objID}, bson.M{"$set": update})
 	return err
 }
 
-// DeleteByID deletes a document by its string ID
+// DeleteByID deletes a document by its string ID - tries string match first, then ObjectID
 func (h *CollectionHelper) DeleteByID(ctx context.Context, id string) error {
-	objID, err := primitive.ObjectIDFromHex(id)
+	// Try string match first
+	result, err := h.Collection.DeleteOne(ctx, bson.M{"_id": id})
 	if err != nil {
 		return err
+	}
+	if result.DeletedCount > 0 {
+		return nil
+	}
+	// Fallback to ObjectID
+	objID, objErr := primitive.ObjectIDFromHex(id)
+	if objErr != nil {
+		return mongo.ErrNoDocuments
 	}
 	_, err = h.Collection.DeleteOne(ctx, bson.M{"_id": objID})
 	return err

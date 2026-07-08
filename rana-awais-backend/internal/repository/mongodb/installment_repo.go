@@ -149,8 +149,58 @@ func (r *InstallmentRepository) loadInstallmentDetails(ctx context.Context, plan
 func (r *InstallmentRepository) Update(ctx context.Context, id string, plan *domain.InstallmentPlan) error {
 	plan.UpdatedAt = time.Now()
 
-	_, err := r.coll.ReplaceOne(ctx, getFilterByID(id), plan)
-
+	// Use $set instead of ReplaceOne for safety
+	updateFields := bson.M{
+		"customerid":           plan.CustomerID,
+		"productid":            plan.ProductID,
+		"inventoryitemid":      plan.InventoryItemID,
+		"guarantorids":         plan.GuarantorIDs,
+		"totalamount":          plan.TotalAmount,
+		"downpayment":          plan.DownPayment,
+		"remainingamount":      plan.RemainingAmount,
+		"numinstallments":      plan.NumberOfInstallments,
+		"installmentamount":    plan.InstallmentAmount,
+		"startdate":            plan.StartDate,
+		"enddate":              plan.EndDate,
+		"graceperioddays":      plan.GracePeriodDays,
+		"fineperday":           plan.FinePerDay,
+		"finetype":             plan.FineType,
+		"fixedfineamount":      plan.FixedFineAmount,
+		"status":               plan.Status,
+		"installmentdate":      plan.InstallmentDate,
+		"paymenttype":          plan.PaymentType,
+		"serialnumber":         plan.SerialNumber,
+		"imei":                 plan.IMEI,
+		"engineno":             plan.EngineNo,
+		"chassisno":            plan.ChassisNo,
+		"model":                plan.Model,
+		"color":                plan.Color,
+		"company":              plan.Company,
+		"processfee":           plan.ProcessFee,
+		"discount":             plan.Discount,
+		"salaryincome":         plan.SalaryIncome,
+		"defaulter":            plan.Defaulter,
+		"pto":                  plan.PTO,
+		"vpnstatus":            plan.VPNStatus,
+		"employeestatus":       plan.EmployeeStatus,
+		"dbmremarks":           plan.DBMRemarks,
+		"crcremarks":           plan.CRCRemarks,
+		"processat":            plan.ProcessAt,
+		"doofficer":            plan.DOOfficer,
+		"markoff":              plan.MarkOff,
+		"debtmng":              plan.DebtMng,
+		"secondmng":            plan.SecondMng,
+		"inspoff":              plan.InspOff,
+		"srm":                  plan.SRM,
+		"mobilephone":          plan.MobilePhone,
+		"crc":                  plan.CRC,
+		"createdby":            plan.CreatedBy,
+		"remarks":              plan.Remarks,
+		"completeddate":        plan.CompletedDate,
+		"completedby":          plan.CompletedBy,
+		"updatedat":            plan.UpdatedAt,
+	}
+	_, err := r.coll.UpdateOne(ctx, getFilterByID(id), bson.M{"$set": updateFields})
 	if err != nil {
 		return err
 	}

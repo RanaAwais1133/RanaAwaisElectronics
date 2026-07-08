@@ -22,11 +22,29 @@ func NewProductRepository(db *mongo.Database) *ProductRepository {
 	}
 }
 
-// getFilterByID creates a filter that matches both ObjectID and string _id fields
-// This handles the case where MongoDB stores _id as a string (via bson:"_id" tag on a string field)
+// getFilterByID creates a filter that matches both string and ObjectID _id fields
+// Also tries legacy "id" field for backward compatibility with old data
 func getFilterByID(id string) bson.M {
-	// Always try string match first since our domain models use string IDs
-	// Also try ObjectID match for legacy data that might be stored as ObjectID
+	if id == "" {
+		return bson.M{"_id": ""}
+	}
+	// Try _id as string (our current format with bson:"_id" tags)
+	orConditions := []bson.M{
+		{"_id": id},
+		// Legacy: data might have ID stored in "id" field instead of "_id"
+		{"id": id},
+	}
+	if objID, err := primitive.ObjectIDFromHex(id); err == nil {
+		orConditions = append(orConditions, bson.M{"_id": objID})
+	}
+	return bson.M{"$or": orConditions}
+}
+
+// getFilterByIDExcludeLegacy creates a filter that only tries _id field (for inserts/updates that don't need legacy lookup)
+func getFilterByIDExcludeLegacy(id string) bson.M {
+	if id == "" {
+		return bson.M{"_id": ""}
+	}
 	orConditions := []bson.M{
 		{"_id": id},
 	}
@@ -78,18 +96,18 @@ func (r *ProductRepository) Update(ctx context.Context, id string, p *domain.Pro
 	// Build update with lowercase JSON field names to match MongoDB stored format
 	updateFields := bson.M{
 		"name":          p.Name,
-		"nameUrdu":      p.NameUrdu,
+		"nameurdu":      p.NameUrdu,
 		"company":       p.Company,
-		"companyUrdu":   p.CompanyUrdu,
+		"companyurdu":   p.CompanyUrdu,
 		"category":      p.Category,
 		"price":         p.Price,
-		"purchasePrice": p.PurchasePrice,
+		"purchaseprice": p.PurchasePrice,
 		"description":   p.Description,
 		"sku":           p.SKU,
-		"stockCount":    p.StockCount,
+		"stockcount":    p.StockCount,
 		"in_stock":      p.InStock,
 		"created_by":    p.CreatedBy,
-		"updatedAt":     p.UpdatedAt,
+		"updatedat":     p.UpdatedAt,
 	}
 
 	// Only include non-zero fields to allow partial updates
@@ -159,10 +177,10 @@ func (r *ProductRepository) Search(ctx context.Context, query string, skip, limi
 	filter := bson.M{
 		"$or": []bson.M{
 			{"name": bson.M{"$regex": query, "$options": "i"}},
-			{"nameUrdu": bson.M{"$regex": query, "$options": "i"}},
+			{"nameurdu": bson.M{"$regex": query, "$options": "i"}},
 			{"category": bson.M{"$regex": query, "$options": "i"}},
 			{"company": bson.M{"$regex": query, "$options": "i"}},
-			{"companyUrdu": bson.M{"$regex": query, "$options": "i"}},
+			{"companyurdu": bson.M{"$regex": query, "$options": "i"}},
 			{"sku": bson.M{"$regex": query, "$options": "i"}},
 			{"description": bson.M{"$regex": query, "$options": "i"}},
 		},
@@ -195,6 +213,7 @@ func (r *ProductRepository) BulkDelete(ctx context.Context, ids []string) error 
 	// Build filter that matches both string and ObjectID _id fields
 	orConditions := []bson.M{
 		{"_id": bson.M{"$in": ids}},
+		{"id": bson.M{"$in": ids}},
 	}
 
 	var objIDs []primitive.ObjectID
@@ -214,8 +233,8 @@ func (r *ProductRepository) BulkDelete(ctx context.Context, ids []string) error 
 
 // GetLowStock returns products with stock below threshold
 func (r *ProductRepository) GetLowStock(ctx context.Context, threshold int) ([]domain.Product, error) {
-	filter := bson.M{"stockCount": bson.M{"$lte": threshold, "$gte": 0}}
-	cursor, err := r.coll.Find(ctx, filter, options.Find().SetSort(bson.D{{Key: "stockCount", Value: 1}}))
+	filter := bson.M{"stockcount": bson.M{"$lte": threshold, "$gte": 0}}
+	cursor, err := r.coll.Find(ctx, filter, options.Find().SetSort(bson.D{{Key: "stockcount", Value: 1}}))
 	if err != nil {
 		return nil, err
 	}
@@ -231,5 +250,3 @@ func (r *ProductRepository) GetLowStock(ctx context.Context, threshold int) ([]d
 	}
 	return products, nil
 }
-
-

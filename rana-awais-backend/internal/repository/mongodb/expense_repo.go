@@ -6,6 +6,7 @@ import (
 
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/domain"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -24,6 +25,9 @@ func NewExpenseRepository(db *mongo.Database) *ExpenseRepository {
 
 // Create inserts a new expense
 func (r *ExpenseRepository) Create(ctx context.Context, e *domain.Expense) error {
+	if e.ID == "" {
+		e.ID = primitive.NewObjectID().Hex()
+	}
 	e.CreatedAt = time.Now()
 	_, err := r.coll.InsertOne(ctx, e)
 	return err

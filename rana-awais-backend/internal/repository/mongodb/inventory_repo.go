@@ -46,7 +46,23 @@ func (r *InventoryRepository) GetByID(ctx context.Context, id string) (*domain.I
 
 func (r *InventoryRepository) Update(ctx context.Context, id string, item *domain.InventoryItem) error {
 	item.UpdatedAt = time.Now()
-	_, err := r.coll.ReplaceOne(ctx, getFilterByID(id), item)
+	updateFields := bson.M{
+		"productid":     item.ProductID,
+		"serialnumber":  item.SerialNumber,
+		"color":         item.Color,
+		"model":         item.Model,
+		"engineno":      item.EngineNo,
+		"chassisno":     item.ChassisNo,
+		"imei":          item.IMEI,
+		"company":       item.Company,
+		"status":        item.Status,
+		"purchasedate":  item.PurchaseDate,
+		"purchaseprice": item.PurchasePrice,
+		"sellingprice":  item.SellingPrice,
+		"solddate":      item.SoldDate,
+		"updatedat":     item.UpdatedAt,
+	}
+	_, err := r.coll.UpdateOne(ctx, getFilterByID(id), bson.M{"$set": updateFields})
 	return err
 }
 

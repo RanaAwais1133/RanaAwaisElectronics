@@ -10,7 +10,6 @@ import (
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/domain"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/service"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/pkg/audit"
-	"github.com/google/uuid"
 )
 
 type InstallmentHandler struct {
@@ -38,6 +37,9 @@ func (h *InstallmentHandler) Create(w http.ResponseWriter, r *http.Request) {
 		EndDate              string   `json:"endDate"`
 		GracePeriodDays      int      `json:"gracePeriodDays"`
 		FinePerDay           float64  `json:"finePerDay"`
+		FineType             string   `json:"fineType"`
+		FixedFineAmount      float64  `json:"fixedFineAmount"`
+		PaymentType          string   `json:"paymentType"`
 		SerialNumber         string   `json:"serialNumber,omitempty"`
 		IMEI                 string   `json:"imei,omitempty"`
 		EngineNo             string   `json:"engineNo,omitempty"`
@@ -78,47 +80,50 @@ func (h *InstallmentHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// ID will be set by the repository if empty
 	plan := &domain.InstallmentPlan{
-		ID:                  uuid.New().String(),
-		CustomerID:          payload.CustomerID,
-		ProductID:           payload.ProductID,
-		InventoryItemID:     payload.InventoryItemID,
-		GuarantorIDs:        payload.GuarantorIDs,
-		TotalAmount:         payload.TotalAmount,
-		DownPayment:         payload.DownPayment,
-		RemainingAmount:     payload.RemainingAmount,
+		CustomerID:           payload.CustomerID,
+		ProductID:            payload.ProductID,
+		InventoryItemID:      payload.InventoryItemID,
+		GuarantorIDs:         payload.GuarantorIDs,
+		TotalAmount:          payload.TotalAmount,
+		DownPayment:          payload.DownPayment,
+		RemainingAmount:      payload.RemainingAmount,
 		NumberOfInstallments: payload.NumberOfInstallments,
-		InstallmentAmount:   payload.PerMonthInstallment,
-		StartDate:           startDate,
-		GracePeriodDays:     payload.GracePeriodDays,
-		FinePerDay:          payload.FinePerDay,
-		SerialNumber:        payload.SerialNumber,
-		IMEI:                payload.IMEI,
-		EngineNo:            payload.EngineNo,
-		ChassisNo:           payload.ChassisNo,
-		Model:               payload.Model,
-		Color:               payload.Color,
-		Company:             payload.Company,
-		CreatedBy:           payload.CreatedBy,
-		InstallmentDate:     payload.InstallmentDate,
-		ProcessFee:          payload.ProcessFee,
-		Discount:            payload.Discount,
-		SalaryIncome:        payload.SalaryIncome,
-		Defaulter:           payload.Defaulter,
-		PTO:                 payload.PTO,
-		VPNStatus:           payload.VPNStatus,
-		EmployeeStatus:      payload.EmployeeStatus,
-		DBMRemarks:          payload.DBMRemarks,
-		CRCRemarks:          payload.CRCRemarks,
-		ProcessAt:           payload.ProcessAt,
-		DOOfficer:           payload.DOOfficer,
-		MarkOff:             payload.MarkOff,
-		DebtMng:             payload.DebtMng,
-		SecondMng:           payload.SecondMng,
-		InspOff:             payload.InspOff,
-		SRM:                 payload.SRM,
-		MobilePhone:         payload.MobilePhone,
-		CRC:                 payload.CRC,
+		InstallmentAmount:    payload.PerMonthInstallment,
+		StartDate:            startDate,
+		GracePeriodDays:      payload.GracePeriodDays,
+		FinePerDay:           payload.FinePerDay,
+		FineType:             payload.FineType,
+		FixedFineAmount:      payload.FixedFineAmount,
+		PaymentType:          payload.PaymentType,
+		SerialNumber:         payload.SerialNumber,
+		IMEI:                 payload.IMEI,
+		EngineNo:             payload.EngineNo,
+		ChassisNo:            payload.ChassisNo,
+		Model:                payload.Model,
+		Color:                payload.Color,
+		Company:              payload.Company,
+		CreatedBy:            payload.CreatedBy,
+		InstallmentDate:      payload.InstallmentDate,
+		ProcessFee:           payload.ProcessFee,
+		Discount:             payload.Discount,
+		SalaryIncome:         payload.SalaryIncome,
+		Defaulter:            payload.Defaulter,
+		PTO:                  payload.PTO,
+		VPNStatus:            payload.VPNStatus,
+		EmployeeStatus:       payload.EmployeeStatus,
+		DBMRemarks:           payload.DBMRemarks,
+		CRCRemarks:           payload.CRCRemarks,
+		ProcessAt:            payload.ProcessAt,
+		DOOfficer:            payload.DOOfficer,
+		MarkOff:              payload.MarkOff,
+		DebtMng:              payload.DebtMng,
+		SecondMng:            payload.SecondMng,
+		InspOff:              payload.InspOff,
+		SRM:                  payload.SRM,
+		MobilePhone:          payload.MobilePhone,
+		CRC:                  payload.CRC,
 	}
 
 	if payload.InstallmentAmount > 0 && payload.PerMonthInstallment == 0 {

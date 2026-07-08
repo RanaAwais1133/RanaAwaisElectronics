@@ -13,7 +13,7 @@ type InstallmentPlan struct {
 	TotalAmount          float64             `json:"totalAmount" bson:"totalamount"`
 	DownPayment          float64             `json:"downPayment" bson:"downpayment"`
 	RemainingAmount      float64             `json:"remainingAmount" bson:"remainingamount"`
-	NumberOfInstallments int                 `json:"numInstallments" bson:"numinstallments"`
+	NumberOfInstallments int                 `json:"numInstallments" bson:"numberofinstallments"`
 	InstallmentAmount    float64             `json:"installmentAmount" bson:"installmentamount"`
 	StartDate            time.Time           `json:"startDate" bson:"startdate"`
 	EndDate              time.Time           `json:"endDate" bson:"enddate"`
@@ -22,7 +22,7 @@ type InstallmentPlan struct {
 	FineType             string              `json:"fineType" bson:"finetype"`
 	FixedFineAmount      float64             `json:"fixedFineAmount" bson:"fixedfineamount"`
 	Status               string              `json:"status" bson:"status"`
-	Installments         []InstallmentDetail `json:"installments" bson:"installments,omitempty"`
+	Installments         []InstallmentDetail `json:"installments" bson:"-"`
 	InstallmentDate      int                 `json:"installmentDate,omitempty" bson:"installmentdate,omitempty"`
 	PaymentType          string              `json:"paymentType,omitempty" bson:"paymenttype,omitempty"`
 	SerialNumber         string              `json:"serialNumber,omitempty" bson:"serialnumber,omitempty"`
@@ -46,7 +46,7 @@ type InstallmentPlan struct {
 	MarkOff              string              `json:"markOff,omitempty" bson:"markoff,omitempty"`
 	DebtMng              string              `json:"debtMng,omitempty" bson:"debtmng,omitempty"`
 	SecondMng            string              `json:"secondMng,omitempty" bson:"secondmng,omitempty"`
-	InspOff              string              `json:"inspOff,omitempty" bson:"inspoff,omitempty"`
+	InspOff              string              `json:"inspOff,omitempty" bson:"inspectionofficial,omitempty"`
 	SRM                  string              `json:"srm,omitempty" bson:"srm,omitempty"`
 	MobilePhone          string              `json:"mobilePhone,omitempty" bson:"mobilephone,omitempty"`
 	CRC                  string              `json:"crc,omitempty" bson:"crc,omitempty"`

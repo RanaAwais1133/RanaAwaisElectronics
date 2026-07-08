@@ -47,7 +47,26 @@ func (r *GuarantorRepository) GetByID(ctx context.Context, id string) (*domain.G
 
 func (r *GuarantorRepository) Update(ctx context.Context, id string, g *domain.Guarantor) error {
 	g.UpdatedAt = time.Now()
-	_, err := r.coll.ReplaceOne(ctx, getFilterByID(id), g)
+	updateFields := bson.M{
+		"name":               g.Name,
+		"nameurdu":           g.NameUrdu,
+		"fathername":         g.FatherName,
+		"fathernameurdu":     g.FatherNameUrdu,
+		"phone":              g.Phone,
+		"officephone":        g.OfficePhone,
+		"cnic":               g.CNIC,
+		"cnicimage":          g.CNICImage,
+		"photo":              g.Photo,
+		"address":            g.Address,
+		"officeaddress":      g.OfficeAddress,
+		"occupation":         g.Occupation,
+		"relation":           g.Relation,
+		"relationtocustomer": g.RelationToCustomer,
+		"customerid":         g.CustomerID,
+		"verificationstatus": g.VerificationStatus,
+		"updatedat":          g.UpdatedAt,
+	}
+	_, err := r.coll.UpdateOne(ctx, getFilterByID(id), bson.M{"$set": updateFields})
 	return err
 }
 

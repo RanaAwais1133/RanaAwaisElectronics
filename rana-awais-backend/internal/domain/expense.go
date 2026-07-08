@@ -4,7 +4,7 @@ import "time"
 
 // Expense represents a business expense
 type Expense struct {
-	ID              string    `json:"id" bson:"id"`
+	ID              string    `json:"id" bson:"_id"`
 	Description     string    `json:"description" bson:"description"`
 	DescriptionUrdu string    `json:"descriptionUrdu,omitempty" bson:"description_urdu,omitempty"`
 	Amount          float64   `json:"amount" bson:"amount"`

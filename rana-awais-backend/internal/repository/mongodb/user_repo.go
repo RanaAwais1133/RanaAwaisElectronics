@@ -58,7 +58,16 @@ func (r *UserRepository) GetByUsername(ctx context.Context, username string) (*d
 
 func (r *UserRepository) Update(ctx context.Context, id string, u *domain.User) error {
 	u.UpdatedAt = time.Now()
-	_, err := r.coll.ReplaceOne(ctx, getFilterByID(id), u)
+	updateFields := bson.M{
+		"username":      u.Username,
+		"passwordhash":  u.PasswordHash,
+		"displayname":   u.DisplayName,
+		"displaynameur": u.DisplayNameUr,
+		"role":          u.Role,
+		"phone":         u.Phone,
+		"updatedat":     u.UpdatedAt,
+	}
+	_, err := r.coll.UpdateOne(ctx, getFilterByID(id), bson.M{"$set": updateFields})
 	return err
 }
 

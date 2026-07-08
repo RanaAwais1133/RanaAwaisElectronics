@@ -44,7 +44,7 @@ func (r *NotificationRepository) GetByID(ctx context.Context, id string) (*domai
 }
 
 func (r *NotificationRepository) ListPending(ctx context.Context) ([]domain.Notification, error) {
-	cursor, err := r.coll.Find(ctx, bson.M{"sent": false}, options.Find().SetSort(bson.D{{Key: "createdat", Value: 1}}))
+	cursor, err := r.coll.Find(ctx, bson.M{"status": "pending"}, options.Find().SetSort(bson.D{{Key: "createdat", Value: 1}}))
 	if err != nil {
 		return nil, err
 	}
@@ -62,7 +62,7 @@ func (r *NotificationRepository) ListPending(ctx context.Context) ([]domain.Noti
 }
 
 func (r *NotificationRepository) MarkAsSent(ctx context.Context, id string) error {
-	_, err := r.coll.UpdateOne(ctx, getFilterByID(id), bson.M{"$set": bson.M{"sent": true, "sentat": time.Now()}})
+	_, err := r.coll.UpdateOne(ctx, getFilterByID(id), bson.M{"$set": bson.M{"status": "sent", "sentat": time.Now()}})
 	return err
 }
 

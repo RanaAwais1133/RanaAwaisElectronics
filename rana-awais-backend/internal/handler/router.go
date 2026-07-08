@@ -197,10 +197,7 @@ func SetupRouter(
 	protected.HandleFunc("/installments/reschedule", installmentH.Reschedule).Methods("POST")
 	protected.HandleFunc("/installments/undo-payment", installmentH.UndoPayment).Methods("POST")
 
-	// Payments
-	protected.HandleFunc("/payments", installmentH.RecordPayment).Methods("POST")
-	protected.HandleFunc("/payments/advance", installmentH.AdvancePayment).Methods("POST")
-	protected.HandleFunc("/payments/bulk", installmentH.BulkPayment).Methods("POST")
+	// Payments (unique routes only - no duplicates with /installments routes)
 	protected.HandleFunc("/payments/plan/{plan_id}", paymentH.ListByPlan).Methods("GET")
 
 	// Upcoming installments (MongoDB-based)
@@ -389,7 +386,7 @@ func SetupRouter(
 			}
 
 			// Get payments
-			payCursor, _ := db.Collection("payments").Find(r.Context(), bson.M{"installment_plan_id": plan.ID})
+			payCursor, _ := db.Collection("payments").Find(r.Context(), bson.M{"installmentplanid": plan.ID})
 			var payments []map[string]interface{}
 			if payCursor != nil {
 				for payCursor.Next(r.Context()) {
@@ -408,7 +405,7 @@ func SetupRouter(
 			}
 
 			// Get guarantors
-			guarCursor, _ := db.Collection("guarantors").Find(r.Context(), bson.M{"customer_id": plan.CustomerID})
+			guarCursor, _ := db.Collection("guarantors").Find(r.Context(), bson.M{"customerid": plan.CustomerID})
 			var guarantors []map[string]interface{}
 			if guarCursor != nil {
 				for guarCursor.Next(r.Context()) {
@@ -507,7 +504,7 @@ func SetupRouter(
 						continue
 					}
 					customerMap[plan.CustomerID] = map[string]interface{}{
-						"customer_id": plan.CustomerID, "customer_name": cust.Name,
+						"customerid": plan.CustomerID, "customer_name": cust.Name,
 						"customer_name_urdu": cust.NameUrdu, "father_name": cust.FatherName,
 						"phone": cust.Phone, "cnic": cust.CNIC, "address": cust.Address,
 						"address_urdu": cust.AddressUrdu, "pending_amount": 0.0,
@@ -584,7 +581,7 @@ func SetupRouter(
 			}
 
 			customers = append(customers, map[string]interface{}{
-				"customer_id": plan.CustomerID, "customer_name": cust.Name,
+				"customerid": plan.CustomerID, "customer_name": cust.Name,
 				"customer_name_urdu": cust.NameUrdu, "father_name": cust.FatherName,
 				"phone": cust.Phone, "paid_amount": result.Total, "payment_count": result.Count,
 			})
@@ -745,3 +742,8 @@ func SetupRouter(
 
 	return r
 }
+
+
+
+
+

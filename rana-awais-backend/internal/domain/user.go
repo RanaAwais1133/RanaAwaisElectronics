@@ -5,13 +5,13 @@ import (
 )
 
 type User struct {
-	ID            string    `json:"id"`
-	Username      string    `json:"username"`
-	PasswordHash  string    `json:"-"`
-	Role          string    `json:"role"`
-	DisplayName   string    `json:"displayName"`
-	DisplayNameUr string    `json:"displayNameUr,omitempty"`
-	Phone         string    `json:"phone,omitempty"`
-	CreatedAt     time.Time `json:"createdAt"`
-	UpdatedAt     time.Time `json:"updatedAt"`
+	ID            string    `json:"id" bson:"_id"`
+	Username      string    `json:"username" bson:"username"`
+	PasswordHash  string    `json:"-" bson:"passwordhash"`
+	Role          string    `json:"role" bson:"role"`
+	DisplayName   string    `json:"displayName" bson:"displayname"`
+	DisplayNameUr string    `json:"displayNameUr,omitempty" bson:"displaynameur,omitempty"`
+	Phone         string    `json:"phone,omitempty" bson:"phone,omitempty"`
+	CreatedAt     time.Time `json:"createdAt" bson:"createdat"`
+	UpdatedAt     time.Time `json:"updatedAt" bson:"updatedat"`
 }

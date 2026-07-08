@@ -61,9 +61,31 @@ func (r *CustomerRepository) GetByPhone(ctx context.Context, phone string) (*dom
 
 func (r *CustomerRepository) Update(ctx context.Context, id string, c *domain.Customer) error {
 	c.UpdatedAt = time.Now()
-	// ✅ Use UpdateOne instead of ReplaceOne for better performance
-	update := bson.M{"$set": c}
-	_, err := r.coll.UpdateOne(ctx, getFilterByID(id), update)
+	// Build update with only the fields we want to set
+	updateFields := bson.M{
+		"name":               c.Name,
+		"nameurdu":           c.NameUrdu,
+		"fathername":         c.FatherName,
+		"fathernameurdu":     c.FatherNameUrdu,
+		"phone":              c.Phone,
+		"cnic":               c.CNIC,
+		"cnicimage":          c.CNICImage,
+		"address":            c.Address,
+		"addressurdu":        c.AddressUrdu,
+		"residential":        c.Residential,
+		"occupant":           c.Occupant,
+		"residentialaddress": c.ResidentialAddress,
+		"officeaddress":      c.OfficeAddress,
+		"accountno":          c.AccountNo,
+		"costno":             c.CostNo,
+		"processno":          c.ProcessNo,
+		"prepac":             c.PrepAC,
+		"remarks":            c.Remarks,
+		"completedremarks":   c.CompletedRemarks,
+		"guarantorids":       c.GuarantorIDs,
+		"updatedat":          c.UpdatedAt,
+	}
+	_, err := r.coll.UpdateOne(ctx, getFilterByID(id), bson.M{"$set": updateFields})
 	return err
 }
 
