@@ -1,0 +1,1 @@
+{"token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjIwOTg4NzQyOTIsInJvbGUiOiJhZG1pbiIsInN1YiI6ImFkbWluLWRlZmF1bHQtaWQifQ.NtvbGgJoqQ-o0f3Z0_88dySNoIDsTD-nVJoqXXqncNY","user":{"displayName":"Admin","id":"admin-default-id","role":"admin","username":"admin"}}

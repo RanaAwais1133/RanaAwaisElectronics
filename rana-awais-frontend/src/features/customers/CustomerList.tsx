@@ -185,9 +185,17 @@ const CustomerList: React.FC = () => {
     document.title = `${t('customers')} | ${APP_CONFIG.companyName}`;
   }, [t]);
 
-  // ✅ Fetch customers
+  // ✅ Fetch customers on mount
   useEffect(() => {
-    fetchCustomers();
+    fetchCustomers(true);
+  }, [fetchCustomers]);
+
+  // ✅ Periodic refresh every 5 seconds for near real-time updates
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchCustomers();
+    }, 5000);
+    return () => clearInterval(interval);
   }, [fetchCustomers]);
 
   // ✅ Fetch guarantors

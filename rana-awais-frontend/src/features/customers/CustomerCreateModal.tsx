@@ -48,6 +48,7 @@ const CustomerCreateModal: React.FC<Props> = ({ onClose, onSuccess, initialData 
   
   const fetchCustomers = useCustomerStore(s => s.fetchCustomers);
   const addCustomer = useCustomerStore(s => s.addCustomer);
+  const updateCustomer = useCustomerStore(s => s.updateCustomer);
   const formRef = useRef<HTMLFormElement>(null);
 
   // âœ… Validation
@@ -120,36 +121,45 @@ const CustomerCreateModal: React.FC<Props> = ({ onClose, onSuccess, initialData 
 
     try {
       if (isEditMode) {
-        // âœ… Edit mode - update customer
+        // ✅ Edit mode - update customer with OPTIMISTIC UI
+        const updatedCustomer = { ...initialData, ...payload };
+        addCustomer(updatedCustomer as any); // ✅ Immediate UI update
+        
         try {
           await api.put(`/customers/${initialData.id}`, payload);
-          toast.success(isUrdu ? 'Ú¯Ø§ÛÚ© Ø§Ù¾ ÚˆÛŒÙ¹ ÛÙˆ Ú¯ÛŒØ§' : 'Customer updated successfully');
+          toast.success(isUrdu ? 'گاہک اپ ڈیٹ ہو گیا' : 'Customer updated successfully');
         } catch {
           // OFFLINE FALLBACK
           console.log('📦 Offline: Caching customer update locally');
           await offlineCreateCustomer({ ...payload, id: initialData.id });
-          addCustomer({ ...payload, id: initialData.id } as any);
-          toast.success(isUrdu ? 'Ú¯Ø§ÛÚ© Ø¢Ù Ù„Ø§Ø¦Ù† Ø§Ù¾ ÚˆÛŒÙ¹ ÛÙˆ Ú¯ÛŒØ§' : 'Customer updated offline');
+          toast.success(isUrdu ? 'گاہک آف لائن اپ ڈیٹ ہو گیا' : 'Customer updated offline');
         }
       } else {
-        // âœ… Create mode
+        // ✅ Create mode with OPTIMISTIC UI
+        const tempId = 'temp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+        const optimisticCustomer = { ...payload, id: tempId };
+        addCustomer(optimisticCustomer as any); // ✅ Immediate UI update
+        
         try {
-          await createCustomer(payload);
-          toast.success(isUrdu ? 'Ú¯Ø§ÛÚ© Ø¨Ù† Ú¯ÛŒØ§' : 'Customer created successfully');
+          const result = await createCustomer(payload);
+          // ✅ Replace temp ID with real ID from server
+          if (result && result.id) {
+            updateCustomer(tempId, { id: result.id } as any);
+          }
+          toast.success(isUrdu ? 'گاہک بن گیا' : 'Customer created successfully');
         } catch {
           // OFFLINE FALLBACK: Create locally and queue for sync
           console.log('📦 Offline: Caching customer locally');
-          const tempId = 'offline_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-          const offlineCustomer = { ...payload, id: tempId };
-          await offlineCreateCustomer(offlineCustomer);
-          addCustomer(offlineCustomer as any);
-          toast.success(isUrdu ? 'Ú¯Ø§ÛÚ© Ø¢Ù Ù„Ø§Ø¦Ù† Ø¨Ù† Ú¯ÛŒØ§' : 'Customer created offline');
+          await offlineCreateCustomer(optimisticCustomer);
+          toast.success(isUrdu ? 'گاہک آف لائن بن گیا' : 'Customer created offline');
         }
       }
       
-      await fetchCustomers(true);
+      // ✅ Don't wait for fetch - UI already updated optimistically
       onSuccess?.();
       onClose();
+      // ✅ Background refresh
+      fetchCustomers(true);
     } catch (err: any) {
       const errorMsg = err.response?.data?.error || err.response?.data?.message || 
                        (isUrdu ? 'Ú¯Ø§ÛÚ© Ø¨Ù†Ø§Ù†Û’ Ù…ÛŒÚº Ù†Ø§Ú©Ø§Ù…ÛŒ' : t('error_creating_customer'));
