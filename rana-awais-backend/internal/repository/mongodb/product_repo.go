@@ -65,21 +65,22 @@ func (r *ProductRepository) Update(ctx context.Context, id string, p *domain.Pro
 		return err
 	}
 
-	// Use UpdateOne instead of ReplaceOne to preserve fields not in the update payload
+	// Use UpdateOne to preserve fields not in the update payload
+	// Use struct field names (uppercase) to match MongoDB stored document format
 	update := bson.M{
 		"$set": bson.M{
-			"name":          p.Name,
-			"nameurdu":      p.NameUrdu,
-			"company":       p.Company,
-			"companyurdu":   p.CompanyUrdu,
-			"category":      p.Category,
-			"price":         p.Price,
-			"purchaseprice": p.PurchasePrice,
-			"description":   p.Description,
-			"sku":           p.SKU,
-			"stockcount":    p.StockCount,
-			"in_stock":      p.InStock,
-			"updatedat":     p.UpdatedAt,
+			"Name":          p.Name,
+			"NameUrdu":      p.NameUrdu,
+			"Company":       p.Company,
+			"CompanyUrdu":   p.CompanyUrdu,
+			"Category":      p.Category,
+			"Price":         p.Price,
+			"PurchasePrice": p.PurchasePrice,
+			"Description":   p.Description,
+			"SKU":           p.SKU,
+			"StockCount":    p.StockCount,
+			"InStock":       p.InStock,
+			"UpdatedAt":     p.UpdatedAt,
 		},
 	}
 
