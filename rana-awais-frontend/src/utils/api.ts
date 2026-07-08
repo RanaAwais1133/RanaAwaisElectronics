@@ -20,12 +20,16 @@ const BASE_URL = (() => {
   const storedUrl = localStorage.getItem('api_url');
   if (storedUrl) return storedUrl;
   
-  // ✅ Auto-detect HTTPS: if page is loaded via HTTPS, use HTTPS for API too
-  // This is critical for PWA - service worker only works on HTTPS
-  const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
+  // ✅ Auto-detect: if on Vercel (HTTPS), use Render backend URL
+  // For production: use the Render backend URL
+  // For local development: use localhost:8080
+  if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+    // Production - Render backend URL
+    return 'https://ranaawaiselectronics.onrender.com/api';
+  }
   
-  // Default - include /api prefix since backend routes are under /api
-  return protocol + '//' + window.location.hostname + ':8080/api';
+  // Local development
+  return 'http://localhost:8080/api';
 })();
 
 console.log('🌐 API Base URL:', BASE_URL);
