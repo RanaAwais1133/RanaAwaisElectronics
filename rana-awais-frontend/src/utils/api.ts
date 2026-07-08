@@ -21,7 +21,7 @@ const BASE_URL = (() => {
   
   // ✅ Auto-detect: if on Vercel (HTTPS), use production backend URL
   if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-    return 'https://myelectronics-backend.onrender.com/api';
+    return 'https://ranaawaiselectronics.onrender.com/api';
   }
   
   // Local development

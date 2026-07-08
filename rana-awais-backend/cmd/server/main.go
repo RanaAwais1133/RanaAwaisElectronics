@@ -179,6 +179,11 @@ func main() {
 	r.Use(middleware.GzipCompressionMiddleware)
 
 	// ═══════════════════════════════════════
+	// 🌐 CORS MIDDLEWARE WRAPPER
+	// ═══════════════════════════════════════
+	corsMiddleware := middleware.CORSMiddleware(cfg)
+
+	// ═══════════════════════════════════════
 	// 🌐 SERVE FRONTEND STATIC FILES
 	// ═══════════════════════════════════════
 	frontendPaths := []string{
@@ -200,15 +205,16 @@ func main() {
 		r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir(filepath.Join(frontendDir, "static")))))
 		originalHandler := r
 		r = mux.NewRouter()
-		r.PathPrefix("/api/").Handler(originalHandler)
-		r.PathPrefix("/").Handler(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		// Apply CORS to both API and frontend routes
+		r.PathPrefix("/api/").Handler(corsMiddleware(originalHandler))
+		r.PathPrefix("/").Handler(corsMiddleware(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			path := filepath.Join(frontendDir, req.URL.Path)
 			if _, err := os.Stat(path); os.IsNotExist(err) {
 				http.ServeFile(w, req, filepath.Join(frontendDir, "index.html"))
 			} else {
 				fs.ServeHTTP(w, req)
 			}
-		}))
+		})))
 	} else {
 		log.Println("⚠️  Frontend build not found, API only mode")
 	}
@@ -224,11 +230,6 @@ func main() {
 			next.ServeHTTP(w, r)
 		})
 	})
-
-	// ═══════════════════════════════════════
-	// 🌐 CORS
-	// ═══════════════════════════════════════
-	corsMiddleware := middleware.CORSMiddleware(cfg)
 
 	// ═══════════════════════════════════════
 	// 📅 REMINDER SCHEDULER
