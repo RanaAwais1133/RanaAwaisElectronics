@@ -33,12 +33,8 @@ func (r *UserRepository) Create(ctx context.Context, u *domain.User) error {
 }
 
 func (r *UserRepository) GetByID(ctx context.Context, id string) (*domain.User, error) {
-	objID, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
-		return nil, err
-	}
 	var u domain.User
-	err = r.coll.FindOne(ctx, bson.M{"_id": objID}).Decode(&u)
+	err := r.coll.FindOne(ctx, getFilterByID(id)).Decode(&u)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return nil, nil
@@ -62,22 +58,15 @@ func (r *UserRepository) GetByUsername(ctx context.Context, username string) (*d
 
 func (r *UserRepository) Update(ctx context.Context, id string, u *domain.User) error {
 	u.UpdatedAt = time.Now()
-	objID, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
-		return err
-	}
-	_, err = r.coll.ReplaceOne(ctx, bson.M{"_id": objID}, u)
+	_, err := r.coll.ReplaceOne(ctx, getFilterByID(id), u)
 	return err
 }
 
 func (r *UserRepository) Delete(ctx context.Context, id string) error {
-	objID, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
-		return err
-	}
-	_, err = r.coll.DeleteOne(ctx, bson.M{"_id": objID})
+	_, err := r.coll.DeleteOne(ctx, getFilterByID(id))
 	return err
 }
+
 
 func (r *UserRepository) List(ctx context.Context, skip, limit int64) ([]domain.User, error) {
 	opts := options.Find().

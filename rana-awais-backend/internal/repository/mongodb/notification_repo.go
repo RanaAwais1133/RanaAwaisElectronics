@@ -32,12 +32,8 @@ func (r *NotificationRepository) Create(ctx context.Context, n *domain.Notificat
 }
 
 func (r *NotificationRepository) GetByID(ctx context.Context, id string) (*domain.Notification, error) {
-	objID, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
-		return nil, err
-	}
 	var n domain.Notification
-	err = r.coll.FindOne(ctx, bson.M{"_id": objID}).Decode(&n)
+	err := r.coll.FindOne(ctx, getFilterByID(id)).Decode(&n)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return nil, nil
@@ -66,11 +62,7 @@ func (r *NotificationRepository) ListPending(ctx context.Context) ([]domain.Noti
 }
 
 func (r *NotificationRepository) MarkAsSent(ctx context.Context, id string) error {
-	objID, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
-		return err
-	}
-	_, err = r.coll.UpdateOne(ctx, bson.M{"_id": objID}, bson.M{"$set": bson.M{"sent": true, "sentat": time.Now()}})
+	_, err := r.coll.UpdateOne(ctx, getFilterByID(id), bson.M{"$set": bson.M{"sent": true, "sentat": time.Now()}})
 	return err
 }
 
@@ -93,21 +85,14 @@ func (r *NotificationRepository) GetByCustomer(ctx context.Context, customerID s
 }
 
 func (r *NotificationRepository) UpdateStatus(ctx context.Context, id string, status string) error {
-	objID, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
-		return err
-	}
-	_, err = r.coll.UpdateOne(ctx, bson.M{"_id": objID}, bson.M{"$set": bson.M{"status": status}})
+	_, err := r.coll.UpdateOne(ctx, getFilterByID(id), bson.M{"$set": bson.M{"status": status}})
 	return err
 }
 
 func (r *NotificationRepository) Delete(ctx context.Context, id string) error {
-	objID, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
-		return err
-	}
-	_, err = r.coll.DeleteOne(ctx, bson.M{"_id": objID})
+	_, err := r.coll.DeleteOne(ctx, getFilterByID(id))
 	return err
 }
+
 
 

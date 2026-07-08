@@ -33,12 +33,8 @@ func (r *GuarantorRepository) Create(ctx context.Context, g *domain.Guarantor) e
 }
 
 func (r *GuarantorRepository) GetByID(ctx context.Context, id string) (*domain.Guarantor, error) {
-	objID, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
-		return nil, err
-	}
 	var g domain.Guarantor
-	err = r.coll.FindOne(ctx, bson.M{"_id": objID}).Decode(&g)
+	err := r.coll.FindOne(ctx, getFilterByID(id)).Decode(&g)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return nil, nil
@@ -48,24 +44,18 @@ func (r *GuarantorRepository) GetByID(ctx context.Context, id string) (*domain.G
 	return &g, nil
 }
 
+
 func (r *GuarantorRepository) Update(ctx context.Context, id string, g *domain.Guarantor) error {
 	g.UpdatedAt = time.Now()
-	objID, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
-		return err
-	}
-	_, err = r.coll.ReplaceOne(ctx, bson.M{"_id": objID}, g)
+	_, err := r.coll.ReplaceOne(ctx, getFilterByID(id), g)
 	return err
 }
 
 func (r *GuarantorRepository) Delete(ctx context.Context, id string) error {
-	objID, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
-		return err
-	}
-	_, err = r.coll.DeleteOne(ctx, bson.M{"_id": objID})
+	_, err := r.coll.DeleteOne(ctx, getFilterByID(id))
 	return err
 }
+
 
 func (r *GuarantorRepository) List(ctx context.Context, skip, limit int64) ([]domain.Guarantor, error) {
 	opts := options.Find().

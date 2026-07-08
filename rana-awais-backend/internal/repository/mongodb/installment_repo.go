@@ -87,18 +87,15 @@ type installmentDetailDoc struct {
 }
 
 func (r *InstallmentRepository) GetByID(ctx context.Context, id string) (*domain.InstallmentPlan, error) {
-	objID, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
-		return nil, err
-	}
 	var plan domain.InstallmentPlan
-	err = r.coll.FindOne(ctx, bson.M{"_id": objID}).Decode(&plan)
+	err := r.coll.FindOne(ctx, getFilterByID(id)).Decode(&plan)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return nil, nil
 		}
 		return nil, err
 	}
+
 
 	// Load installment details
 	details, err := r.loadInstallmentDetails(ctx, id)
@@ -151,12 +148,9 @@ func (r *InstallmentRepository) loadInstallmentDetails(ctx context.Context, plan
 
 func (r *InstallmentRepository) Update(ctx context.Context, id string, plan *domain.InstallmentPlan) error {
 	plan.UpdatedAt = time.Now()
-	objID, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
-		return err
-	}
 
-	_, err = r.coll.ReplaceOne(ctx, bson.M{"_id": objID}, plan)
+	_, err := r.coll.ReplaceOne(ctx, getFilterByID(id), plan)
+
 	if err != nil {
 		return err
 	}
@@ -202,13 +196,10 @@ func (r *InstallmentRepository) Delete(ctx context.Context, id string) error {
 		return err
 	}
 
-	objID, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
-		return err
-	}
-	_, err = r.coll.DeleteOne(ctx, bson.M{"_id": objID})
+	_, err = r.coll.DeleteOne(ctx, getFilterByID(id))
 	return err
 }
+
 
 func (r *InstallmentRepository) ListByCustomer(ctx context.Context, customerID string) ([]domain.InstallmentPlan, error) {
 	cursor, err := r.coll.Find(ctx, bson.M{"customerid": customerID}, options.Find().SetSort(bson.D{{Key: "createdat", Value: -1}}))

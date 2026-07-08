@@ -32,7 +32,7 @@ func (r *ExpenseRepository) Create(ctx context.Context, e *domain.Expense) error
 // GetByID retrieves an expense by ID
 func (r *ExpenseRepository) GetByID(ctx context.Context, id string) (*domain.Expense, error) {
 	var expense domain.Expense
-	err := r.coll.FindOne(ctx, bson.M{"id": id}).Decode(&expense)
+	err := r.coll.FindOne(ctx, getFilterByID(id)).Decode(&expense)
 	if err == mongo.ErrNoDocuments {
 		return nil, nil
 	}
@@ -45,7 +45,7 @@ func (r *ExpenseRepository) GetByID(ctx context.Context, id string) (*domain.Exp
 // Update updates an existing expense
 func (r *ExpenseRepository) Update(ctx context.Context, id string, e *domain.Expense) error {
 	_, err := r.coll.UpdateOne(ctx,
-		bson.M{"id": id},
+		getFilterByID(id),
 		bson.M{"$set": bson.M{
 			"description":      e.Description,
 			"description_urdu": e.DescriptionUrdu,
@@ -61,9 +61,10 @@ func (r *ExpenseRepository) Update(ctx context.Context, id string, e *domain.Exp
 
 // Delete removes an expense by ID
 func (r *ExpenseRepository) Delete(ctx context.Context, id string) error {
-	_, err := r.coll.DeleteOne(ctx, bson.M{"id": id})
+	_, err := r.coll.DeleteOne(ctx, getFilterByID(id))
 	return err
 }
+
 
 // List returns expenses with pagination
 func (r *ExpenseRepository) List(ctx context.Context, skip, limit int64) ([]domain.Expense, error) {

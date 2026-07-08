@@ -32,12 +32,8 @@ func (r *PaymentRepository) Create(ctx context.Context, p *domain.Payment) error
 }
 
 func (r *PaymentRepository) GetByID(ctx context.Context, id string) (*domain.Payment, error) {
-	objID, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
-		return nil, err
-	}
 	var p domain.Payment
-	err = r.coll.FindOne(ctx, bson.M{"_id": objID}).Decode(&p)
+	err := r.coll.FindOne(ctx, getFilterByID(id)).Decode(&p)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return nil, nil
@@ -46,6 +42,7 @@ func (r *PaymentRepository) GetByID(ctx context.Context, id string) (*domain.Pay
 	}
 	return &p, nil
 }
+
 
 func (r *PaymentRepository) ListByPlan(ctx context.Context, planID string) ([]domain.Payment, error) {
 	cursor, err := r.coll.Find(ctx, bson.M{"installmentplanid": planID}, options.Find().SetSort(bson.D{{Key: "transactiondate", Value: -1}}))
@@ -121,10 +118,8 @@ func (r *PaymentRepository) GetMonthlyPayments(ctx context.Context, year int, mo
 }
 
 func (r *PaymentRepository) Delete(ctx context.Context, id string) error {
-	objID, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
-		return err
-	}
-	_, err = r.coll.DeleteOne(ctx, bson.M{"_id": objID})
+	_, err := r.coll.DeleteOne(ctx, getFilterByID(id))
 	return err
 }
+
+

@@ -37,7 +37,7 @@ func (r *CustomerRepository) Create(ctx context.Context, c *domain.Customer) err
 
 func (r *CustomerRepository) GetByID(ctx context.Context, id string) (*domain.Customer, error) {
 	var c domain.Customer
-	err := r.coll.FindOne(ctx, bson.M{"_id": id}).Decode(&c)
+	err := r.coll.FindOne(ctx, getFilterByID(id)).Decode(&c)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return nil, nil
@@ -63,14 +63,15 @@ func (r *CustomerRepository) Update(ctx context.Context, id string, c *domain.Cu
 	c.UpdatedAt = time.Now()
 	// ✅ Use UpdateOne instead of ReplaceOne for better performance
 	update := bson.M{"$set": c}
-	_, err := r.coll.UpdateOne(ctx, bson.M{"_id": id}, update)
+	_, err := r.coll.UpdateOne(ctx, getFilterByID(id), update)
 	return err
 }
 
 func (r *CustomerRepository) Delete(ctx context.Context, id string) error {
-	_, err := r.coll.DeleteOne(ctx, bson.M{"_id": id})
+	_, err := r.coll.DeleteOne(ctx, getFilterByID(id))
 	return err
 }
+
 
 func (r *CustomerRepository) List(ctx context.Context, skip, limit int64) ([]domain.Customer, error) {
 	opts := options.Find().
