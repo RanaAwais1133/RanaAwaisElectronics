@@ -30,9 +30,9 @@ const BASE_URL = (() => {
 
 console.log('🌐 API Base URL:', BASE_URL);
 
-// ✅ In-memory cache for instant responses (REDUCED FROM 30s TO 2s)
+// ✅ In-memory cache for instant responses (5s TTL - balanced for freshness & performance)
 const memoryCache = new Map<string, { data: any; timestamp: number }>();
-const MEMORY_CACHE_TTL = 2000; // 2 seconds
+const MEMORY_CACHE_TTL = 5000; // 5 seconds
 
 const api: AxiosInstance & {
   getTodayInstallments?: () => Promise<any>;

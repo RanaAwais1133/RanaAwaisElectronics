@@ -123,7 +123,7 @@ const CustomerCreateModal: React.FC<Props> = ({ onClose, onSuccess, initialData 
       if (isEditMode) {
         // ✅ Edit mode - update customer with OPTIMISTIC UI
         const updatedCustomer = { ...initialData, ...payload };
-        addCustomer(updatedCustomer as any); // ✅ Immediate UI update
+        updateCustomer(initialData.id, updatedCustomer as any); // ✅ Immediate UI update (FIXED: was using addCustomer)
         
         try {
           await api.put(`/customers/${initialData.id}`, payload);
@@ -155,14 +155,14 @@ const CustomerCreateModal: React.FC<Props> = ({ onClose, onSuccess, initialData 
         }
       }
       
-      // ✅ Don't wait for fetch - UI already updated optimistically
+      // ✅ Close modal first, then background refresh
       onSuccess?.();
       onClose();
-      // ✅ Background refresh
-      fetchCustomers(true);
+      // ✅ Background refresh (don't await - let UI stay responsive)
+      fetchCustomers(true).catch(() => {});
     } catch (err: any) {
       const errorMsg = err.response?.data?.error || err.response?.data?.message || 
-                       (isUrdu ? 'Ú¯Ø§ÛÚ© Ø¨Ù†Ø§Ù†Û’ Ù…ÛŒÚº Ù†Ø§Ú©Ø§Ù…ÛŒ' : t('error_creating_customer'));
+                       (isUrdu ? 'گاہک بنانے میں ناکامی' : t('error_creating_customer'));
       setError(errorMsg);
     } finally {
       setLoading(false);

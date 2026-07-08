@@ -52,8 +52,8 @@ interface CustomerState {
   reset: () => void;
 }
 
-// ✅ Cache TTL - 2 seconds for near real-time updates (REDUCED FROM 15s)
-const CACHE_TTL = 2 * 1000;
+// ✅ Cache TTL - 5 seconds (balanced for freshness & performance)
+const CACHE_TTL = 5 * 1000;
 
 // ✅ Storage keys
 const STORAGE_KEYS = {
