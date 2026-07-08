@@ -16,7 +16,9 @@ RUN go mod download
 COPY . .
 
 # Build a statically linked binary
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+# Note: CGO_ENABLED=1 is required for go-sqlite3 (sync log repo)
+# When USE_MONGO_DB=true, SQLite is only used for local sync tracking
+RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 \
     go build -tags netgo -ldflags '-s -w -extldflags "-static"' -o app ./cmd/server/main.go
 
 # ============================================================
