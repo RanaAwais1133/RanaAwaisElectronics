@@ -59,14 +59,13 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 	var wg sync.WaitGroup
 	results := make(chan result, 25)
 
-	// 1. Today's Collection (from payments + accounting_entries income)
+	// 1. Today's Collection (from payments only - accounting_entries would double count)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		var total float64
 		var count int64
 
-		// Query payments collection
 		payPipeline := mongo.Pipeline{
 			bson.D{{Key: "$match", Value: bson.D{
 				{Key: "transactiondate", Value: bson.D{
@@ -95,40 +94,16 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 			payCursor.Close(ctx)
 		}
 
-		// Also query accounting_entries for income (catches any records not in payments)
-		accPipeline := mongo.Pipeline{
-			bson.D{{Key: "$match", Value: bson.D{
-				{Key: "type", Value: "income"},
-				{Key: "date", Value: bson.D{
-					{Key: "$gte", Value: todayStart},
-					{Key: "$lt", Value: todayEnd},
-				}},
-			}}},
-			bson.D{{Key: "$group", Value: bson.D{
-				{Key: "_id", Value: nil},
-				{Key: "total", Value: bson.D{{Key: "$sum", Value: "$amount"}}},
-			}}},
-		}
-		accCursor, err := db.Collection("accounting_entries").Aggregate(ctx, accPipeline)
-		if err == nil {
-			if accCursor.Next(ctx) {
-				var r struct{ Total float64 `bson:"total"` }
-				if accCursor.Decode(&r) == nil {
-					total += r.Total
-				}
-			}
-			accCursor.Close(ctx)
-		}
-
 		results <- result{"todayCollection", map[string]interface{}{"total": total, "count": count}}
 	}()
 
-	// 2 & 3. Today Revenue & Profit
+	// 2 & 3. Today Revenue & Profit (using correct profit formula)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		var revenue, profit float64
 
+		// Revenue = sum of all payments today
 		payPipeline := mongo.Pipeline{
 			bson.D{{Key: "$match", Value: bson.D{
 				{Key: "transactiondate", Value: bson.D{
@@ -152,8 +127,64 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 			payCursor.Close(ctx)
 		}
 
-		// Down payments already counted in payments collection - skip to avoid double counting
+		// Profit = sum of (payment × (1 - purchasePrice/totalAmount)) - expenses
+		// This correctly handles down payments and installment payments
+		profitPipeline := mongo.Pipeline{
+			bson.D{{Key: "$match", Value: bson.D{
+				{Key: "transactiondate", Value: bson.D{
+					{Key: "$gte", Value: todayStart},
+					{Key: "$lt", Value: todayEnd},
+				}},
+			}}},
+			bson.D{{Key: "$lookup", Value: bson.D{
+				{Key: "from", Value: "installment_plans"},
+				{Key: "localField", Value: "installmentplanid"},
+				{Key: "foreignField", Value: "_id"},
+				{Key: "as", Value: "plan"},
+			}}},
+			bson.D{{Key: "$unwind", Value: "$plan"}},
+			bson.D{{Key: "$lookup", Value: bson.D{
+				{Key: "from", Value: "products"},
+				{Key: "localField", Value: "plan.productid"},
+				{Key: "foreignField", Value: "_id"},
+				{Key: "as", Value: "product"},
+			}}},
+			bson.D{{Key: "$unwind", Value: bson.D{
+				{Key: "path", Value: "$product"},
+				{Key: "preserveNullAndEmptyArrays", Value: true},
+			}}},
+			bson.D{{Key: "$group", Value: bson.D{
+				{Key: "_id", Value: nil},
+				{Key: "totalProfit", Value: bson.D{{Key: "$sum", Value: bson.D{
+					{Key: "$multiply", Value: bson.A{
+						"$amount",
+						bson.D{{Key: "$subtract", Value: bson.A{
+							1,
+							bson.D{{Key: "$cond", Value: bson.A{
+								bson.D{{Key: "$gt", Value: bson.A{"$plan.totalamount", 0}}},
+								bson.D{{Key: "$divide", Value: bson.A{
+									bson.D{{Key: "$ifNull", Value: bson.A{"$product.purchaseprice", 0}}},
+									"$plan.totalamount",
+								}}},
+								0,
+							}}},
+						}}},
+					}},
+				}}}},
+			}}},
+		}
+		profitCursor, _ := db.Collection("payments").Aggregate(ctx, profitPipeline)
+		if profitCursor != nil {
+			if profitCursor.Next(ctx) {
+				var r struct{ TotalProfit float64 `bson:"totalProfit"` }
+				if profitCursor.Decode(&r) == nil {
+					profit = r.TotalProfit
+				}
+			}
+			profitCursor.Close(ctx)
+		}
 
+		// Subtract expenses
 		expPipeline := mongo.Pipeline{
 			bson.D{{Key: "$match", Value: bson.D{
 				{Key: "type", Value: "expense"},
@@ -172,19 +203,17 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 			if expCursor.Next(ctx) {
 				var r struct{ Total float64 `bson:"total"` }
 				if expCursor.Decode(&r) == nil {
-					profit = revenue - r.Total
+					profit -= r.Total
 				}
 			}
 			expCursor.Close(ctx)
-		} else {
-			profit = revenue
 		}
 
 		results <- result{"todayRevenue", revenue}
 		results <- result{"todayProfit", profit}
 	}()
 
-	// 4 & 5. Month Revenue & Profit
+	// 4 & 5. Month Revenue & Profit (using correct profit formula)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -213,8 +242,63 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 			payCursor.Close(ctx)
 		}
 
-		// Down payments already counted in payments collection - skip to avoid double counting
+		// Profit = sum of (payment × (1 - purchasePrice/totalAmount)) - expenses
+		profitPipeline := mongo.Pipeline{
+			bson.D{{Key: "$match", Value: bson.D{
+				{Key: "transactiondate", Value: bson.D{
+					{Key: "$gte", Value: monthStart},
+					{Key: "$lt", Value: monthEnd},
+				}},
+			}}},
+			bson.D{{Key: "$lookup", Value: bson.D{
+				{Key: "from", Value: "installment_plans"},
+				{Key: "localField", Value: "installmentplanid"},
+				{Key: "foreignField", Value: "_id"},
+				{Key: "as", Value: "plan"},
+			}}},
+			bson.D{{Key: "$unwind", Value: "$plan"}},
+			bson.D{{Key: "$lookup", Value: bson.D{
+				{Key: "from", Value: "products"},
+				{Key: "localField", Value: "plan.productid"},
+				{Key: "foreignField", Value: "_id"},
+				{Key: "as", Value: "product"},
+			}}},
+			bson.D{{Key: "$unwind", Value: bson.D{
+				{Key: "path", Value: "$product"},
+				{Key: "preserveNullAndEmptyArrays", Value: true},
+			}}},
+			bson.D{{Key: "$group", Value: bson.D{
+				{Key: "_id", Value: nil},
+				{Key: "totalProfit", Value: bson.D{{Key: "$sum", Value: bson.D{
+					{Key: "$multiply", Value: bson.A{
+						"$amount",
+						bson.D{{Key: "$subtract", Value: bson.A{
+							1,
+							bson.D{{Key: "$cond", Value: bson.A{
+								bson.D{{Key: "$gt", Value: bson.A{"$plan.totalamount", 0}}},
+								bson.D{{Key: "$divide", Value: bson.A{
+									bson.D{{Key: "$ifNull", Value: bson.A{"$product.purchaseprice", 0}}},
+									"$plan.totalamount",
+								}}},
+								0,
+							}}},
+						}}},
+					}},
+				}}}},
+			}}},
+		}
+		profitCursor, _ := db.Collection("payments").Aggregate(ctx, profitPipeline)
+		if profitCursor != nil {
+			if profitCursor.Next(ctx) {
+				var r struct{ TotalProfit float64 `bson:"totalProfit"` }
+				if profitCursor.Decode(&r) == nil {
+					profit = r.TotalProfit
+				}
+			}
+			profitCursor.Close(ctx)
+		}
 
+		// Subtract expenses
 		expPipeline := mongo.Pipeline{
 			bson.D{{Key: "$match", Value: bson.D{
 				{Key: "type", Value: "expense"},
@@ -233,12 +317,10 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 			if expCursor.Next(ctx) {
 				var r struct{ Total float64 `bson:"total"` }
 				if expCursor.Decode(&r) == nil {
-					profit = revenue - r.Total
+					profit -= r.Total
 				}
 			}
 			expCursor.Close(ctx)
-		} else {
-			profit = revenue
 		}
 
 		results <- result{"monthRevenue", revenue}
@@ -251,14 +333,22 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 		defer wg.Done()
 		var total float64
 		// Aggregate unpaid installments from installment_details
+		// Formula: amount + fine - partial_paid
 		pipeline := mongo.Pipeline{
 			bson.D{{Key: "$match", Value: bson.D{
 				{Key: "paid", Value: false},
 			}}},
+			bson.D{{Key: "$addFields", Value: bson.D{
+				{Key: "effective_fine", Value: bson.D{{Key: "$ifNull", Value: bson.A{"$fine", 0}}}},
+				{Key: "effective_partial", Value: bson.D{{Key: "$ifNull", Value: bson.A{"$partial_paid", 0}}}},
+			}}},
 			bson.D{{Key: "$group", Value: bson.D{
 				{Key: "_id", Value: nil},
 				{Key: "total", Value: bson.D{{Key: "$sum", Value: bson.D{
-					{Key: "$add", Value: bson.A{"$amount", bson.D{{Key: "$ifNull", Value: bson.A{"$fine", 0}}}, bson.D{{Key: "$subtract", Value: bson.A{bson.D{{Key: "$ifNull", Value: bson.A{"$partial_paid", 0}}}, bson.D{{Key: "$ifNull", Value: bson.A{"$partial_paid", 0}}}}}}}},
+					{Key: "$subtract", Value: bson.A{
+						bson.D{{Key: "$add", Value: bson.A{"$amount", "$effective_fine"}}},
+						"$effective_partial",
+					}},
 				}}}},
 			}}},
 		}
@@ -311,14 +401,22 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		defer wg.Done()
 		var total float64
+		// Formula: amount + fine - partial_paid
 		pipeline := mongo.Pipeline{
 			bson.D{{Key: "$match", Value: bson.D{
 				{Key: "paid", Value: false},
 			}}},
+			bson.D{{Key: "$addFields", Value: bson.D{
+				{Key: "effective_fine", Value: bson.D{{Key: "$ifNull", Value: bson.A{"$fine", 0}}}},
+				{Key: "effective_partial", Value: bson.D{{Key: "$ifNull", Value: bson.A{"$partial_paid", 0}}}},
+			}}},
 			bson.D{{Key: "$group", Value: bson.D{
 				{Key: "_id", Value: nil},
 				{Key: "total", Value: bson.D{{Key: "$sum", Value: bson.D{
-					{Key: "$add", Value: bson.A{"$amount", bson.D{{Key: "$ifNull", Value: bson.A{"$fine", 0}}}, bson.D{{Key: "$subtract", Value: bson.A{bson.D{{Key: "$ifNull", Value: bson.A{"$partial_paid", 0}}}, bson.D{{Key: "$ifNull", Value: bson.A{"$partial_paid", 0}}}}}}}},
+					{Key: "$subtract", Value: bson.A{
+						bson.D{{Key: "$add", Value: bson.A{"$amount", "$effective_fine"}}},
+						"$effective_partial",
+					}},
 				}}}},
 			}}},
 		}
@@ -1015,12 +1113,39 @@ func (h *DashboardHandler) CustomersWithFinance(w http.ResponseWriter, r *http.R
 				}
 			}
 
+			// Calculate actual paid amount from payments
+			var paidAmount float64
+			payPipeline := mongo.Pipeline{
+				bson.D{{Key: "$match", Value: bson.D{
+					{Key: "installmentplanid", Value: plan.ID},
+				}}},
+				bson.D{{Key: "$group", Value: bson.D{
+					{Key: "_id", Value: nil},
+					{Key: "total", Value: bson.D{{Key: "$sum", Value: "$amount"}}},
+				}}},
+			}
+			payCursor, _ := db.Collection("payments").Aggregate(r.Context(), payPipeline)
+			if payCursor != nil {
+				if payCursor.Next(r.Context()) {
+					var r struct{ Total float64 `bson:"total"` }
+					if payCursor.Decode(&r) == nil {
+						paidAmount = r.Total
+					}
+				}
+				payCursor.Close(r.Context())
+			}
+
+			actualRemaining := plan.TotalAmount - paidAmount
+			if actualRemaining < 0 {
+				actualRemaining = 0
+			}
+
 			custMap[plan.CustomerID] = map[string]interface{}{
 				"customer_id": cust.ID, "customer_name": cust.Name, "customer_urdu": cust.NameUrdu,
 				"father_name": cust.FatherName, "phone": cust.Phone, "cnic": cust.CNIC,
 				"address": cust.Address, "product_name": prodName, "product_name_urdu": prodNameUrdu,
 				"plan_id": plan.ID, "total_amount": plan.TotalAmount, "down_payment": plan.DownPayment,
-				"remaining_amount": plan.RemainingAmount, "num_installments": plan.NumberOfInstallments,
+				"remaining_amount": actualRemaining, "num_installments": plan.NumberOfInstallments,
 				"installment_amount": plan.InstallmentAmount, "start_date": plan.StartDate.Format("2006-01-02"),
 				"end_date": plan.EndDate.Format("2006-01-02"), "status": plan.Status,
 			}
