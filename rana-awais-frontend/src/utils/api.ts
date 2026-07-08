@@ -139,8 +139,8 @@ api.interceptors.response.use(
         }
       }
 
-      // For POST/PUT/DELETE, queue for later sync
-      if (['post', 'put', 'delete'].includes(method)) {
+      // For POST/PUT/DELETE, only queue if truly offline (not on network errors)
+      if (['post', 'put', 'delete'].includes(method) && !navigator.onLine) {
         const data = config.data ? JSON.parse(config.data) : {};
         const entityType = detectEntityType(url);
         const operation = method === 'post' ? 'create' : method === 'put' ? 'update' : 'delete';
