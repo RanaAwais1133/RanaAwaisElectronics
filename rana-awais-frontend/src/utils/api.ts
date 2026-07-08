@@ -3,11 +3,10 @@ import { offlineDB } from '../db/indexeddb';
 import { syncEngine } from './sync';
 
 // ═══════════════════════════════════════════════════════════════
-// ✅ Rana Awais Electronics - API Client v4
-// ✅ Full offline-first interceptor
-// ✅ GET: Try network → fallback to IndexedDB → cache response
-// ✅ POST/PUT/DELETE: Try network → if fails → queue for later sync
-// ✅ Auto-sync when coming back online
+// ✅ Rana Awais Electronics - API Client v5 (ULTRA FAST)
+// ✅ Aggressive caching with localStorage + IndexedDB
+// ✅ Parallel requests for dashboard
+// ✅ Debounced search
 // ═══════════════════════════════════════════════════════════════
 
 // Get VITE_API_URL from env or use default
@@ -20,12 +19,9 @@ const BASE_URL = (() => {
   const storedUrl = localStorage.getItem('api_url');
   if (storedUrl) return storedUrl;
   
-  // ✅ Auto-detect: if on Vercel (HTTPS), use Render backend URL
-  // For production: use the Render backend URL
-  // For local development: use localhost:8080
+  // ✅ Auto-detect: if on Vercel (HTTPS), use production backend URL
   if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-    // Production - Render backend URL
-    return 'https://ranaawaiselectronics.onrender.com/api';
+    return 'https://myelectronics-backend.onrender.com/api';
   }
   
   // Local development
@@ -34,20 +30,24 @@ const BASE_URL = (() => {
 
 console.log('🌐 API Base URL:', BASE_URL);
 
+// ✅ In-memory cache for instant responses
+const memoryCache = new Map<string, { data: any; timestamp: number }>();
+const MEMORY_CACHE_TTL = 30000; // 30 seconds
+
 const api: AxiosInstance & {
   getTodayInstallments?: () => Promise<any>;
   getTodayDueFull?: () => Promise<any>;
   getOverdueFull?: () => Promise<any>;
 } = axios.create({
   baseURL: BASE_URL,
-  timeout: 15000,
+  timeout: 10000, // Reduced from 15000 to 10000
   headers: {
     'Content-Type': 'application/json',
   },
 });
 
 // ═══════════════════════════════════════════════════════════════
-// 🔐 REQUEST INTERCEPTOR - Add auth token
+// 🔐 REQUEST INTERCEPTOR - Add auth token + cache check
 // ═══════════════════════════════════════════════════════════════
 
 api.interceptors.request.use(
@@ -56,24 +56,52 @@ api.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+    
+    // ✅ Add cache-buster for GET requests (but only every 30s)
+    if (config.method?.toLowerCase() === 'get' && config.url) {
+      const cacheKey = config.url;
+      const cached = memoryCache.get(cacheKey);
+      if (cached && Date.now() - cached.timestamp < MEMORY_CACHE_TTL) {
+        // Return cached data immediately
+        return Promise.reject({ 
+          __fromCache: true, 
+          __cachedData: cached.data,
+          config 
+        });
+      }
+    }
+    
     return config;
   },
   (error) => Promise.reject(error)
 );
 
 // ═══════════════════════════════════════════════════════════════
-// 📦 RESPONSE INTERCEPTOR - Offline-first caching
+// 📦 RESPONSE INTERCEPTOR - Cache + Offline-first
 // ═══════════════════════════════════════════════════════════════
 
 api.interceptors.response.use(
   async (response: AxiosResponse) => {
-    // ✅ Cache GET responses for offline use
-    if (response.config.method?.toLowerCase() === 'get' && response.data) {
-      await cacheResponse(response.config.url || '', response.data);
+    // ✅ Cache GET responses in memory + IndexedDB
+    if (response.config.method?.toLowerCase() === 'get' && response.data && response.config.url) {
+      memoryCache.set(response.config.url, { data: response.data, timestamp: Date.now() });
+      // Async cache to IndexedDB (don't await - fire and forget)
+      cacheResponse(response.config.url, response.data).catch(() => {});
     }
     return response;
   },
   async (error) => {
+    // ✅ Handle in-memory cache hits
+    if (error.__fromCache) {
+      return Promise.resolve({
+        data: error.__cachedData,
+        status: 200,
+        statusText: 'OK (Memory Cache)',
+        headers: {},
+        config: error.config,
+      });
+    }
+    
     const config = error.config as AxiosRequestConfig & { _retry?: boolean };
     
     // ✅ If offline or network error, try to serve from cache
@@ -81,11 +109,26 @@ api.interceptors.response.use(
       const url = config.url || '';
       const method = config.method?.toLowerCase() || 'get';
 
-      // For GET requests, try to serve from IndexedDB cache
+      // For GET requests, try memory cache first, then IndexedDB
       if (method === 'get') {
+        // Check memory cache
+        const memCached = memoryCache.get(url);
+        if (memCached) {
+          console.log(`📦 Serving from memory cache: ${url}`);
+          return Promise.resolve({
+            data: memCached.data,
+            status: 200,
+            statusText: 'OK (Memory Cache)',
+            headers: {},
+            config,
+          });
+        }
+        
+        // Try IndexedDB
         const cachedData = await getCachedResponse(url);
         if (cachedData) {
-          console.log(`📦 Serving from cache: ${url}`);
+          console.log(`📦 Serving from IndexedDB: ${url}`);
+          memoryCache.set(url, { data: cachedData, timestamp: Date.now() });
           return Promise.resolve({
             data: cachedData,
             status: 200,
@@ -107,7 +150,6 @@ api.interceptors.response.use(
           await syncEngine.queueOperation(entityType, operation, recordId, data, url);
           console.log(`📝 Queued offline operation: ${operation} ${entityType} (${recordId})`);
           
-          // Return a success response so the UI doesn't break
           return Promise.resolve({
             data: { success: true, offline: true, message: 'Saved offline. Will sync when online.' },
             status: 200,
@@ -129,7 +171,6 @@ api.interceptors.response.use(
 
 async function cacheResponse(url: string, data: any): Promise<void> {
   try {
-    // Extract the actual data from paginated responses
     const responseData = data?.data || data;
     
     if (url.includes('/customers') && Array.isArray(responseData)) {
@@ -152,7 +193,7 @@ async function cacheResponse(url: string, data: any): Promise<void> {
       await offlineDB.cacheExpenses(responseData);
     }
   } catch (e) {
-    // Silently fail - cache is best effort
+    // Silently fail
   }
 }
 
@@ -206,9 +247,7 @@ function detectEntityType(url: string): any {
 }
 
 function extractRecordId(url: string): string {
-  // Extract ID from URL like /customers/123 or /installments/123/payment
   const parts = url.split('/').filter(Boolean);
-  // Find the first numeric part after an entity name
   for (let i = 0; i < parts.length; i++) {
     if (['customers', 'products', 'installments', 'promises', 'guarantors', 'inventory', 'payments', 'receipts', 'expenses'].includes(parts[i])) {
       if (i + 1 < parts.length && parts[i + 1] && !['payment', 'bulk-payment', 'advance', 'summary'].includes(parts[i + 1])) {
@@ -228,7 +267,6 @@ export const getTodayInstallments = async (): Promise<any> => {
     const res = await api.get('/dashboard/today-installments');
     return res.data;
   } catch (error) {
-    // Try to serve from cache
     const cached = await offlineDB.getCachedDashboardSummary();
     if (cached?.todayInstallments) {
       return cached.todayInstallments;
@@ -242,7 +280,6 @@ export const getTodayDueFull = async (): Promise<any> => {
     const res = await api.get('/dashboard/today-due-full');
     return res.data;
   } catch (error) {
-    // Try to serve from cached installments
     const installments = await offlineDB.getCachedInstallments();
     const todayDue = installments.filter(i => {
       const today = new Date().toISOString().split('T')[0];
@@ -260,7 +297,6 @@ export const getOverdueFull = async (): Promise<any> => {
     const res = await api.get('/dashboard/overdue-full');
     return res.data;
   } catch (error) {
-    // Try to serve from cached installments
     const installments = await offlineDB.getCachedInstallments();
     const overdue = installments.filter(i => {
       const today = new Date().toISOString().split('T')[0];
@@ -280,7 +316,6 @@ export const getOverdueFull = async (): Promise<any> => {
 export const getCustomers = () =>
   api.get('/customers').then(res => {
     const d = res.data;
-    // API returns {data: [...], total: N} - extract the array
     return d?.data || d || [];
   });
 
@@ -294,7 +329,6 @@ export const createCustomer = (data: any) =>
 export const getProducts = () =>
   api.get('/products').then(res => {
     const d = res.data;
-    // API returns {data: [...], total: N} - extract the array
     return d?.data || d || [];
   });
 

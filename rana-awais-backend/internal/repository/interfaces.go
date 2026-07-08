@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/domain"
+	"go.mongodb.org/mongo-driver/bson"
 )
 
 type CustomerRepository interface {
@@ -77,7 +78,6 @@ type PaymentRepository interface {
 	Delete(ctx context.Context, id string) error
 }
 
-
 type AccountingRepository interface {
 	Create(ctx context.Context, e *domain.AccountingEntry) error
 	GetCashFlowReport(ctx context.Context, start, end time.Time) ([]domain.AccountingEntry, error)
@@ -104,6 +104,28 @@ type UserRepository interface {
 	Count(ctx context.Context) (int64, error)
 }
 
+// ExpenseRepository handles business expenses
+type ExpenseRepository interface {
+	Create(ctx context.Context, e *domain.Expense) error
+	GetByID(ctx context.Context, id string) (*domain.Expense, error)
+	Update(ctx context.Context, id string, e *domain.Expense) error
+	Delete(ctx context.Context, id string) error
+	List(ctx context.Context, skip, limit int64) ([]domain.Expense, error)
+	Count(ctx context.Context) (int64, error)
+}
+
+// SettingsRepository handles settings, license, and audit logs
+type SettingsRepository interface {
+	GetSetting(ctx context.Context, key string) (string, error)
+	SetSetting(ctx context.Context, key, value string) error
+	GetAllSettings(ctx context.Context) (map[string]string, error)
+	GetLicenseStatus(ctx context.Context, licenseKey string) (bool, error)
+	CreateLicense(ctx context.Context, license *domain.License) error
+	CountLicenses(ctx context.Context, filter bson.M) (int64, error)
+	InsertAuditLog(ctx context.Context, log domain.AuditLog) error
+	GetAuditLogs(ctx context.Context, skip, limit int64) ([]domain.AuditLog, int64, error)
+}
+
 // SyncLogRepository handles sync log records for offline-first architecture
 type SyncLogRepository interface {
 	CreateSyncRecord(ctx context.Context, record SyncRecord) error
@@ -127,5 +149,3 @@ type SyncRecord struct {
 	RetryCount  int                    `json:"retry_count"`
 	LastAttempt *time.Time             `json:"last_attempt,omitempty"`
 }
-
-

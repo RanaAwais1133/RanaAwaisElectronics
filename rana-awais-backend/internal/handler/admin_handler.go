@@ -6,7 +6,6 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -20,69 +19,58 @@ import (
 	"time"
 
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/config"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/domain"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/middleware"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/repository"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/service"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 type AdminHandler struct {
-	userSvc *service.UserService
+	userSvc      *service.UserService
+	settingsRepo repository.SettingsRepository
 }
 
-func NewAdminHandler(userSvc *service.UserService) *AdminHandler {
-	return &AdminHandler{userSvc: userSvc}
+func NewAdminHandler(userSvc *service.UserService, settingsRepo repository.SettingsRepository) *AdminHandler {
+	return &AdminHandler{userSvc: userSvc, settingsRepo: settingsRepo}
 }
 
 // ═══════════════════════════════════════
-// 📦 BACKUP ENGINE
+// 📦 BACKUP ENGINE (MongoDB)
 // ═══════════════════════════════════════
 
-// generateBackup creates a full database backup as JSON bytes
+// generateBackup creates a full database backup as JSON bytes from MongoDB
 func (h *AdminHandler) generateBackup() ([]byte, error) {
-	db := config.DB
+	db := config.MongoDatabase
+	if db == nil {
+		return nil, fmt.Errorf("MongoDB not connected")
+	}
 
 	result := make(map[string][]map[string]interface{})
 
-	exportTable := func(tableName string) {
-		allowed := map[string]bool{
-			"users": true, "customers": true, "guarantors": true, "products": true,
-			"inventory_items": true, "installment_plans": true, "installment_details": true,
-			"payments": true, "accounting_entries": true, "notifications": true,
-			"license": true, "audit_logs": true, "sync_logs": true, "promises": true,
-		}
-		if !allowed[tableName] {
-			return
-		}
-		rows, err := db.Query("SELECT * FROM " + tableName)
+	collections := []string{"users", "customers", "guarantors", "products", "inventory_items",
+		"installment_plans", "installment_details", "payments", "accounting_entries",
+		"notifications", "license", "audit_logs", "sync_logs", "promises", "expenses", "settings"}
+
+	for _, collName := range collections {
+		coll := db.Collection(collName)
+		cursor, err := coll.Find(nil, bson.M{})
 		if err != nil {
-			return
+			continue
 		}
-		defer rows.Close()
-		columns, _ := rows.Columns()
+
 		var docs []map[string]interface{}
-		for rows.Next() {
-			vals := make([]interface{}, len(columns))
-			valPtrs := make([]interface{}, len(columns))
-			for i := range vals {
-				valPtrs[i] = &vals[i]
-			}
-			rows.Scan(valPtrs...)
-			row := make(map[string]interface{})
-			for i, col := range columns {
-				row[col] = vals[i]
-			}
-			docs = append(docs, row)
+		if err := cursor.All(nil, &docs); err != nil {
+			cursor.Close(nil)
+			continue
 		}
+		cursor.Close(nil)
+
 		if docs == nil {
 			docs = []map[string]interface{}{}
 		}
-		result[tableName] = docs
-	}
-
-	tables := []string{"users", "customers", "guarantors", "products", "inventory_items",
-		"installment_plans", "installment_details", "payments", "accounting_entries",
-		"notifications", "license", "audit_logs", "sync_logs", "promises"}
-	for _, t := range tables {
-		exportTable(t)
+		result[collName] = docs
 	}
 
 	// Add metadata
@@ -101,109 +89,71 @@ func (h *AdminHandler) generateBackup() ([]byte, error) {
 // 🔐 BACKUP ENCRYPTION (AES-256-GCM)
 // ═══════════════════════════════════════
 
-// encryptBackup encrypts backup data using AES-256-GCM with the given password
 func encryptBackup(data []byte, password string) ([]byte, error) {
 	if password == "" {
-		// No encryption - return as-is
 		return data, nil
 	}
-
-	// Derive a 32-byte key from password using SHA-256
 	key := sha256Hash(password)
-
-	// Create AES cipher
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create cipher: %v", err)
 	}
-
-	// Use GCM mode
 	gcm, err := cipher.NewGCM(block)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create GCM: %v", err)
 	}
-
-	// Generate random nonce
 	nonce := make([]byte, gcm.NonceSize())
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
 		return nil, fmt.Errorf("failed to generate nonce: %v", err)
 	}
-
-	// Encrypt and append nonce + ciphertext
 	ciphertext := gcm.Seal(nonce, nonce, data, nil)
-
-	// Format: base64(nonce + ciphertext) with "ENC:" prefix
 	encoded := base64.StdEncoding.EncodeToString(ciphertext)
-	result := []byte("ENC:" + encoded)
-
-	return result, nil
+	return []byte("ENC:" + encoded), nil
 }
 
-// decryptBackup decrypts backup data that was encrypted with encryptBackup
 func decryptBackup(data []byte, password string) ([]byte, error) {
 	if password == "" {
-		// No encryption - return as-is
 		return data, nil
 	}
-
-	// Check for ENC: prefix
 	str := string(data)
 	if !strings.HasPrefix(str, "ENC:") {
 		return nil, fmt.Errorf("not an encrypted backup (missing ENC: prefix)")
 	}
-
-	// Remove prefix and decode base64
 	encoded := str[4:]
 	ciphertext, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
 		return nil, fmt.Errorf("invalid base64 encoding: %v", err)
 	}
-
-	// Derive key
 	key := sha256Hash(password)
-
-	// Create AES cipher
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create cipher: %v", err)
 	}
-
-	// Use GCM mode
 	gcm, err := cipher.NewGCM(block)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create GCM: %v", err)
 	}
-
-	// Extract nonce
 	nonceSize := gcm.NonceSize()
 	if len(ciphertext) < nonceSize {
 		return nil, fmt.Errorf("ciphertext too short")
 	}
 	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
-
-	// Decrypt
 	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
 	if err != nil {
 		return nil, fmt.Errorf("decryption failed (wrong password?): %v", err)
 	}
-
 	return plaintext, nil
 }
 
-// sha256Hash returns SHA-256 hash of the input string as a 32-byte key
 func sha256Hash(input string) []byte {
-	// Simple SHA-256 implementation using crypto/sha256
-	// We import it below
 	h := sha256.Sum256([]byte(input))
 	return h[:]
 }
 
 // ═══════════════════════════════════════
-// 💾 MANUAL BACKUP - Download as JSON file
+// 💾 MANUAL BACKUP
 // ═══════════════════════════════════════
 
-// Backup returns a full database backup as a downloadable JSON file.
-// Supports optional encryption via X-Backup-Password header
 func (h *AdminHandler) Backup(w http.ResponseWriter, r *http.Request) {
 	data, err := h.generateBackup()
 	if err != nil {
@@ -211,7 +161,6 @@ func (h *AdminHandler) Backup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ✅ Optional encryption - check for password header
 	password := r.Header.Get("X-Backup-Password")
 	if password != "" {
 		encrypted, err := encryptBackup(data, password)
@@ -223,7 +172,6 @@ func (h *AdminHandler) Backup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	filename := fmt.Sprintf("rana-awais-backup-%s.json", time.Now().Format("2006-01-02_150405"))
-
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(data)))
@@ -231,36 +179,35 @@ func (h *AdminHandler) Backup(w http.ResponseWriter, r *http.Request) {
 }
 
 // ═══════════════════════════════════════
-// 🔄 RESTORE - Upload JSON file to restore
+// 🔄 RESTORE
 // ═══════════════════════════════════════
 
-// Restore restores the database from a JSON backup.
 func (h *AdminHandler) Restore(w http.ResponseWriter, r *http.Request) {
-	db := config.DB
+	db := config.MongoDatabase
+	if db == nil {
+		respondError(w, r, http.StatusInternalServerError, "Database not connected", "ڈیٹا بیس منسلک نہیں")
+		return
+	}
 
 	var backupData map[string][]map[string]interface{}
 
-	// Try multipart form first (file upload from browser)
 	contentType := r.Header.Get("Content-Type")
 	if strings.Contains(contentType, "multipart/form-data") {
-		if err := r.ParseMultipartForm(100 << 20); err != nil { // 100 MB max
+		if err := r.ParseMultipartForm(100 << 20); err != nil {
 			respondError(w, r, http.StatusBadRequest, "File too large or invalid", "فائل بہت بڑی ہے یا غلط ہے")
 			return
 		}
-
 		file, _, err := r.FormFile("backup")
 		if err != nil {
 			respondError(w, r, http.StatusBadRequest, "No backup file found", "بیک اپ فائل نہیں ملی")
 			return
 		}
 		defer file.Close()
-
 		if err := json.NewDecoder(file).Decode(&backupData); err != nil {
 			respondError(w, r, http.StatusBadRequest, "Invalid backup file format", "غلط بیک اپ فائل فارمیٹ")
 			return
 		}
 	} else {
-		// Try reading from body directly (JSON body)
 		if err := json.NewDecoder(r.Body).Decode(&backupData); err != nil {
 			respondError(w, r, http.StatusBadRequest, "Invalid backup file format", "غلط بیک اپ فائل فارمیٹ")
 			return
@@ -272,7 +219,6 @@ func (h *AdminHandler) Restore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ✅ Clear all caches after restore to ensure fresh data
 	middleware.DashboardCache.InvalidatePrefix("/api/dashboard")
 	middleware.DashboardCache.InvalidatePrefix("/api/accounting")
 	middleware.DashboardCache.InvalidatePrefix("/api/customers")
@@ -291,68 +237,47 @@ func (h *AdminHandler) Restore(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// restoreData performs the actual restore in a transaction
-func (h *AdminHandler) restoreData(db *sql.DB, backupData map[string][]map[string]interface{}) error {
-	// Start transaction
-	tx, err := db.Begin()
-	if err != nil {
-		return fmt.Errorf("failed to start transaction")
-	}
-	defer tx.Rollback()
-
-	// Clear existing data (in reverse dependency order)
-	tables := []string{"promises", "sync_logs", "audit_logs", "license", "notifications",
+func (h *AdminHandler) restoreData(db *mongo.Database, backupData map[string][]map[string]interface{}) error {
+	collections := []string{"promises", "sync_logs", "audit_logs", "license", "notifications",
 		"accounting_entries", "payments", "installment_details", "installment_plans",
-		"inventory_items", "products", "guarantors", "customers", "users"}
+		"inventory_items", "products", "guarantors", "customers", "users", "expenses", "settings"}
 
-	for _, table := range tables {
-		if _, err := tx.Exec("DELETE FROM " + table); err != nil {
-			return fmt.Errorf("failed to clear table %s: %v", table, err)
+	// Clear existing data
+	for _, collName := range collections {
+		if _, err := db.Collection(collName).DeleteMany(nil, bson.M{}); err != nil {
+			return fmt.Errorf("failed to clear collection %s: %v", collName, err)
 		}
 	}
 
-	// Restore data (in dependency order)
-	restoreTables := []string{"users", "customers", "guarantors", "products", "inventory_items",
+	// Restore data
+	restoreCollections := []string{"users", "customers", "guarantors", "products", "inventory_items",
 		"installment_plans", "installment_details", "payments", "accounting_entries",
-		"notifications", "license", "audit_logs", "sync_logs", "promises"}
+		"notifications", "license", "audit_logs", "sync_logs", "promises", "expenses", "settings"}
 
-	for _, table := range restoreTables {
-		rows, ok := backupData[table]
-		if !ok || len(rows) == 0 {
+	for _, collName := range restoreCollections {
+		docs, ok := backupData[collName]
+		if !ok || len(docs) == 0 {
 			continue
 		}
 
-		for _, row := range rows {
-			columns := make([]string, 0, len(row))
-			values := make([]interface{}, 0, len(row))
-			placeholders := make([]string, 0, len(row))
+		var interfaceDocs []interface{}
+		for _, doc := range docs {
+			interfaceDocs = append(interfaceDocs, doc)
+		}
 
-			for col, val := range row {
-				columns = append(columns, col)
-				values = append(values, val)
-				placeholders = append(placeholders, "?")
-			}
-
-			query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)",
-				table,
-				strings.Join(columns, ", "),
-				strings.Join(placeholders, ", "))
-
-			if _, err := tx.Exec(query, values...); err != nil {
-				// Skip rows that fail (e.g., duplicate IDs)
-				continue
-			}
+		if _, err := db.Collection(collName).InsertMany(nil, interfaceDocs); err != nil {
+			log.Printf("⚠️ Failed to restore collection %s: %v (skipping)", collName, err)
+			continue
 		}
 	}
 
-	return tx.Commit()
+	return nil
 }
 
 // ═══════════════════════════════════════
 // 📧 EMAIL BACKUP
 // ═══════════════════════════════════════
 
-// SendEmailBackup sends a backup to the configured email address
 func (h *AdminHandler) SendEmailBackup(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Email    string `json:"email"`
@@ -364,20 +289,17 @@ func (h *AdminHandler) SendEmailBackup(w http.ResponseWriter, r *http.Request) {
 		respondError(w, r, http.StatusBadRequest, "Invalid request", "غلط درخواست")
 		return
 	}
-
 	if req.Email == "" {
 		respondError(w, r, http.StatusBadRequest, "Email is required", "ای میل ضروری ہے")
 		return
 	}
 
-	// Generate backup
 	data, err := h.generateBackup()
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "Failed to generate backup", "بیک اپ بنانے میں ناکامی")
 		return
 	}
 
-	// Default SMTP settings
 	if req.SmtpHost == "" {
 		req.SmtpHost = "smtp.gmail.com"
 	}
@@ -385,7 +307,6 @@ func (h *AdminHandler) SendEmailBackup(w http.ResponseWriter, r *http.Request) {
 		req.SmtpPort = "587"
 	}
 
-	// Send email with backup attachment
 	go func() {
 		if err := sendEmailWithAttachment(req.Email, req.Password, req.SmtpHost, req.SmtpPort, data); err != nil {
 			log.Printf("⚠️ Email backup failed: %v", err)
@@ -400,14 +321,9 @@ func (h *AdminHandler) SendEmailBackup(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// sendEmailWithAttachment sends an email with the backup file attached
 func sendEmailWithAttachment(to, password, smtpHost, smtpPort string, data []byte) error {
 	from := to
-
-	// Set up authentication
 	auth := smtp.PlainAuth("", from, password, smtpHost)
-
-	// Create email with attachment
 	boundary := "BOUNDARY1234567890"
 	filename := fmt.Sprintf("rana-awais-backup-%s.json", time.Now().Format("2006-01-02_150405"))
 
@@ -424,26 +340,17 @@ func sendEmailWithAttachment(to, password, smtpHost, smtpPort string, data []byt
 	}
 	msg.WriteString("\r\n")
 
-	// Email body
 	msg.WriteString(fmt.Sprintf("--%s\r\n", boundary))
-	msg.WriteString("Content-Type: text/plain; charset=\"UTF-8\"\r\n")
-	msg.WriteString("\r\n")
-	msg.WriteString(fmt.Sprintf("Rana Awais Electronics Database Backup\r\n"))
-	msg.WriteString(fmt.Sprintf("Date: %s\r\n", time.Now().Format("2006-01-02 15:04:05")))
-	msg.WriteString("\r\n")
-	msg.WriteString("Please find attached the database backup file.\r\n")
-	msg.WriteString("\r\n")
+	msg.WriteString("Content-Type: text/plain; charset=\"UTF-8\"\r\n\r\n")
+	msg.WriteString(fmt.Sprintf("Rana Awais Electronics Database Backup\r\nDate: %s\r\n\r\n", time.Now().Format("2006-01-02 15:04:05")))
+	msg.WriteString("Please find attached the database backup file.\r\n\r\n")
 
-	// Attachment
 	msg.WriteString(fmt.Sprintf("--%s\r\n", boundary))
 	msg.WriteString("Content-Type: application/json\r\n")
 	msg.WriteString(fmt.Sprintf("Content-Disposition: attachment; filename=\"%s\"\r\n", filename))
-	msg.WriteString("Content-Transfer-Encoding: base64\r\n")
-	msg.WriteString("\r\n")
+	msg.WriteString("Content-Transfer-Encoding: base64\r\n\r\n")
 
-	// Encode data as base64 using standard library
 	encoded := base64.StdEncoding.EncodeToString(data)
-	// Split into 76-character lines
 	for i := 0; i < len(encoded); i += 76 {
 		end := i + 76
 		if end > len(encoded) {
@@ -452,10 +359,8 @@ func sendEmailWithAttachment(to, password, smtpHost, smtpPort string, data []byt
 		msg.WriteString(encoded[i:end])
 		msg.WriteString("\r\n")
 	}
-
 	msg.WriteString(fmt.Sprintf("--%s--\r\n", boundary))
 
-	// Send email
 	return smtp.SendMail(fmt.Sprintf("%s:%s", smtpHost, smtpPort), auth, from, []string{to}, msg.Bytes())
 }
 
@@ -463,28 +368,24 @@ func sendEmailWithAttachment(to, password, smtpHost, smtpPort string, data []byt
 // ⏰ AUTO BACKUP SCHEDULER
 // ═══════════════════════════════════════
 
-// AutoBackupConfig holds auto-backup settings
 type AutoBackupConfig struct {
 	Enabled      bool   `json:"enabled"`
-	Interval     string `json:"interval"`     // "daily", "weekly"
-	Time         string `json:"time"`          // "02:00"
-	BackupDir    string `json:"backupDir"`     // Directory to save backups
-	MaxBackups   int    `json:"maxBackups"`    // Max number of backups to keep
-	EmailBackup  bool   `json:"emailBackup"`   // Also send via email
+	Interval     string `json:"interval"`
+	Time         string `json:"time"`
+	BackupDir    string `json:"backupDir"`
+	MaxBackups   int    `json:"maxBackups"`
+	EmailBackup  bool   `json:"emailBackup"`
 	EmailAddress string `json:"emailAddress"`
 	EmailPass    string `json:"emailPass"`
 	SmtpHost     string `json:"smtpHost"`
 	SmtpPort     string `json:"smtpPort"`
 }
 
-// StartAutoBackup starts the auto-backup scheduler
 func StartAutoBackup(h *AdminHandler) {
 	go func() {
-		// Wait a bit for server to start
 		time.Sleep(30 * time.Second)
-
 		for {
-			cfg := loadAutoBackupConfig()
+			cfg := loadAutoBackupConfig(h)
 			if cfg.Enabled {
 				now := time.Now()
 				nextRun := calculateNextRun(cfg, now)
@@ -492,11 +393,9 @@ func StartAutoBackup(h *AdminHandler) {
 				if duration < 0 {
 					duration = 24 * time.Hour
 				}
-
 				log.Printf("⏰ Next auto-backup at: %s (in %v)", nextRun.Format("2006-01-02 15:04"), duration)
 				time.Sleep(duration)
 
-				// Run backup
 				log.Println("⏰ Running auto-backup...")
 				if err := h.runAutoBackup(cfg); err != nil {
 					log.Printf("⚠️ Auto-backup failed: %v", err)
@@ -504,15 +403,13 @@ func StartAutoBackup(h *AdminHandler) {
 					log.Println("✅ Auto-backup completed successfully")
 				}
 			} else {
-				// Check every hour if config changed
 				time.Sleep(1 * time.Hour)
 			}
 		}
 	}()
 }
 
-func loadAutoBackupConfig() AutoBackupConfig {
-	db := config.DB
+func loadAutoBackupConfig(h *AdminHandler) AutoBackupConfig {
 	cfg := AutoBackupConfig{
 		Enabled:    false,
 		Interval:   "daily",
@@ -521,44 +418,46 @@ func loadAutoBackupConfig() AutoBackupConfig {
 		MaxBackups: 30,
 	}
 
-	rows, err := db.Query("SELECT key, value FROM settings WHERE key LIKE 'backup_%'")
+	settings, err := h.settingsRepo.GetAllSettings(nil)
 	if err != nil {
 		return cfg
 	}
-	defer rows.Close()
 
-	for rows.Next() {
-		var key, value string
-		rows.Scan(&key, &value)
-		switch key {
-		case "backup_enabled":
-			cfg.Enabled = value == "true"
-		case "backup_interval":
-			cfg.Interval = value
-		case "backup_time":
-			cfg.Time = value
-		case "backup_dir":
-			cfg.BackupDir = value
-		case "backup_max":
-			fmt.Sscanf(value, "%d", &cfg.MaxBackups)
-		case "backup_email_enabled":
-			cfg.EmailBackup = value == "true"
-		case "backup_email_address":
-			cfg.EmailAddress = value
-		case "backup_email_pass":
-			cfg.EmailPass = value
-		case "backup_smtp_host":
-			cfg.SmtpHost = value
-		case "backup_smtp_port":
-			cfg.SmtpPort = value
-		}
+	if v, ok := settings["backup_enabled"]; ok {
+		cfg.Enabled = v == "true"
+	}
+	if v, ok := settings["backup_interval"]; ok {
+		cfg.Interval = v
+	}
+	if v, ok := settings["backup_time"]; ok {
+		cfg.Time = v
+	}
+	if v, ok := settings["backup_dir"]; ok {
+		cfg.BackupDir = v
+	}
+	if v, ok := settings["backup_max"]; ok {
+		fmt.Sscanf(v, "%d", &cfg.MaxBackups)
+	}
+	if v, ok := settings["backup_email_enabled"]; ok {
+		cfg.EmailBackup = v == "true"
+	}
+	if v, ok := settings["backup_email_address"]; ok {
+		cfg.EmailAddress = v
+	}
+	if v, ok := settings["backup_email_pass"]; ok {
+		cfg.EmailPass = v
+	}
+	if v, ok := settings["backup_smtp_host"]; ok {
+		cfg.SmtpHost = v
+	}
+	if v, ok := settings["backup_smtp_port"]; ok {
+		cfg.SmtpPort = v
 	}
 
 	return cfg
 }
 
 func calculateNextRun(cfg AutoBackupConfig, now time.Time) time.Time {
-	// Parse time
 	parts := strings.Split(cfg.Time, ":")
 	hour := 2
 	minute := 0
@@ -566,28 +465,23 @@ func calculateNextRun(cfg AutoBackupConfig, now time.Time) time.Time {
 		fmt.Sscanf(parts[0], "%d", &hour)
 		fmt.Sscanf(parts[1], "%d", &minute)
 	}
-
 	next := time.Date(now.Year(), now.Month(), now.Day(), hour, minute, 0, 0, now.Location())
 	if next.Before(now) || next.Equal(now) {
 		next = next.Add(24 * time.Hour)
 	}
-
 	return next
 }
 
 func (h *AdminHandler) runAutoBackup(cfg AutoBackupConfig) error {
-	// Generate backup data
 	data, err := h.generateBackup()
 	if err != nil {
 		return fmt.Errorf("failed to generate backup: %v", err)
 	}
 
-	// Ensure backup directory exists
 	if err := os.MkdirAll(cfg.BackupDir, 0755); err != nil {
 		return fmt.Errorf("failed to create backup directory: %v", err)
 	}
 
-	// Save backup file
 	filename := fmt.Sprintf("rana-awais-backup-%s.json", time.Now().Format("2006-01-02_150405"))
 	backupPath := filepath.Join(cfg.BackupDir, filename)
 	if err := os.WriteFile(backupPath, data, 0644); err != nil {
@@ -595,12 +489,10 @@ func (h *AdminHandler) runAutoBackup(cfg AutoBackupConfig) error {
 	}
 	log.Printf("💾 Auto-backup saved: %s", backupPath)
 
-	// Clean old backups
 	if cfg.MaxBackups > 0 {
 		cleanOldBackups(cfg.BackupDir, cfg.MaxBackups)
 	}
 
-	// Send email backup if configured
 	if cfg.EmailBackup && cfg.EmailAddress != "" && cfg.EmailPass != "" {
 		smtpHost := cfg.SmtpHost
 		smtpPort := cfg.SmtpPort
@@ -610,7 +502,6 @@ func (h *AdminHandler) runAutoBackup(cfg AutoBackupConfig) error {
 		if smtpPort == "" {
 			smtpPort = "587"
 		}
-
 		go func() {
 			if err := sendEmailWithAttachment(cfg.EmailAddress, cfg.EmailPass, smtpHost, smtpPort, data); err != nil {
 				log.Printf("⚠️ Auto email backup failed: %v", err)
@@ -628,12 +519,10 @@ func cleanOldBackups(dir string, maxBackups int) {
 	if err != nil {
 		return
 	}
-
 	if len(files) <= maxBackups {
 		return
 	}
 
-	// Sort by modification time (oldest first)
 	type fileInfo struct {
 		path    string
 		modTime time.Time
@@ -647,7 +536,6 @@ func cleanOldBackups(dir string, maxBackups int) {
 		infos = append(infos, fileInfo{path: f, modTime: info.ModTime()})
 	}
 
-	// Sort by modTime ascending
 	for i := 0; i < len(infos); i++ {
 		for j := i + 1; j < len(infos); j++ {
 			if infos[j].modTime.Before(infos[i].modTime) {
@@ -656,7 +544,6 @@ func cleanOldBackups(dir string, maxBackups int) {
 		}
 	}
 
-	// Delete oldest files
 	toDelete := len(infos) - maxBackups
 	for i := 0; i < toDelete; i++ {
 		os.Remove(infos[i].path)
@@ -668,13 +555,11 @@ func cleanOldBackups(dir string, maxBackups int) {
 // ⚙️ BACKUP SETTINGS
 // ═══════════════════════════════════════
 
-// GetBackupSettings returns current backup settings
 func (h *AdminHandler) GetBackupSettings(w http.ResponseWriter, r *http.Request) {
-	cfg := loadAutoBackupConfig()
+	cfg := loadAutoBackupConfig(h)
 	respondJSON(w, http.StatusOK, cfg)
 }
 
-// UpdateBackupSettings updates backup settings
 func (h *AdminHandler) UpdateBackupSettings(w http.ResponseWriter, r *http.Request) {
 	var req AutoBackupConfig
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -682,7 +567,6 @@ func (h *AdminHandler) UpdateBackupSettings(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	db := config.DB
 	settings := map[string]string{
 		"backup_enabled":       fmt.Sprintf("%v", req.Enabled),
 		"backup_interval":      req.Interval,
@@ -697,9 +581,7 @@ func (h *AdminHandler) UpdateBackupSettings(w http.ResponseWriter, r *http.Reque
 	}
 
 	for key, value := range settings {
-		_, err := db.Exec("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?",
-			key, value, value)
-		if err != nil {
+		if err := h.settingsRepo.SetSetting(r.Context(), key, value); err != nil {
 			log.Printf("⚠️ Failed to save setting %s: %v", key, err)
 		}
 	}
@@ -714,31 +596,16 @@ func (h *AdminHandler) UpdateBackupSettings(w http.ResponseWriter, r *http.Reque
 // ⚙️ SETTINGS
 // ═══════════════════════════════════════
 
-// GetSettings returns application settings
 func (h *AdminHandler) GetSettings(w http.ResponseWriter, r *http.Request) {
-	db := config.DB
-
-	rows, err := db.QueryContext(r.Context(), "SELECT key, value FROM settings")
+	settings, err := h.settingsRepo.GetAllSettings(r.Context())
 	if err != nil {
 		respondJSON(w, http.StatusOK, map[string]interface{}{"settings": map[string]string{}})
 		return
 	}
-	defer rows.Close()
-
-	settings := make(map[string]string)
-	for rows.Next() {
-		var key, value string
-		rows.Scan(&key, &value)
-		settings[key] = value
-	}
-
 	respondJSON(w, http.StatusOK, map[string]interface{}{"settings": settings})
 }
 
-// UpdateSettings updates application settings
 func (h *AdminHandler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
-	db := config.DB
-
 	var req struct {
 		Settings map[string]string `json:"settings"`
 	}
@@ -748,10 +615,7 @@ func (h *AdminHandler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for key, value := range req.Settings {
-		_, err := db.ExecContext(r.Context(),
-			"INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?",
-			key, value, value)
-		if err != nil {
+		if err := h.settingsRepo.SetSetting(r.Context(), key, value); err != nil {
 			respondError(w, r, http.StatusInternalServerError,
 				fmt.Sprintf("Failed to update setting %s", key),
 				fmt.Sprintf("سیٹنگ %s اپ ڈیٹ نہیں ہو سکی", key))
@@ -766,10 +630,9 @@ func (h *AdminHandler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 // ═══════════════════════════════════════
-// 🔑 LICENSE VALIDATION (App UI se)
+// 🔑 LICENSE VALIDATION
 // ═══════════════════════════════════════
 
-// ValidateLicenseAPI validates a license key from the frontend UI
 func (h *AdminHandler) ValidateLicenseAPI(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		LicenseKey string `json:"licenseKey"`
@@ -778,43 +641,27 @@ func (h *AdminHandler) ValidateLicenseAPI(w http.ResponseWriter, r *http.Request
 		respondError(w, r, http.StatusBadRequest, "Invalid request", "غلط درخواست")
 		return
 	}
-
 	if req.LicenseKey == "" {
 		respondError(w, r, http.StatusBadRequest, "License key is required", "لائسنس کلید ضروری ہے")
 		return
 	}
 
-	// Master key check
 	masterKey := "Huziafaish1133@#$%"
 	if req.LicenseKey == masterKey {
-		// Save license to database - BOTH settings table AND license table
-		db := config.DB
-		
-		// Save to settings table (for GetLicenseStatus)
-		_, err := db.Exec("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?",
-			"license_key", req.LicenseKey, req.LicenseKey)
-		if err != nil {
-			log.Printf("⚠️ Failed to save license: %v", err)
-		}
-		_, err = db.Exec("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?",
-			"license_activated", "true", "true")
-		if err != nil {
-			log.Printf("⚠️ Failed to save license status: %v", err)
-		}
-		
-		// Also save to license table (for ValidateLicense middleware)
-		var count int
-		db.QueryRow("SELECT COUNT(*) FROM license WHERE license_key = ?", masterKey).Scan(&count)
+		// Save license to settings
+		h.settingsRepo.SetSetting(r.Context(), "license_key", req.LicenseKey)
+		h.settingsRepo.SetSetting(r.Context(), "license_activated", "true")
+
+		// Also save to license collection
+		var count int64
+		count, _ = h.settingsRepo.CountLicenses(r.Context(), bson.M{"license_key": masterKey})
 		if count == 0 {
-			_, err = db.Exec(`
-				INSERT INTO license (license_key, client_name, expiry_date, is_active, created_at)
-				VALUES (?, ?, ?, ?, ?)`,
-				masterKey, "Permanent License", "2099-12-31", 1, time.Now())
-			if err != nil {
-				log.Printf("⚠️ Failed to register permanent license in license table: %v", err)
-			} else {
-				log.Println("✅ PERMANENT LICENSE registered in license table!")
-			}
+			h.settingsRepo.CreateLicense(r.Context(), &domain.License{
+				LicenseKey: masterKey,
+				ClientName: "Permanent License",
+				ExpiryDate: "2099-12-31",
+				IsActive:   1,
+			})
 		}
 
 		respondJSON(w, http.StatusOK, map[string]interface{}{
@@ -832,14 +679,8 @@ func (h *AdminHandler) ValidateLicenseAPI(w http.ResponseWriter, r *http.Request
 	})
 }
 
-// GetLicenseStatus returns whether a license has been activated
-// ✅ Checks database for active license
 func (h *AdminHandler) GetLicenseStatus(w http.ResponseWriter, r *http.Request) {
-	db := config.DB
-
-	// Check settings table first
-	var activated string
-	err := db.QueryRow("SELECT value FROM settings WHERE key = 'license_activated'").Scan(&activated)
+	activated, err := h.settingsRepo.GetSetting(r.Context(), "license_activated")
 	if err == nil && activated == "true" {
 		respondJSON(w, http.StatusOK, map[string]interface{}{
 			"activated": true,
@@ -849,14 +690,11 @@ func (h *AdminHandler) GetLicenseStatus(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Check license table for permanent license
-	var count int
-	err = db.QueryRow("SELECT COUNT(*) FROM license WHERE license_key = ? AND is_active = 1", middleware.MASTER_LICENSE_KEY).Scan(&count)
-	if err == nil && count > 0 {
-		// Save to settings for faster lookup next time
-		db.Exec("INSERT INTO settings (key, value) VALUES ('license_activated', 'true') ON CONFLICT(key) DO UPDATE SET value = 'true'")
-		db.Exec("INSERT INTO settings (key, value) VALUES ('license_key', ?) ON CONFLICT(key) DO UPDATE SET value = ?", middleware.MASTER_LICENSE_KEY, middleware.MASTER_LICENSE_KEY)
-
+	// Check license collection
+	valid, err := h.settingsRepo.GetLicenseStatus(r.Context(), middleware.MASTER_LICENSE_KEY)
+	if err == nil && valid {
+		h.settingsRepo.SetSetting(r.Context(), "license_activated", "true")
+		h.settingsRepo.SetSetting(r.Context(), "license_key", middleware.MASTER_LICENSE_KEY)
 		respondJSON(w, http.StatusOK, map[string]interface{}{
 			"activated": true,
 			"valid":     true,
@@ -865,7 +703,6 @@ func (h *AdminHandler) GetLicenseStatus(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// No license found
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"activated": false,
 		"valid":     false,

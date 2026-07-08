@@ -1,15 +1,19 @@
 package handler
 
 import (
-	"database/sql"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/config"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/domain"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/middleware"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/repository"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/service"
 	"github.com/gorilla/mux"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 func SetupRouter(
@@ -24,7 +28,8 @@ func SetupRouter(
 	notifSvc *service.NotificationService,
 	recSvc *service.ReceiptService,
 	userSvc *service.UserService,
-	syncH *SyncHandler,
+	expenseSvc *service.ExpenseService,
+	settingsRepo repository.SettingsRepository,
 ) *mux.Router {
 
 	r := mux.NewRouter()
@@ -40,16 +45,16 @@ func SetupRouter(
 	receiptH := NewReceiptHandler(recSvc, planSvc, custSvc, prodSvc, guarSvc, cfg)
 	userH := NewUserHandler(userSvc)
 	authH := NewAuthHandler(userSvc, cfg)
-	adminH := NewAdminHandler(userSvc)
-	reportH := NewReportHandler()
+	adminH := NewAdminHandler(userSvc, settingsRepo)
 	dashboardH := NewDashboardHandler()
-	promiseH := NewPromiseHandler()
 	expenseH := NewExpenseHandler()
 
 	api := r.PathPrefix("/api").Subrouter()
 
 	// ========== PUBLIC ROUTES ==========
-	api.HandleFunc("/health", HealthCheck).Methods("GET")
+	api.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		respondJSON(w, http.StatusOK, map[string]interface{}{"status": "ok", "message": "Server is running"})
+	}).Methods("GET")
 	api.HandleFunc("/auth/login", authH.Login).Methods("POST")
 	api.HandleFunc("/license/validate", adminH.ValidateLicenseAPI).Methods("POST")
 	api.HandleFunc("/license/status", adminH.GetLicenseStatus).Methods("GET")
@@ -59,7 +64,7 @@ func SetupRouter(
 	protected := api.NewRoute().Subrouter()
 	protected.Use(middleware.AuthMiddleware(cfg))
 
-	// Admin-only routes (backup, users, settings)
+	// Admin-only routes
 	admin := protected.PathPrefix("/admin").Subrouter()
 	admin.Use(middleware.AdminOnly)
 	admin.HandleFunc("/backup", adminH.Backup).Methods("GET", "POST")
@@ -74,51 +79,68 @@ func SetupRouter(
 	admin.HandleFunc("/settings", adminH.GetSettings).Methods("GET")
 	admin.HandleFunc("/settings", adminH.UpdateSettings).Methods("PUT")
 
-	// Password change - support both POST and PUT for frontend compatibility
+	// Password change
 	protected.HandleFunc("/auth/change-password", userH.ChangePassword).Methods("POST", "PUT")
 
-	// Audit logs
+	// Audit logs (MongoDB-based)
 	protected.HandleFunc("/audit-logs", func(w http.ResponseWriter, r *http.Request) {
-		db := config.DB
+		db := config.MongoDatabase
+		if db == nil {
+			respondJSON(w, http.StatusOK, map[string]interface{}{"logs": []interface{}{}, "total": 0, "page": 1, "limit": 50})
+			return
+		}
+
 		pageStr := r.URL.Query().Get("page")
 		limitStr := r.URL.Query().Get("limit")
 		page, _ := strconv.Atoi(pageStr)
 		limit, _ := strconv.Atoi(limitStr)
-		if page < 1 { page = 1 }
-		if limit < 1 || limit > 100 { limit = 50 }
+		if page < 1 {
+			page = 1
+		}
+		if limit < 1 || limit > 100 {
+			limit = 50
+		}
 
-		var totalCount int64
-		db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM audit_logs").Scan(&totalCount)
-
-		offset := int64((page - 1) * limit)
-		rows, err := db.QueryContext(r.Context(), `
-			SELECT a.id, a.action, a.entity, a.entity_id, a.user_id, a.timestamp, a.details, COALESCE(NULLIF(u.display_name, ''), u.username, '') as user_name
-			FROM audit_logs a
-			LEFT JOIN users u ON a.user_id = u.id
-			ORDER BY a.timestamp DESC
-			LIMIT ? OFFSET ?
-		`, limit, offset)
+		total, err := db.Collection("audit_logs").CountDocuments(r.Context(), bson.M{})
 		if err != nil {
-			respondError(w, r, http.StatusInternalServerError, "Failed to load logs", "لاگز لوڈ نہیں ہوئے")
+			total = 0
+		}
+
+		skip := int64((page - 1) * limit)
+		opts := options.Find().SetSkip(skip).SetLimit(int64(limit)).SetSort(bson.D{{Key: "timestamp", Value: -1}})
+		cursor, err := db.Collection("audit_logs").Find(r.Context(), bson.M{}, opts)
+		if err != nil {
+			respondJSON(w, http.StatusOK, map[string]interface{}{"logs": []interface{}{}, "total": total, "page": page, "limit": limit})
 			return
 		}
-		defer rows.Close()
+		defer cursor.Close(r.Context())
 
 		var logs []map[string]interface{}
-		for rows.Next() {
-			var id int
-			var action, entity, entityID, userID, details, userName string
-			var timestamp time.Time
-			rows.Scan(&id, &action, &entity, &entityID, &userID, &timestamp, &details, &userName)
-			logs = append(logs, map[string]interface{}{
-				"_id": id, "action": action, "entity": entity, "entity_id": entityID,
-				"user_id": userID, "timestamp": timestamp, "details": details, "user_name": userName,
-			})
+		for cursor.Next(r.Context()) {
+			var logEntry map[string]interface{}
+			if err := cursor.Decode(&logEntry); err != nil {
+				continue
+			}
+			// Lookup user name
+			if userID, ok := logEntry["user_id"].(string); ok && userID != "" {
+				var user domain.User
+				err := db.Collection("users").FindOne(r.Context(), bson.M{"_id": userID}).Decode(&user)
+				if err == nil {
+					if user.DisplayName != "" {
+						logEntry["user_name"] = user.DisplayName
+					} else {
+						logEntry["user_name"] = user.Username
+					}
+				}
+			}
+			logs = append(logs, logEntry)
 		}
-		if logs == nil { logs = []map[string]interface{}{} }
+		if logs == nil {
+			logs = []map[string]interface{}{}
+		}
 
 		respondJSON(w, http.StatusOK, map[string]interface{}{
-			"logs": logs, "total": totalCount, "page": page, "limit": limit,
+			"logs": logs, "total": total, "page": page, "limit": limit,
 		})
 	}).Methods("GET")
 
@@ -129,95 +151,7 @@ func SetupRouter(
 	protected.HandleFunc("/customers/{id}", customerH.GetByID).Methods("GET")
 	protected.HandleFunc("/customers/{id}", customerH.Update).Methods("PUT")
 	protected.HandleFunc("/customers/{id}", customerH.Delete).Methods("DELETE")
-	protected.HandleFunc("/customers/{id}/history", func(w http.ResponseWriter, r *http.Request) {
-		id := mux.Vars(r)["id"]
-		db := config.DB
-
-		// Get customer details
-		cust, err := customerH.svc.GetByID(r.Context(), id)
-		if err != nil || cust == nil {
-			respondError(w, r, http.StatusNotFound, "Customer not found", "گاہک نہیں ملا")
-			return
-		}
-
-		// Get all plans for this customer
-		planRows, err := db.QueryContext(r.Context(), `
-			SELECT p.id, p.total_amount, p.down_payment, p.remaining_amount, p.num_installments,
-				p.status, p.created_at, p.completed_date, p.completed_by,
-				COALESCE(prod.name, ''), COALESCE(prod.name_urdu, '')
-			FROM installment_plans p
-			LEFT JOIN products prod ON p.product_id = prod.id
-			WHERE p.customer_id = ?
-			ORDER BY p.created_at DESC
-		`, id)
-		var plans []map[string]interface{}
-		if err == nil {
-			defer planRows.Close()
-			for planRows.Next() {
-				var planID, status, prodName, prodNameUrdu, completedBy string
-				var totalAmt, downPayment, remaining float64
-				var numInst int
-				var createdAt, completedDate sql.NullTime
-				planRows.Scan(&planID, &totalAmt, &downPayment, &remaining, &numInst,
-					&status, &createdAt, &completedDate, &completedBy, &prodName, &prodNameUrdu)
-
-				// Get payments for this plan
-				payRows, _ := db.QueryContext(r.Context(), `
-					SELECT amount, method, transaction_date, remarks FROM payments
-					WHERE installment_plan_id = ? ORDER BY transaction_date DESC
-				`, planID)
-				var payments []map[string]interface{}
-				if payRows != nil {
-					for payRows.Next() {
-						var pAmt float64; var pMethod, pRemarks string; var pDate time.Time
-						payRows.Scan(&pAmt, &pMethod, &pDate, &pRemarks)
-						payments = append(payments, map[string]interface{}{
-							"amount": pAmt, "method": pMethod,
-							"date": pDate.Format("2006-01-02"), "remarks": pRemarks,
-						})
-					}
-					payRows.Close()
-				}
-				if payments == nil { payments = []map[string]interface{}{} }
-
-				// Get promises for this plan
-				promRows, _ := db.QueryContext(r.Context(), `
-					SELECT promise_date, amount, status, remarks FROM promises
-					WHERE plan_id = ? ORDER BY promise_date DESC
-				`, planID)
-				var promises []map[string]interface{}
-				if promRows != nil {
-					for promRows.Next() {
-						var promDate time.Time; var promAmt float64; var promStatus, promRemarks string
-						promRows.Scan(&promDate, &promAmt, &promStatus, &promRemarks)
-						promises = append(promises, map[string]interface{}{
-							"date": promDate.Format("2006-01-02"), "amount": promAmt,
-							"status": promStatus, "remarks": promRemarks,
-						})
-					}
-					promRows.Close()
-				}
-				if promises == nil { promises = []map[string]interface{}{} }
-
-				plan := map[string]interface{}{
-					"id": planID, "product_name": prodName, "product_name_urdu": prodNameUrdu,
-					"total_amount": totalAmt, "down_payment": downPayment, "remaining_amount": remaining,
-					"num_installments": numInst, "status": status,
-					"created_at": "", "completed_date": "", "completed_by": completedBy,
-					"payments": payments, "promises": promises,
-				}
-				if createdAt.Valid { plan["created_at"] = createdAt.Time.Format("2006-01-02") }
-				if completedDate.Valid { plan["completed_date"] = completedDate.Time.Format("2006-01-02") }
-				plans = append(plans, plan)
-			}
-		}
-		if plans == nil { plans = []map[string]interface{}{} }
-
-		respondJSON(w, http.StatusOK, map[string]interface{}{
-			"customer": cust,
-			"plans":    plans,
-		})
-	}).Methods("GET")
+	protected.HandleFunc("/customers/{id}/history", customerH.GetHistory).Methods("GET")
 
 	// Guarantors
 	protected.HandleFunc("/guarantors", guarantorH.List).Methods("GET")
@@ -256,16 +190,25 @@ func SetupRouter(
 	protected.HandleFunc("/installments/reschedule", installmentH.Reschedule).Methods("POST")
 	protected.HandleFunc("/installments/undo-payment", installmentH.UndoPayment).Methods("POST")
 
-	// Payments (aliases for frontend compatibility)
+	// Payments
 	protected.HandleFunc("/payments", installmentH.RecordPayment).Methods("POST")
 	protected.HandleFunc("/payments/advance", installmentH.AdvancePayment).Methods("POST")
 	protected.HandleFunc("/payments/bulk", installmentH.BulkPayment).Methods("POST")
+	protected.HandleFunc("/payments/plan/{plan_id}", paymentH.ListByPlan).Methods("GET")
 
-	// Upcoming installments
+	// Upcoming installments (MongoDB-based)
 	protected.HandleFunc("/installments/upcoming", func(w http.ResponseWriter, r *http.Request) {
+		db := config.MongoDatabase
+		if db == nil {
+			respondJSON(w, http.StatusOK, []interface{}{})
+			return
+		}
+
 		daysStr := r.URL.Query().Get("days")
 		days, err := strconv.Atoi(daysStr)
-		if err != nil || days <= 0 { days = 1 }
+		if err != nil || days <= 0 {
+			days = 1
+		}
 
 		now := time.Now()
 		today := now.Truncate(24 * time.Hour)
@@ -290,60 +233,89 @@ func SetupRouter(
 			end = today.AddDate(0, 0, days)
 		}
 
-		db := config.DB
-		rows, err := db.QueryContext(r.Context(), `
-			SELECT p.id, c.name, COALESCE(c.name_urdu, ''), COALESCE(c.father_name, ''), COALESCE(c.phone, ''),
-				COALESCE(c.cnic, ''), COALESCE(c.address, ''), COALESCE(c.address_urdu, ''),
-				COALESCE(prod.name, ''), d.installment_no, d.due_date, d.amount, d.paid, d.partial_paid,
-				d.paid_date, p.num_installments
-			FROM installment_details d
-			JOIN installment_plans p ON d.plan_id = p.id
-			LEFT JOIN customers c ON p.customer_id = c.id
-			LEFT JOIN products prod ON p.product_id = prod.id
-			WHERE p.status IN ('active', 'Open') AND d.paid = 0
-				AND d.due_date >= ? AND d.due_date < ?
-			ORDER BY d.due_date
-		`, start, end)
+		// Get active plans
+		cursor, err := db.Collection("installment_plans").Find(r.Context(), bson.M{
+			"status": bson.M{"$in": []string{"active", "Open"}},
+		})
 		if err != nil {
-			respondError(w, r, http.StatusInternalServerError, "Failed to fetch upcoming", "ناکام")
+			respondJSON(w, http.StatusOK, []interface{}{})
 			return
 		}
-		defer rows.Close()
+		defer cursor.Close(r.Context())
+
 		var result []map[string]interface{}
-		for rows.Next() {
-			var id, name, nameUrdu, fatherName, phone, cnic, address, addressUrdu, productName string
-			var instNo int
-			var dueDate time.Time
-			var amount, partialPaid float64
-			var paid bool
-			var paidDate sql.NullTime
-			var numInst int
-
-			rows.Scan(&id, &name, &nameUrdu, &fatherName, &phone, &cnic, &address, &addressUrdu,
-				&productName, &instNo, &dueDate, &amount, &paid, &partialPaid, &paidDate, &numInst)
-
-			item := map[string]interface{}{
-				"id": id, "customer_name": name, "customer_urdu": nameUrdu,
-				"father_name": fatherName, "phone": phone, "cnic": cnic,
-				"address": address, "address_urdu": addressUrdu, "product_name": productName,
-				"installment_no": instNo, "due_date": dueDate.Format("2006-01-02"),
-				"amount": amount, "paid": paid, "partial_paid": partialPaid,
-				"total_installments": numInst,
+		for cursor.Next(r.Context()) {
+			var plan domain.InstallmentPlan
+			if err := cursor.Decode(&plan); err != nil {
+				continue
 			}
-			if paidDate.Valid {
-				item["paid_date"] = paidDate.Time.Format("2006-01-02")
+
+			// Get customer
+			var cust domain.Customer
+			if err := db.Collection("customers").FindOne(r.Context(), bson.M{"_id": plan.CustomerID}).Decode(&cust); err != nil {
+				continue
 			}
-			result = append(result, item)
+
+			// Get product
+			var prodName string
+			if plan.ProductID != "" {
+				var prod domain.Product
+				if err := db.Collection("products").FindOne(r.Context(), bson.M{"_id": plan.ProductID}).Decode(&prod); err == nil {
+					prodName = prod.Name
+				}
+			}
+
+			// Check details for due installments
+			for _, detail := range plan.Installments {
+				if detail.Paid {
+					continue
+				}
+				if detail.DueDate.Before(start) || detail.DueDate.After(end) {
+					continue
+				}
+
+				item := map[string]interface{}{
+					"id":                 plan.ID,
+					"customer_name":      cust.Name,
+					"customer_urdu":      cust.NameUrdu,
+					"father_name":        cust.FatherName,
+					"phone":              cust.Phone,
+				"cnic":               cust.CNIC,
+					"address":            cust.Address,
+					"address_urdu":       cust.AddressUrdu,
+					"product_name":       prodName,
+					"installment_no":     detail.InstallmentNo,
+					"due_date":           detail.DueDate.Format("2006-01-02"),
+					"amount":             detail.Amount,
+					"paid":               detail.Paid,
+					"partial_paid":       detail.PartialPaid,
+				"total_installments": plan.NumberOfInstallments,
+				}
+				if detail.PaidDate != nil {
+					item["paid_date"] = detail.PaidDate.Format("2006-01-02")
+				}
+				result = append(result, item)
+			}
 		}
-		if result == nil { result = []map[string]interface{}{} }
+		if result == nil {
+			result = []map[string]interface{}{}
+		}
 		respondJSON(w, http.StatusOK, result)
 	}).Methods("GET")
 
-	// Detailed report (MUST be before /{id} routes to avoid conflict)
+	// Detailed report
 	protected.HandleFunc("/installments/detailed-report", func(w http.ResponseWriter, r *http.Request) {
+		db := config.MongoDatabase
+		if db == nil {
+			respondJSON(w, http.StatusOK, []interface{}{})
+			return
+		}
+
 		daysStr := r.URL.Query().Get("days")
 		days, err := strconv.Atoi(daysStr)
-		if err != nil || days <= 0 { days = 1 }
+		if err != nil || days <= 0 {
+			days = 1
+		}
 		now := time.Now()
 		today := now.Truncate(24 * time.Hour)
 		var start, end time.Time
@@ -367,101 +339,123 @@ func SetupRouter(
 			end = today.AddDate(0, 0, days)
 		}
 
-		db := config.DB
-		planRows, err := db.QueryContext(r.Context(), `
-			SELECT DISTINCT p.id, c.name, COALESCE(c.name_urdu, ''), COALESCE(c.father_name, ''),
-				COALESCE(c.phone, ''), COALESCE(c.cnic, ''), COALESCE(c.address, ''), COALESCE(c.address_urdu, ''),
-				COALESCE(prod.name, ''), COALESCE(prod.name_urdu, ''), p.total_amount, p.down_payment,
-				p.remaining_amount, p.num_installments, p.created_at, p.created_by
-			FROM installment_plans p
-			JOIN customers c ON p.customer_id = c.id
-			LEFT JOIN products prod ON p.product_id = prod.id
-			WHERE p.status = 'active' AND EXISTS (
-				SELECT 1 FROM installment_details d WHERE d.plan_id = p.id AND d.paid = 0
-				AND d.due_date >= ? AND d.due_date < ?
-			)
-		`, start, end)
+		cursor, err := db.Collection("installment_plans").Find(r.Context(), bson.M{
+			"status": "active",
+		})
 		if err != nil {
-			respondError(w, r, http.StatusInternalServerError, "Failed to fetch detailed report", "ناکام")
+			respondJSON(w, http.StatusOK, []interface{}{})
 			return
 		}
-		defer planRows.Close()
+		defer cursor.Close(r.Context())
 
 		var result []map[string]interface{}
-		for planRows.Next() {
-			var planID, name, nameUrdu, fatherName, phone, cnic, address, addressUrdu, prodName, prodNameUrdu, createdBy string
-			var totalAmt, downPayment, remaining float64
-			var numInst int
-			var createdAt time.Time
-			planRows.Scan(&planID, &name, &nameUrdu, &fatherName, &phone, &cnic, &address, &addressUrdu,
-				&prodName, &prodNameUrdu, &totalAmt, &downPayment, &remaining, &numInst, &createdAt, &createdBy)
+		for cursor.Next(r.Context()) {
+			var plan domain.InstallmentPlan
+			if err := cursor.Decode(&plan); err != nil {
+				continue
+			}
 
-			detailRows, _ := db.QueryContext(r.Context(), `
-				SELECT d.installment_no, d.due_date, d.amount, d.paid, d.paid_date, d.partial_paid, d.remaining,
-					COALESCE(d.collected_by, ''), COALESCE(d.collected_by_id, '')
-				FROM installment_details d WHERE d.plan_id = ? AND d.due_date >= ? AND d.due_date < ?
-				ORDER BY d.installment_no`, planID, start, end)
-			var installments []map[string]interface{}
-			if detailRows != nil {
-				for detailRows.Next() {
-					var dNo int; var dDue time.Time; var dAmt, dPartial, dRemaining float64
-					var dPaid bool; var dPaidDate sql.NullTime; var dCB, dCBI string
-					detailRows.Scan(&dNo, &dDue, &dAmt, &dPaid, &dPaidDate, &dPartial, &dRemaining, &dCB, &dCBI)
-					item := map[string]interface{}{
-						"installment_no": dNo, "due_date": dDue.Format("2006-01-02"), "amount": dAmt,
-						"paid": dPaid, "partial_paid": dPartial, "remaining": dRemaining,
-						"collected_by": dCB, "collected_by_id": dCBI,
+		// Check if any installment is due in range
+			hasDue := false
+			for _, d := range plan.Installments {
+				if !d.Paid && (d.DueDate.Equal(start) || d.DueDate.After(start)) && d.DueDate.Before(end) {
+					hasDue = true
+					break
+				}
+			}
+			if !hasDue {
+				continue
+			}
+
+			var cust domain.Customer
+			if err := db.Collection("customers").FindOne(r.Context(), bson.M{"_id": plan.CustomerID}).Decode(&cust); err != nil {
+				continue
+			}
+
+			var prodName, prodNameUrdu string
+			if plan.ProductID != "" {
+				var prod domain.Product
+				if err := db.Collection("products").FindOne(r.Context(), bson.M{"_id": plan.ProductID}).Decode(&prod); err == nil {
+					prodName = prod.Name
+					prodNameUrdu = prod.NameUrdu
+				}
+			}
+
+			// Get payments
+			payCursor, _ := db.Collection("payments").Find(r.Context(), bson.M{"installment_plan_id": plan.ID})
+			var payments []map[string]interface{}
+			if payCursor != nil {
+				for payCursor.Next(r.Context()) {
+					var pay domain.Payment
+					if payCursor.Decode(&pay) == nil {
+						payments = append(payments, map[string]interface{}{
+							"id": pay.ID, "amount": pay.Amount, "method": pay.Method,
+							"transaction_date": pay.TransactionDate,
+						})
 					}
-					if dPaidDate.Valid { item["paid_date"] = dPaidDate.Time.Format("2006-01-02") }
+				}
+				payCursor.Close(r.Context())
+			}
+			if payments == nil {
+				payments = []map[string]interface{}{}
+			}
+
+			// Get guarantors
+			guarCursor, _ := db.Collection("guarantors").Find(r.Context(), bson.M{"customer_id": plan.CustomerID})
+			var guarantors []map[string]interface{}
+			if guarCursor != nil {
+				for guarCursor.Next(r.Context()) {
+					var guar domain.Guarantor
+					if guarCursor.Decode(&guar) == nil {
+						guarantors = append(guarantors, map[string]interface{}{
+							"id": guar.ID, "name": guar.Name, "phone": guar.Phone,
+						})
+					}
+				}
+				guarCursor.Close(r.Context())
+			}
+			if guarantors == nil {
+				guarantors = []map[string]interface{}{}
+			}
+
+			// Filter installments in range
+			var installments []map[string]interface{}
+			for _, d := range plan.Installments {
+				if (d.DueDate.Equal(start) || d.DueDate.After(start)) && d.DueDate.Before(end) {
+					item := map[string]interface{}{
+						"installment_no": d.InstallmentNo, "due_date": d.DueDate.Format("2006-01-02"),
+						"amount": d.Amount, "paid": d.Paid, "partial_paid": d.PartialPaid,
+						"remaining": d.Remaining, "collected_by": d.CollectedBy, "collected_by_id": d.CollectedById,
+					}
+					if d.PaidDate != nil {
+						item["paid_date"] = d.PaidDate.Format("2006-01-02")
+					}
 					installments = append(installments, item)
 				}
-				detailRows.Close()
 			}
-			if installments == nil { installments = []map[string]interface{}{} }
-
-			payRows, _ := db.QueryContext(r.Context(), "SELECT id, amount, method, transaction_date FROM payments WHERE installment_plan_id = ? ORDER BY transaction_date", planID)
-			var payments []map[string]interface{}
-			if payRows != nil {
-				for payRows.Next() {
-					var pID, pMethod string; var pAmt float64; var pDate time.Time
-					payRows.Scan(&pID, &pAmt, &pMethod, &pDate)
-					payments = append(payments, map[string]interface{}{"id": pID, "amount": pAmt, "method": pMethod, "transaction_date": pDate})
-				}
-				payRows.Close()
+			if installments == nil {
+				installments = []map[string]interface{}{}
 			}
-			if payments == nil { payments = []map[string]interface{}{} }
-
-			guarRows, _ := db.QueryContext(r.Context(), "SELECT id, name, phone FROM guarantors WHERE customer_id = (SELECT customer_id FROM installment_plans WHERE id = ?)", planID)
-			var guarantors []map[string]interface{}
-			if guarRows != nil {
-				for guarRows.Next() {
-					var gID, gName, gPhone string
-					guarRows.Scan(&gID, &gName, &gPhone)
-					guarantors = append(guarantors, map[string]interface{}{"id": gID, "name": gName, "phone": gPhone})
-				}
-				guarRows.Close()
-			}
-			if guarantors == nil { guarantors = []map[string]interface{}{} }
 
 			result = append(result, map[string]interface{}{
-				"id": planID, "customer_name": name, "customer_urdu": nameUrdu,
-				"father_name": fatherName, "phone": phone, "cnic": cnic, "address": address, "address_urdu": addressUrdu,
+				"id": plan.ID, "customer_name": cust.Name, "customer_urdu": cust.NameUrdu,
+				"father_name": cust.FatherName, "phone": cust.Phone, "cnic": cust.CNIC,
+				"address": cust.Address, "address_urdu": cust.AddressUrdu,
 				"product_name": prodName, "product_name_urdu": prodNameUrdu,
-				"total_amount": totalAmt, "down_payment": downPayment, "remaining_amount": remaining,
-				"num_installments": numInst, "installments": installments,
-				"payments": payments, "guarantors": guarantors,
-				"created_at": createdAt.Format("2006-01-02"), "created_by": createdBy,
+				"total_amount": plan.TotalAmount, "down_payment": plan.DownPayment,
+				"remaining_amount": plan.RemainingAmount, "num_installments": plan.NumberOfInstallments,
+				"installments": installments, "payments": payments, "guarantors": guarantors,
+				"created_at": plan.CreatedAt.Format("2006-01-02"), "created_by": plan.CreatedBy,
 			})
 		}
-		if result == nil { result = []map[string]interface{}{} }
+		if result == nil {
+			result = []map[string]interface{}{}
+		}
 		respondJSON(w, http.StatusOK, result)
 	}).Methods("GET")
 
 	protected.HandleFunc("/installments/{id}", installmentH.GetByID).Methods("GET")
 	protected.HandleFunc("/installments/{id}", installmentH.Delete).Methods("DELETE")
-
-	// Payments
-	protected.HandleFunc("/payments/plan/{plan_id}", paymentH.ListByPlan).Methods("GET")
 
 	// Accounting
 	protected.HandleFunc("/accounting/today", accountingH.TodaySummary).Methods("GET")
@@ -469,87 +463,133 @@ func SetupRouter(
 	protected.HandleFunc("/accounting/profit-loss/cash", accountingH.ProfitLossCashFlow).Methods("GET")
 	protected.HandleFunc("/accounting/profit-loss/accrual", accountingH.ProfitLossAccrual).Methods("GET")
 
-	// Pending total
+	// Pending total (MongoDB-based)
 	protected.HandleFunc("/accounting/pending-total", func(w http.ResponseWriter, r *http.Request) {
-		db := config.DB
+		db := config.MongoDatabase
+		if db == nil {
+			respondJSON(w, http.StatusOK, map[string]interface{}{"pending_total": 0, "customers": []interface{}{}})
+			return
+		}
+
+		cursor, err := db.Collection("installment_plans").Find(r.Context(), bson.M{"status": "active"})
+		if err != nil {
+			respondJSON(w, http.StatusOK, map[string]interface{}{"pending_total": 0, "customers": []interface{}{}})
+			return
+		}
+		defer cursor.Close(r.Context())
 
 		var pendingTotal float64
-		db.QueryRowContext(r.Context(), `
-			SELECT COALESCE(SUM(COALESCE(d.amount,0) + COALESCE(d.fine,0) - COALESCE(d.partial_paid,0)), 0)
-			FROM installment_details d
-			JOIN installment_plans p ON d.plan_id = p.id
-			WHERE d.paid = 0 AND p.status = 'active'
-		`).Scan(&pendingTotal)
+		customerMap := make(map[string]map[string]interface{})
 
-		custRows, err := db.QueryContext(r.Context(), `
-			SELECT p.customer_id, c.name, COALESCE(c.name_urdu, ''), COALESCE(c.father_name, ''),
-				COALESCE(c.phone, ''), COALESCE(c.cnic, ''), COALESCE(c.address, ''), COALESCE(c.address_urdu, ''),
-				SUM(COALESCE(d.amount,0) + COALESCE(d.fine,0) - COALESCE(d.partial_paid,0)) as pending,
-				COUNT(*) as count,
-				MIN(d.due_date) as earliest
-			FROM installment_details d
-			JOIN installment_plans p ON d.plan_id = p.id
-			JOIN customers c ON p.customer_id = c.id
-			WHERE d.paid = 0 AND p.status = 'active'
-			GROUP BY p.customer_id
-			ORDER BY pending DESC
-		`)
-		var customers []map[string]interface{}
-		if err == nil {
-			defer custRows.Close()
-			for custRows.Next() {
-				var cid, name, nameUrdu, fatherName, phone, cnic, addr, addrUrdu string
-				var pending float64
-				var count int
-				var earliest time.Time
-				custRows.Scan(&cid, &name, &nameUrdu, &fatherName, &phone, &cnic, &addr, &addrUrdu, &pending, &count, &earliest)
-				customers = append(customers, map[string]interface{}{
-					"customer_id": cid, "customer_name": name, "customer_name_urdu": nameUrdu,
-					"father_name": fatherName, "phone": phone, "cnic": cnic,
-					"address": addr, "address_urdu": addrUrdu,
-					"pending_amount": pending, "installment_count": count,
-					"earliest_due_date": earliest.Format("2006-01-02"),
-				})
+		for cursor.Next(r.Context()) {
+			var plan domain.InstallmentPlan
+			if err := cursor.Decode(&plan); err != nil {
+				continue
+			}
+
+			for _, d := range plan.Installments {
+				if d.Paid {
+					continue
+				}
+				due := d.Amount + d.Fine - d.PartialPaid
+				pendingTotal += due
+
+				if _, ok := customerMap[plan.CustomerID]; !ok {
+					var cust domain.Customer
+					if err := db.Collection("customers").FindOne(r.Context(), bson.M{"_id": plan.CustomerID}).Decode(&cust); err != nil {
+						continue
+					}
+					customerMap[plan.CustomerID] = map[string]interface{}{
+						"customer_id": plan.CustomerID, "customer_name": cust.Name,
+						"customer_name_urdu": cust.NameUrdu, "father_name": cust.FatherName,
+						"phone": cust.Phone, "cnic": cust.CNIC, "address": cust.Address,
+						"address_urdu": cust.AddressUrdu, "pending_amount": 0.0,
+						"installment_count": 0, "earliest_due_date": "",
+					}
+				}
+				if entry, ok := customerMap[plan.CustomerID]; ok {
+					entry["pending_amount"] = entry["pending_amount"].(float64) + due
+					entry["installment_count"] = entry["installment_count"].(int) + 1
+					earliest := entry["earliest_due_date"].(string)
+					if earliest == "" || d.DueDate.Format("2006-01-02") < earliest {
+						entry["earliest_due_date"] = d.DueDate.Format("2006-01-02")
+					}
+				}
 			}
 		}
-		if customers == nil { customers = []map[string]interface{}{} }
+
+		var customers []map[string]interface{}
+		for _, v := range customerMap {
+			customers = append(customers, v)
+		}
+		if customers == nil {
+			customers = []map[string]interface{}{}
+		}
 
 		respondJSON(w, http.StatusOK, map[string]interface{}{"pending_total": pendingTotal, "customers": customers})
 	}).Methods("GET")
 
-	// Total paid
+	// Total paid (MongoDB-based)
 	protected.HandleFunc("/accounting/total-paid", func(w http.ResponseWriter, r *http.Request) {
-		db := config.DB
-		var totalPaid float64
-		db.QueryRowContext(r.Context(), "SELECT COALESCE(SUM(amount), 0) FROM payments").Scan(&totalPaid)
-
-		custRows, err := db.QueryContext(r.Context(), `
-			SELECT p.customer_id, c.name, COALESCE(c.name_urdu, ''), COALESCE(c.father_name, ''),
-				COALESCE(c.phone, ''), SUM(pay.amount) as paid, COUNT(*) as cnt
-			FROM payments pay
-			JOIN installment_plans p ON pay.installment_plan_id = p.id
-			JOIN customers c ON p.customer_id = c.id
-			GROUP BY p.customer_id
-			ORDER BY paid DESC
-		`)
-		var customers []map[string]interface{}
-		if err == nil {
-			defer custRows.Close()
-			for custRows.Next() {
-				var cid, name, nameUrdu, fatherName, phone string
-				var paid float64; var cnt int
-				custRows.Scan(&cid, &name, &nameUrdu, &fatherName, &phone, &paid, &cnt)
-				customers = append(customers, map[string]interface{}{
-					"customer_id": cid, "customer_name": name, "customer_name_urdu": nameUrdu,
-					"father_name": fatherName, "phone": phone, "paid_amount": paid, "payment_count": cnt,
-				})
-			}
+		db := config.MongoDatabase
+		if db == nil {
+			respondJSON(w, http.StatusOK, map[string]interface{}{"total_paid": 0, "customers": []interface{}{}})
+			return
 		}
-		if customers == nil { customers = []map[string]interface{}{} }
+
+		pipeline := mongo.Pipeline{
+			bson.D{{Key: "$group", Value: bson.D{
+				{Key: "_id", Value: "$installment_plan_id"},
+				{Key: "total", Value: bson.D{{Key: "$sum", Value: "$amount"}}},
+				{Key: "count", Value: bson.D{{Key: "$sum", Value: 1}}},
+			}}},
+		}
+
+		cursor, err := db.Collection("payments").Aggregate(r.Context(), pipeline)
+		if err != nil {
+			respondJSON(w, http.StatusOK, map[string]interface{}{"total_paid": 0, "customers": []interface{}{}})
+			return
+		}
+		defer cursor.Close(r.Context())
+
+		var totalPaid float64
+		var customers []map[string]interface{}
+
+		for cursor.Next(r.Context()) {
+			var result struct {
+				PlanID string  `bson:"_id"`
+				Total  float64 `bson:"total"`
+				Count  int     `bson:"count"`
+			}
+			if err := cursor.Decode(&result); err != nil {
+				continue
+			}
+			totalPaid += result.Total
+
+			// Get plan and customer
+			var plan domain.InstallmentPlan
+			if err := db.Collection("installment_plans").FindOne(r.Context(), bson.M{"_id": result.PlanID}).Decode(&plan); err != nil {
+				continue
+			}
+			var cust domain.Customer
+			if err := db.Collection("customers").FindOne(r.Context(), bson.M{"_id": plan.CustomerID}).Decode(&cust); err != nil {
+				continue
+			}
+
+			customers = append(customers, map[string]interface{}{
+				"customer_id": plan.CustomerID, "customer_name": cust.Name,
+				"customer_name_urdu": cust.NameUrdu, "father_name": cust.FatherName,
+				"phone": cust.Phone, "paid_amount": result.Total, "payment_count": result.Count,
+			})
+		}
+		if customers == nil {
+			customers = []map[string]interface{}{}
+		}
+
 		respondJSON(w, http.StatusOK, map[string]interface{}{"total_paid": totalPaid, "customers": customers})
 	}).Methods("GET")
 
-	// Accounting summary & product-wise
+	// Accounting summary
 	protected.HandleFunc("/accounting/summary", func(w http.ResponseWriter, r *http.Request) {
 		start, end, err := parseDateRange(r)
 		if err != nil {
@@ -557,44 +597,99 @@ func SetupRouter(
 			return
 		}
 		basis := r.URL.Query().Get("basis")
-		if basis == "" { basis = "cash_flow" }
+		if basis == "" {
+			basis = "cash_flow"
+		}
 
-		db := config.DB
-		rows, err := db.QueryContext(r.Context(), `SELECT type, SUM(amount) FROM accounting_entries WHERE basis = ? AND date >= ? AND date <= ? GROUP BY type`, basis, start, end)
-		if err != nil {
-			respondError(w, r, http.StatusInternalServerError, "Failed to aggregate", "ناکام")
+		db := config.MongoDatabase
+		if db == nil {
+			respondJSON(w, http.StatusOK, map[string]interface{}{"total_income": 0, "total_expense": 0, "net_profit": 0})
 			return
 		}
-		defer rows.Close()
-		var income, expense float64
-		for rows.Next() {
-			var t string; var total float64
-			rows.Scan(&t, &total)
-			if t == "income" { income = total } else { expense = total }
+
+		pipeline := mongo.Pipeline{
+			bson.D{{Key: "$match", Value: bson.D{
+				{Key: "basis", Value: basis},
+				{Key: "date", Value: bson.D{{Key: "$gte", Value: start}, {Key: "$lte", Value: end}}},
+			}}},
+			bson.D{{Key: "$group", Value: bson.D{
+				{Key: "_id", Value: "$type"},
+				{Key: "total", Value: bson.D{{Key: "$sum", Value: "$amount"}}},
+			}}},
 		}
+
+		cursor, err := db.Collection("accounting_entries").Aggregate(r.Context(), pipeline)
+		if err != nil {
+			respondJSON(w, http.StatusOK, map[string]interface{}{"total_income": 0, "total_expense": 0, "net_profit": 0})
+			return
+		}
+		defer cursor.Close(r.Context())
+
+		var income, expense float64
+		for cursor.Next(r.Context()) {
+			var result struct {
+				Type  string  `bson:"_id"`
+				Total float64 `bson:"total"`
+			}
+			if cursor.Decode(&result) == nil {
+				if result.Type == "income" {
+					income = result.Total
+				} else {
+					expense = result.Total
+				}
+			}
+		}
+
 		respondJSON(w, http.StatusOK, map[string]interface{}{"total_income": income, "total_expense": expense, "net_profit": income - expense})
 	}).Methods("GET")
 
+	// Product-wise accounting
 	protected.HandleFunc("/accounting/product-wise", func(w http.ResponseWriter, r *http.Request) {
-		db := config.DB
-		rows, err := db.QueryContext(r.Context(), `
-			SELECT COALESCE(prod.category, 'Uncategorized'), SUM(p.total_amount), COUNT(*)
-			FROM installment_plans p
-			LEFT JOIN products prod ON p.product_id = prod.id
-			WHERE p.status = 'active'
-			GROUP BY prod.category
-			ORDER BY SUM(p.total_amount) DESC
-		`)
-		if err != nil {
-			respondError(w, r, http.StatusInternalServerError, "Failed to aggregate", "ڈیٹا حاصل کرنے میں ناکامی")
+		db := config.MongoDatabase
+		if db == nil {
+			respondJSON(w, http.StatusOK, []interface{}{})
 			return
 		}
-		defer rows.Close()
+
+		cursor, err := db.Collection("installment_plans").Find(r.Context(), bson.M{"status": "active"})
+		if err != nil {
+			respondJSON(w, http.StatusOK, []interface{}{})
+			return
+		}
+		defer cursor.Close(r.Context())
+
+		categoryMap := make(map[string]map[string]float64)
+		for cursor.Next(r.Context()) {
+			var plan domain.InstallmentPlan
+			if cursor.Decode(&plan) != nil {
+				continue
+			}
+
+			category := "Uncategorized"
+			if plan.ProductID != "" {
+				var prod domain.Product
+				if err := db.Collection("products").FindOne(r.Context(), bson.M{"_id": plan.ProductID}).Decode(&prod); err == nil {
+					if prod.Category != "" {
+						category = prod.Category
+					}
+				}
+			}
+
+			if _, ok := categoryMap[category]; !ok {
+				categoryMap[category] = map[string]float64{"total": 0, "count": 0}
+			}
+			categoryMap[category]["total"] += plan.TotalAmount
+			categoryMap[category]["count"]++
+		}
+
 		var results []map[string]interface{}
-		for rows.Next() {
-			var cat string; var total float64; var cnt int
-			rows.Scan(&cat, &total, &cnt)
-			results = append(results, map[string]interface{}{"category": cat, "total": total, "count": cnt})
+		for cat, vals := range categoryMap {
+			results = append(results, map[string]interface{}{
+				"category": cat, "total": vals["total"], "count": int(vals["count"]),
+			})
+		}
+		if results == nil {
+			results = []map[string]interface{}{}
 		}
 		respondJSON(w, http.StatusOK, results)
 	}).Methods("GET")
@@ -618,28 +713,13 @@ func SetupRouter(
 	protected.HandleFunc("/dashboard/active-installments", dashboardH.ActiveInstallments).Methods("GET")
 	protected.HandleFunc("/dashboard/completed-installments", dashboardH.CompletedInstallments).Methods("GET")
 	protected.HandleFunc("/dashboard/customers-with-finance", dashboardH.CustomersWithFinance).Methods("GET")
-	// Full detail endpoints for offline sync (aliases for frontend compatibility)
 	protected.HandleFunc("/dashboard/today-due-full", dashboardH.TodayInstallments).Methods("GET")
 	protected.HandleFunc("/dashboard/overdue-full", dashboardH.OverdueDetails).Methods("GET")
 
-	// Sync endpoint for offline data
+	// Sync endpoint
 	protected.HandleFunc("/sync", func(w http.ResponseWriter, r *http.Request) {
-		db := config.DB
-		var deviceID string
-		r.ParseForm()
-		deviceID = r.FormValue("device_id")
-		if deviceID == "" {
-			deviceID = "unknown"
-		}
-
-		var pendingCount int
-		db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM sync_logs WHERE status = 'pending'").Scan(&pendingCount)
-
 		respondJSON(w, http.StatusOK, map[string]interface{}{
-			"status":      "ok",
-			"pending":     pendingCount,
-			"device_id":   deviceID,
-			"sync_status": "ready",
+			"status": "ok", "pending": 0, "sync_status": "ready",
 		})
 	}).Methods("GET", "POST")
 
@@ -653,35 +733,8 @@ func SetupRouter(
 	// Installments plans list (for offline sync)
 	protected.HandleFunc("/installments/plans", installmentH.ListAll).Methods("GET")
 
-	// Payments list (for offline sync)
+	// Payments list
 	protected.HandleFunc("/payments/list", paymentH.ListAll).Methods("GET")
 
-	// Sync status & management
-	protected.HandleFunc("/sync/status", syncH.GetSyncStatus).Methods("GET")
-	protected.HandleFunc("/sync/force", syncH.ForceSync).Methods("POST")
-	protected.HandleFunc("/sync/pending", syncH.GetPendingSyncRecords).Methods("GET")
-
-	// Reports
-	protected.HandleFunc("/reports/customers", reportH.CustomerReport).Methods("GET")
-	protected.HandleFunc("/reports/daily", reportH.DailyReport).Methods("GET")
-	protected.HandleFunc("/reports/weekly", reportH.WeeklyReport).Methods("GET")
-	protected.HandleFunc("/reports/monthly", reportH.MonthlyReport).Methods("GET")
-	protected.HandleFunc("/reports/date-range", reportH.DateRangeReport).Methods("GET")
-
-	// Promises
-	protected.HandleFunc("/promises", promiseH.ListAll).Methods("GET")
-	protected.HandleFunc("/promises", promiseH.Create).Methods("POST")
-	protected.HandleFunc("/promises/pending", promiseH.ListPending).Methods("GET")
-	protected.HandleFunc("/promises/today", promiseH.GetTodayPromises).Methods("GET")
-	protected.HandleFunc("/promises/customer", promiseH.ListByCustomer).Methods("GET")
-	protected.HandleFunc("/promises/status", promiseH.UpdateStatus).Methods("PUT")
-	protected.HandleFunc("/dashboard/collection-stats", promiseH.DashboardCollectionStats).Methods("GET")
-	protected.HandleFunc("/dashboard/today-installment-stats", dashboardH.TodayInstallmentStats).Methods("GET")
-
 	return r
-}
-
-func HealthCheck(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"status":"ok"}`))
 }

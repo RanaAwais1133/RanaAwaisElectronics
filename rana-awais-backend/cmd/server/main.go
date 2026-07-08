@@ -23,9 +23,7 @@ import (
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/handler"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/middleware"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/repository"
-	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/repository/dual"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/repository/mongodb"
-	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/repository/sqlite"
 
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/service"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/pkg/sms"
@@ -34,16 +32,13 @@ import (
 	"github.com/gorilla/mux"
 )
 
-
 // generateSelfSignedCert creates a self-signed TLS certificate for HTTPS
 func generateSelfSignedCert(certFile, keyFile string) error {
-	// Generate RSA private key
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		return fmt.Errorf("failed to generate private key: %w", err)
 	}
 
-	// Create certificate template
 	serialNumber, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
 	if err != nil {
 		return fmt.Errorf("failed to generate serial number: %w", err)
@@ -56,7 +51,7 @@ func generateSelfSignedCert(certFile, keyFile string) error {
 			CommonName:   "localhost",
 		},
 		NotBefore:             time.Now(),
-		NotAfter:              time.Now().Add(10 * 365 * 24 * time.Hour), // 10 years validity
+		NotAfter:              time.Now().Add(10 * 365 * 24 * time.Hour),
 		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
@@ -64,13 +59,11 @@ func generateSelfSignedCert(certFile, keyFile string) error {
 		IPAddresses:           []net.IP{net.ParseIP("127.0.0.1")},
 	}
 
-	// Self-sign the certificate
 	derBytes, err := x509.CreateCertificate(rand.Reader, template, template, &privateKey.PublicKey, privateKey)
 	if err != nil {
 		return fmt.Errorf("failed to create certificate: %w", err)
 	}
 
-	// Write certificate file
 	certOut, err := os.Create(certFile)
 	if err != nil {
 		return fmt.Errorf("failed to open cert file for writing: %w", err)
@@ -80,7 +73,6 @@ func generateSelfSignedCert(certFile, keyFile string) error {
 		return fmt.Errorf("failed to write cert: %w", err)
 	}
 
-	// Write key file
 	keyOut, err := os.Create(keyFile)
 	if err != nil {
 		return fmt.Errorf("failed to open key file for writing: %w", err)
@@ -98,15 +90,12 @@ func main() {
 	// ═══════════════════════════════════════
 	// 📂 CHANGE TO EXE DIRECTORY
 	// ═══════════════════════════════════════
-	// Use os.Args[0] first (the actual command used to launch)
 	exePath := os.Args[0]
-	// If it's a relative path, resolve it against the current working directory
 	if !filepath.IsAbs(exePath) {
 		if cwd, err := os.Getwd(); err == nil {
 			exePath = filepath.Join(cwd, exePath)
 		}
 	}
-	// Also try os.Executable() as fallback
 	if exePath2, err := os.Executable(); err == nil {
 		if filepath.IsAbs(exePath2) {
 			exePath = exePath2
@@ -120,20 +109,12 @@ func main() {
 	}
 
 	// ═══════════════════════════════════════
-	// 📋 CONFIG & DB
+	// 📋 CONFIG & DB (MongoDB Atlas only)
 	// ═══════════════════════════════════════
 	cfg := config.Load()
 
-	// Set the global flag for DBHelper
-	config.UseMongoDB = cfg.UseMongoDB
-
-	// Connect to the appropriate database
-	if cfg.UseMongoDB {
-		config.ConnectMongoDB(cfg)
-	} else {
-		config.ConnectDB(cfg)
-	}
-
+	// Connect to MongoDB Atlas
+	config.ConnectMongoDB(cfg)
 
 	fmt.Println(strings.Repeat("═", 55))
 	fmt.Printf("🚀 %s Starting...\n", cfg.AppName)
@@ -145,44 +126,23 @@ func main() {
 	log.Println("🔓 License validation DISABLED - free access for all users")
 
 	// ═══════════════════════════════════════
-	// ️ REPOSITORIES (SQLite or MongoDB)
+	// 🍃 REPOSITORIES (MongoDB Atlas only)
 	// ═══════════════════════════════════════
-	var custRepo repository.CustomerRepository
-	var guarRepo repository.GuarantorRepository
-	var prodRepo repository.ProductRepository
-	var invRepo repository.InventoryRepository
-	var planRepo repository.InstallmentRepository
-	var payRepo repository.PaymentRepository
-	var accRepo repository.AccountingRepository
-	var notifRepo repository.NotificationRepository
-	var userRepo repository.UserRepository
+	db := config.MongoDatabase
 
+	var custRepo repository.CustomerRepository = mongodb.NewCustomerRepository(db)
+	var guarRepo repository.GuarantorRepository = mongodb.NewGuarantorRepository(db)
+	var prodRepo repository.ProductRepository = mongodb.NewProductRepository(db)
+	var invRepo repository.InventoryRepository = mongodb.NewInventoryRepository(db)
+	var planRepo repository.InstallmentRepository = mongodb.NewInstallmentRepository(db)
+	var payRepo repository.PaymentRepository = mongodb.NewPaymentRepository(db)
+	var accRepo repository.AccountingRepository = mongodb.NewAccountingRepository(db)
+	var notifRepo repository.NotificationRepository = mongodb.NewNotificationRepository(db)
+	var userRepo repository.UserRepository = mongodb.NewUserRepository(db)
+	var expenseRepo repository.ExpenseRepository = mongodb.NewExpenseRepository(db)
+	var settingsRepo repository.SettingsRepository = mongodb.NewSettingsRepository(db)
 
-	if cfg.UseMongoDB {
-		db := config.MongoDatabase
-		custRepo = mongodb.NewCustomerRepository(db)
-		guarRepo = mongodb.NewGuarantorRepository(db)
-		prodRepo = mongodb.NewProductRepository(db)
-		invRepo = mongodb.NewInventoryRepository(db)
-		planRepo = mongodb.NewInstallmentRepository(db)
-		payRepo = mongodb.NewPaymentRepository(db)
-		accRepo = mongodb.NewAccountingRepository(db)
-		notifRepo = mongodb.NewNotificationRepository(db)
-		userRepo = mongodb.NewUserRepository(db)
-		log.Println("🍃 Using MongoDB Atlas repositories")
-	} else {
-		db := config.DB
-		custRepo = sqlite.NewCustomerRepository(db)
-		guarRepo = sqlite.NewGuarantorRepository(db)
-		prodRepo = sqlite.NewProductRepository(db)
-		invRepo = sqlite.NewInventoryRepository(db)
-		planRepo = sqlite.NewInstallmentRepository(db)
-		payRepo = sqlite.NewPaymentRepository(db)
-		accRepo = sqlite.NewAccountingRepository(db)
-		notifRepo = sqlite.NewNotificationRepository(db)
-		userRepo = sqlite.NewUserRepository(db)
-		log.Println("🗄️  Using SQLite repositories")
-	}
+	log.Println("🍃 Using MongoDB Atlas repositories (pure cloud mode)")
 
 	// ═══════════════════════════════════════
 	// ⚙️ SERVICES
@@ -195,6 +155,7 @@ func main() {
 	paySvc := service.NewPaymentService(payRepo)
 	accSvc := service.NewAccountingService(accRepo, prodRepo)
 	userSvc := service.NewUserService(userRepo)
+	expenseSvc := service.NewExpenseService(expenseRepo)
 
 	smsSender := sms.NewSender(cfg.SMSEndpoint)
 	waSender := whatsapp.NewSender(cfg.WhatsAppAPI)
@@ -204,60 +165,22 @@ func main() {
 	recSvc := service.NewReceiptService(payRepo, planRepo, custRepo, printer)
 	recSvc.SetConfig(cfg)
 
-
-	// ═══════════════════════════════════════
-	// 🔄 SYNC ENGINE SETUP (Dual DB mode)
-	// ═══════════════════════════════════════
-	var syncEngine *dual.SyncEngine
-	var syncHandler *handler.SyncHandler
-
-	if cfg.UseMongoDB {
-		// Create sync log repos for both databases
-		localSyncRepo := sqlite.NewSyncLogRepository(config.DB)
-		cloudSyncRepo := mongodb.NewSyncLogRepository(config.MongoDatabase)
-
-		// Create dual repositories
-		_, engine := dual.NewDualRepositories(
-			custRepo, custRepo,
-			guarRepo, guarRepo,
-			prodRepo, prodRepo,
-			invRepo, invRepo,
-			planRepo, planRepo,
-			payRepo, payRepo,
-			accRepo, accRepo,
-			notifRepo, notifRepo,
-			userRepo, userRepo,
-			localSyncRepo, cloudSyncRepo,
-		)
-		syncEngine = engine
-		syncHandler = handler.NewSyncHandler(syncEngine, localSyncRepo)
-
-		// Start the sync engine
-		syncEngine.Start()
-		log.Println("🔄 Dual DB Sync Engine initialized")
-	} else {
-		// SQLite only mode - create a no-op sync handler
-		localSyncRepo := sqlite.NewSyncLogRepository(config.DB)
-		syncHandler = handler.NewSyncHandler(nil, localSyncRepo)
-	}
-
 	// ═══════════════════════════════════════
 	// 🛣️ ROUTER SETUP
 	// ═══════════════════════════════════════
-	adminH := handler.NewAdminHandler(userSvc)
-	r := handler.SetupRouter(cfg, custSvc, guarSvc, prodSvc, invSvc, planSvc, paySvc, accSvc, notifSvc, recSvc, userSvc, syncHandler)
+	adminH := handler.NewAdminHandler(userSvc, settingsRepo)
+	r := handler.SetupRouter(cfg, custSvc, guarSvc, prodSvc, invSvc, planSvc, paySvc, accSvc, notifSvc, recSvc, userSvc, expenseSvc, settingsRepo)
 	r.Use(middleware.LanguageMiddleware)
 	r.Use(middleware.LoggerMiddleware)
 
 	// ═══════════════════════════════════════
-	// 🗜️ GZIP COMPRESSION (before frontend to compress API responses)
+	// 🗜️ GZIP COMPRESSION
 	// ═══════════════════════════════════════
 	r.Use(middleware.GzipCompressionMiddleware)
 
 	// ═══════════════════════════════════════
 	// 🌐 SERVE FRONTEND STATIC FILES
 	// ═══════════════════════════════════════
-	// Try multiple paths for the frontend build
 	frontendPaths := []string{
 		"frontend",
 		"../frontend",
@@ -273,20 +196,14 @@ func main() {
 	}
 	if frontendDir != "" {
 		log.Printf("🌐 Serving frontend from: %s", frontendDir)
-		// Create a file server for the frontend
 		fs := http.FileServer(http.Dir(frontendDir))
-		// Serve static files with proper prefix stripping
 		r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir(filepath.Join(frontendDir, "static")))))
-		// Wrap the router with SPA fallback - this runs AFTER the mux router has tried all routes
-		// This avoids route conflicts between the API subrouter and the SPA catch-all
 		originalHandler := r
 		r = mux.NewRouter()
 		r.PathPrefix("/api/").Handler(originalHandler)
 		r.PathPrefix("/").Handler(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			// Try the requested path, fall back to index.html
 			path := filepath.Join(frontendDir, req.URL.Path)
 			if _, err := os.Stat(path); os.IsNotExist(err) {
-				// SPA fallback - serve index.html
 				http.ServeFile(w, req, filepath.Join(frontendDir, "index.html"))
 			} else {
 				fs.ServeHTTP(w, req)
@@ -309,7 +226,7 @@ func main() {
 	})
 
 	// ═══════════════════════════════════════
-	// 🌐 CORS - Use custom middleware for multi-origin support
+	// 🌐 CORS
 	// ═══════════════════════════════════════
 	corsMiddleware := middleware.CORSMiddleware(cfg)
 
@@ -333,11 +250,9 @@ func main() {
 	// ═══════════════════════════════════════
 	addr := fmt.Sprintf(":%s", cfg.ServerPort)
 
-	// ✅ Try to use mkcert certificate first (browser-trusted)
 	certFile := cfg.TLSCertFile
 	keyFile := cfg.TLSKeyFile
 
-	// Look for mkcert-generated certificates (they have the IP in the name)
 	mkcertCerts := []string{
 		"192.168.1.1+3.pem",
 		"192.168.1.1+3-key.pem",
@@ -347,7 +262,6 @@ func main() {
 		"localhost-key.pem",
 	}
 	if cfg.EnableHTTPS {
-		// Check if mkcert certs exist in the current directory
 		for i := 0; i < len(mkcertCerts); i += 2 {
 			certPath := mkcertCerts[i]
 			keyPath := mkcertCerts[i+1]
@@ -361,7 +275,6 @@ func main() {
 			}
 		}
 
-		// If no mkcert cert found, generate self-signed
 		if certFile == cfg.TLSCertFile {
 			if _, err := os.Stat(certFile); os.IsNotExist(err) {
 				log.Println("🔐 Generating self-signed TLS certificate...")
@@ -376,24 +289,22 @@ func main() {
 		}
 	}
 
-	// Create separate servers for HTTP and HTTPS
 	httpsSrv := &http.Server{
 		Addr:         addr,
 		Handler:      corsMiddleware(r),
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  120 * time.Second,
 	}
 
 	httpSrv := &http.Server{
 		Addr:         addr,
 		Handler:      corsMiddleware(r),
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  120 * time.Second,
 	}
 
-	// ✅ Start HTTPS server (if enabled)
 	if cfg.EnableHTTPS {
 		go func() {
 			httpsAddr := addr
@@ -405,7 +316,6 @@ func main() {
 		}()
 	}
 
-	// ✅ Always start HTTP server (for localhost access + redirect)
 	go func() {
 		fmt.Printf("   ✅ HTTP Server running on http://0.0.0.0%s\n", addr)
 		fmt.Println(strings.Repeat("═", 55))
@@ -429,7 +339,6 @@ func main() {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()
 
-	// Shutdown both servers
 	if cfg.EnableHTTPS {
 		if err := httpsSrv.Shutdown(shutdownCtx); err != nil {
 			log.Printf("⚠️ HTTPS server shutdown error: %v", err)
@@ -439,16 +348,12 @@ func main() {
 		log.Printf("⚠️ HTTP server shutdown error: %v", err)
 	}
 
-	// Close database connections
-	if config.DB != nil {
-		config.DB.Close()
-	}
+	// Close MongoDB connection
 	if config.MongoClient != nil {
 		config.CloseMongoDB()
 	}
 
 	fmt.Println("   ✅ Server exited gracefully")
-
 	fmt.Println(strings.Repeat("═", 55))
 }
 

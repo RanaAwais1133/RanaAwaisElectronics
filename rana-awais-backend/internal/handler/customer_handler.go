@@ -179,6 +179,16 @@ func (h *CustomerHandler) List(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]interface{}{"data": custs, "total": total})
 }
 
+func (h *CustomerHandler) GetHistory(w http.ResponseWriter, r *http.Request) {
+	id := mux.Vars(r)["id"]
+	cust, err := h.svc.GetByID(r.Context(), id)
+	if err != nil || cust == nil {
+		respondError(w, r, http.StatusNotFound, "Customer not found", "گاہک نہیں ملا")
+		return
+	}
+	respondJSON(w, http.StatusOK, cust)
+}
+
 func (h *CustomerHandler) Search(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query().Get("q")
 	skip, _ := strconv.ParseInt(r.URL.Query().Get("skip"), 10, 64)

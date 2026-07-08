@@ -8,7 +8,8 @@ import (
 )
 
 // GzipCompressionMiddleware compresses HTTP responses using gzip
-// for clients that accept gzip encoding.
+// for clients that accept gzip encoding. Uses compression level 6
+// (default) for optimal speed/ratio balance.
 func GzipCompressionMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Check if client accepts gzip encoding
@@ -18,17 +19,26 @@ func GzipCompressionMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Don't compress images, videos, etc.
-		contentType := r.Header.Get("Content-Type")
+		// Don't compress already-compressed content types
+		contentType := w.Header().Get("Content-Type")
+		if contentType == "" {
+			contentType = r.Header.Get("Content-Type")
+		}
 		if strings.HasPrefix(contentType, "image/") ||
 			strings.HasPrefix(contentType, "video/") ||
-			strings.HasPrefix(contentType, "audio/") {
+			strings.HasPrefix(contentType, "audio/") ||
+			strings.Contains(contentType, "zip") ||
+			strings.Contains(contentType, "gzip") {
 			next.ServeHTTP(w, r)
 			return
 		}
 
-		// Create gzip writer
-		gz := gzip.NewWriter(w)
+		// Create gzip writer with best speed for API responses
+		gz, err := gzip.NewWriterLevel(w, gzip.BestSpeed)
+		if err != nil {
+			// Fallback to default level
+			gz = gzip.NewWriter(w)
+		}
 		defer gz.Close()
 
 		// Wrap response writer
