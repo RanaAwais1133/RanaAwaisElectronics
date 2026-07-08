@@ -61,7 +61,9 @@ func (r *CustomerRepository) GetByPhone(ctx context.Context, phone string) (*dom
 
 func (r *CustomerRepository) Update(ctx context.Context, id string, c *domain.Customer) error {
 	c.UpdatedAt = time.Now()
-	_, err := r.coll.ReplaceOne(ctx, bson.M{"_id": id}, c)
+	// ✅ Use UpdateOne instead of ReplaceOne for better performance
+	update := bson.M{"$set": c}
+	_, err := r.coll.UpdateOne(ctx, bson.M{"_id": id}, update)
 	return err
 }
 

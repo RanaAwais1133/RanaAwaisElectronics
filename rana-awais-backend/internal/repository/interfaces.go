@@ -26,6 +26,7 @@ type GuarantorRepository interface {
 	Delete(ctx context.Context, id string) error
 	List(ctx context.Context, skip, limit int64) ([]domain.Guarantor, error)
 	ListByCustomer(ctx context.Context, customerID string) ([]domain.Guarantor, error)
+	ListByCustomerIDs(ctx context.Context, customerIDs []string) ([]domain.Guarantor, error)
 	Count(ctx context.Context) (int64, error)
 }
 

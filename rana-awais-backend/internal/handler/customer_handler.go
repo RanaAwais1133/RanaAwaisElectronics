@@ -142,16 +142,22 @@ func (h *CustomerHandler) Delete(w http.ResponseWriter, r *http.Request) {
 func (h *CustomerHandler) List(w http.ResponseWriter, r *http.Request) {
 	skip, _ := strconv.ParseInt(r.URL.Query().Get("skip"), 10, 64)
 	limit, _ := strconv.ParseInt(r.URL.Query().Get("limit"), 10, 64)
-	if limit == 0 { limit = 10000 }
+	if limit == 0 || limit > 10000 { limit = 10000 } // ✅ Keep high limit for local search/filtering
 	custs, err := h.svc.List(r.Context(), skip, limit)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "Failed to list", "گاہکوں کی فہرست نہیں لائی جا سکی")
 		return
 	}
 
-	// Populate guarantorIds for each customer from guarantor table
-	if h.guarSvc != nil {
-		allGuarantors, err := h.guarSvc.List(r.Context(), 0, 10000)
+	// ✅ Optimized: Only fetch guarantors if we have customers
+	if h.guarSvc != nil && len(custs) > 0 {
+		// Get customer IDs to filter guarantors
+		custIDs := make([]string, len(custs))
+		for i, c := range custs {
+			custIDs[i] = c.ID
+		}
+		// Fetch only relevant guarantors using customer IDs
+		allGuarantors, err := h.guarSvc.ListByCustomerIDs(r.Context(), custIDs)
 		if err == nil {
 			// Build customer-to-guarantor mapping
 			custGuarTable := make(map[string][]string)

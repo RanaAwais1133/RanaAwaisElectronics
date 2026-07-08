@@ -107,6 +107,28 @@ func (r *GuarantorRepository) ListByCustomer(ctx context.Context, customerID str
 	return guarantors, nil
 }
 
+// ✅ NEW: ListByCustomerIDs - Fetch guarantors for multiple customers at once (optimized N+1 fix)
+func (r *GuarantorRepository) ListByCustomerIDs(ctx context.Context, customerIDs []string) ([]domain.Guarantor, error) {
+	if len(customerIDs) == 0 {
+		return []domain.Guarantor{}, nil
+	}
+	cursor, err := r.coll.Find(ctx, bson.M{"customerid": bson.M{"$in": customerIDs}}, options.Find().SetSort(bson.D{{Key: "createdat", Value: 1}}))
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var guarantors []domain.Guarantor
+	err = cursor.All(ctx, &guarantors)
+	if err != nil {
+		return nil, err
+	}
+	if guarantors == nil {
+		guarantors = []domain.Guarantor{}
+	}
+	return guarantors, nil
+}
+
 func (r *GuarantorRepository) Count(ctx context.Context) (int64, error) {
 	return r.coll.CountDocuments(ctx, bson.M{})
 }

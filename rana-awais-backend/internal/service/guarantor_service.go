@@ -59,6 +59,11 @@ func (s *GuarantorService) ListByCustomer(ctx context.Context, customerID string
 	return s.guarRepo.ListByCustomer(ctx, customerID)
 }
 
+// ✅ NEW: ListByCustomerIDs - Fetch guarantors for multiple customers at once
+func (s *GuarantorService) ListByCustomerIDs(ctx context.Context, customerIDs []string) ([]domain.Guarantor, error) {
+	return s.guarRepo.ListByCustomerIDs(ctx, customerIDs)
+}
+
 func (s *GuarantorService) Update(ctx context.Context, id string, g *domain.Guarantor) error {
 	return s.guarRepo.Update(ctx, id, g)
 }
