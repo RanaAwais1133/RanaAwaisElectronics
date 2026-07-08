@@ -28,7 +28,6 @@ func (r *ProductRepository) Create(ctx context.Context, p *domain.Product) error
 	p.CreatedAt = time.Now()
 	p.UpdatedAt = time.Now()
 
-	// Auto-set in_stock based on stock_count
 	if p.StockCount > 0 {
 		p.InStock = true
 	} else {

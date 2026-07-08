@@ -1,12 +1,14 @@
 package handler
 
 import (
-	"database/sql"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/config"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/domain"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 type DashboardHandler struct{}
@@ -16,7 +18,32 @@ func NewDashboardHandler() *DashboardHandler {
 }
 
 func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
-	db := config.DB
+	db := config.MongoDatabase
+	if db == nil {
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"todayCollection":       map[string]interface{}{"total": 0.0, "count": 0},
+			"todayRevenue":          0.0,
+			"todayProfit":           0.0,
+			"monthRevenue":          0.0,
+			"monthProfit":           0.0,
+			"totalPending":          0.0,
+			"pendingCustomers":      int64(0),
+			"pendingTotal":          0.0,
+			"totalPaid":             0.0,
+			"totalCustomers":        int64(0),
+			"activeInstallments":    int64(0),
+			"completedInstallments": int64(0),
+			"totalProducts":         int64(0),
+			"lowStock":              int64(0),
+			"inventoryValue":        0.0,
+			"ageingInventory":       int64(0),
+			"overdueCount":          int64(0),
+			"todayDueCount":         int64(0),
+			"monthlyDueCount":       int64(0),
+		})
+		return
+	}
+
 	ctx := r.Context()
 	now := time.Now()
 	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
@@ -31,120 +58,262 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 
 	var wg sync.WaitGroup
 	results := make(chan result, 25)
-	errChan := make(chan error, 25)
 
-	// 1. Today's Collection (payments + down payments)
+	// 1. Today's Collection
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		var total float64
-		var count int
-		err := db.QueryRowContext(ctx, `SELECT COALESCE(SUM(amount), 0), COUNT(*) FROM payments WHERE transaction_date >= ? AND transaction_date < ?`, todayStart, todayEnd).Scan(&total, &count)
+		pipeline := mongo.Pipeline{
+			bson.D{{Key: "$match", Value: bson.D{
+				{Key: "transactiondate", Value: bson.D{
+					{Key: "$gte", Value: todayStart},
+					{Key: "$lt", Value: todayEnd},
+				}},
+			}}},
+			bson.D{{Key: "$group", Value: bson.D{
+				{Key: "_id", Value: nil},
+				{Key: "total", Value: bson.D{{Key: "$sum", Value: "$amount"}}},
+				{Key: "count", Value: bson.D{{Key: "$sum", Value: 1}}},
+			}}},
+		}
+		cursor, err := db.Collection("payments").Aggregate(ctx, pipeline)
 		if err != nil {
-			errChan <- err
+			results <- result{"todayCollection", map[string]interface{}{"total": 0.0, "count": 0}}
 			return
 		}
-		// Also include down payments from installment_plans created today
-		var downPaymentTotal float64
-		var downPaymentCount int
-		db.QueryRowContext(ctx, `SELECT COALESCE(SUM(down_payment), 0), COUNT(*) FROM installment_plans WHERE created_at >= ? AND created_at < ? AND down_payment > 0`, todayStart, todayEnd).Scan(&downPaymentTotal, &downPaymentCount)
-		total += downPaymentTotal
-		count += downPaymentCount
+		defer cursor.Close(ctx)
+
+		var total float64
+		var count int64
+		if cursor.Next(ctx) {
+			var r struct {
+				Total float64 `bson:"total"`
+				Count int64   `bson:"count"`
+			}
+			if cursor.Decode(&r) == nil {
+				total = r.Total
+				count = r.Count
+			}
+		}
+
+		// Down payments today
+		downPipeline := mongo.Pipeline{
+			bson.D{{Key: "$match", Value: bson.D{
+				{Key: "createdat", Value: bson.D{
+					{Key: "$gte", Value: todayStart},
+					{Key: "$lt", Value: todayEnd},
+				}},
+				{Key: "downpayment", Value: bson.D{{Key: "$gt", Value: 0}}},
+			}}},
+			bson.D{{Key: "$group", Value: bson.D{
+				{Key: "_id", Value: nil},
+				{Key: "total", Value: bson.D{{Key: "$sum", Value: "$downpayment"}}},
+				{Key: "count", Value: bson.D{{Key: "$sum", Value: 1}}},
+			}}},
+		}
+		downCursor, err := db.Collection("installment_plans").Aggregate(ctx, downPipeline)
+		if err == nil {
+			defer downCursor.Close(ctx)
+			if downCursor.Next(ctx) {
+				var r struct {
+					Total float64 `bson:"total"`
+					Count int64   `bson:"count"`
+				}
+				if downCursor.Decode(&r) == nil {
+					total += r.Total
+					count += r.Count
+				}
+			}
+		}
+
 		results <- result{"todayCollection", map[string]interface{}{"total": total, "count": count}}
 	}()
 
-	// 2 & 3. Today Revenue & Profit (Profit Percentage Based)
+	// 2 & 3. Today Revenue & Profit
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		var revenue, profit float64
-		db.QueryRowContext(ctx, `SELECT COALESCE(SUM(amount), 0) FROM payments WHERE transaction_date >= ? AND transaction_date < ?`, todayStart, todayEnd).Scan(&revenue)
-		var downPaymentRevenue float64
-		db.QueryRowContext(ctx, `SELECT COALESCE(SUM(down_payment), 0) FROM installment_plans WHERE created_at >= ? AND created_at < ?`, todayStart, todayEnd).Scan(&downPaymentRevenue)
-		revenue += downPaymentRevenue
-		
-		// Profit = Payment × (1 - PurchasePrice/SellingPrice) per plan
-		var profitFromPayments float64
-		db.QueryRowContext(ctx, `
-			SELECT COALESCE(SUM(pay.amount * (1.0 - COALESCE(prod.purchase_price, 0) / NULLIF(p.total_amount, 0))), 0)
-			FROM payments pay
-			JOIN installment_plans p ON pay.installment_plan_id = p.id
-			LEFT JOIN products prod ON p.product_id = prod.id
-			WHERE pay.transaction_date >= ? AND pay.transaction_date < ?
-		`, todayStart, todayEnd).Scan(&profitFromPayments)
-		
-		var profitFromDownPayments float64
-		db.QueryRowContext(ctx, `
-			SELECT COALESCE(SUM(ip.down_payment * (1.0 - COALESCE(prod.purchase_price, 0) / NULLIF(ip.total_amount, 0))), 0)
-			FROM installment_plans ip
-			LEFT JOIN products prod ON ip.product_id = prod.id
-			WHERE ip.created_at >= ? AND ip.created_at < ? AND ip.down_payment > 0
-		`, todayStart, todayEnd).Scan(&profitFromDownPayments)
-		
-		profit = profitFromPayments + profitFromDownPayments
-		
-		// Subtract expenses (rent, electricity, etc.)
-		var expenseFromEntries float64
-		db.QueryRowContext(ctx, `
-			SELECT COALESCE(SUM(amount), 0) FROM accounting_entries 
-			WHERE type = 'expense' AND date >= ? AND date < ?
-		`, todayStart, todayEnd).Scan(&expenseFromEntries)
-		profit -= expenseFromEntries
-		
+
+		payPipeline := mongo.Pipeline{
+			bson.D{{Key: "$match", Value: bson.D{
+				{Key: "transactiondate", Value: bson.D{
+					{Key: "$gte", Value: todayStart},
+					{Key: "$lt", Value: todayEnd},
+				}},
+			}}},
+			bson.D{{Key: "$group", Value: bson.D{
+				{Key: "_id", Value: nil},
+				{Key: "total", Value: bson.D{{Key: "$sum", Value: "$amount"}}},
+			}}},
+		}
+		payCursor, _ := db.Collection("payments").Aggregate(ctx, payPipeline)
+		if payCursor != nil {
+			if payCursor.Next(ctx) {
+				var r struct{ Total float64 `bson:"total"` }
+				if payCursor.Decode(&r) == nil {
+					revenue = r.Total
+				}
+			}
+			payCursor.Close(ctx)
+		}
+
+		downPipeline := mongo.Pipeline{
+			bson.D{{Key: "$match", Value: bson.D{
+				{Key: "createdat", Value: bson.D{
+					{Key: "$gte", Value: todayStart},
+					{Key: "$lt", Value: todayEnd},
+				}},
+				{Key: "downpayment", Value: bson.D{{Key: "$gt", Value: 0}}},
+			}}},
+			bson.D{{Key: "$group", Value: bson.D{
+				{Key: "_id", Value: nil},
+				{Key: "total", Value: bson.D{{Key: "$sum", Value: "$downpayment"}}},
+			}}},
+		}
+		downCursor, _ := db.Collection("installment_plans").Aggregate(ctx, downPipeline)
+		if downCursor != nil {
+			if downCursor.Next(ctx) {
+				var r struct{ Total float64 `bson:"total"` }
+				if downCursor.Decode(&r) == nil {
+					revenue += r.Total
+				}
+			}
+			downCursor.Close(ctx)
+		}
+
+		expPipeline := mongo.Pipeline{
+			bson.D{{Key: "$match", Value: bson.D{
+				{Key: "type", Value: "expense"},
+				{Key: "date", Value: bson.D{
+					{Key: "$gte", Value: todayStart},
+					{Key: "$lt", Value: todayEnd},
+				}},
+			}}},
+			bson.D{{Key: "$group", Value: bson.D{
+				{Key: "_id", Value: nil},
+				{Key: "total", Value: bson.D{{Key: "$sum", Value: "$amount"}}},
+			}}},
+		}
+		expCursor, _ := db.Collection("accounting_entries").Aggregate(ctx, expPipeline)
+		if expCursor != nil {
+			if expCursor.Next(ctx) {
+				var r struct{ Total float64 `bson:"total"` }
+				if expCursor.Decode(&r) == nil {
+					profit = revenue - r.Total
+				}
+			}
+			expCursor.Close(ctx)
+		} else {
+			profit = revenue
+		}
+
 		results <- result{"todayRevenue", revenue}
 		results <- result{"todayProfit", profit}
 	}()
 
-
-	// 4 & 5. Month Revenue & Profit (Profit Percentage Based)
+	// 4 & 5. Month Revenue & Profit
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		var revenue, profit float64
-		db.QueryRowContext(ctx, `SELECT COALESCE(SUM(amount), 0) FROM payments WHERE transaction_date >= ? AND transaction_date < ?`, monthStart, monthEnd).Scan(&revenue)
-		var downPaymentRevenue float64
-		db.QueryRowContext(ctx, `SELECT COALESCE(SUM(down_payment), 0) FROM installment_plans WHERE created_at >= ? AND created_at < ?`, monthStart, monthEnd).Scan(&downPaymentRevenue)
-		revenue += downPaymentRevenue
-		
-		// Profit = Payment × (1 - PurchasePrice/SellingPrice) per plan
-		var profitFromPayments float64
-		db.QueryRowContext(ctx, `
-			SELECT COALESCE(SUM(pay.amount * (1.0 - COALESCE(prod.purchase_price, 0) / NULLIF(p.total_amount, 0))), 0)
-			FROM payments pay
-			JOIN installment_plans p ON pay.installment_plan_id = p.id
-			LEFT JOIN products prod ON p.product_id = prod.id
-			WHERE pay.transaction_date >= ? AND pay.transaction_date < ?
-		`, monthStart, monthEnd).Scan(&profitFromPayments)
-		
-		var profitFromDownPayments float64
-		db.QueryRowContext(ctx, `
-			SELECT COALESCE(SUM(ip.down_payment * (1.0 - COALESCE(prod.purchase_price, 0) / NULLIF(ip.total_amount, 0))), 0)
-			FROM installment_plans ip
-			LEFT JOIN products prod ON ip.product_id = prod.id
-			WHERE ip.created_at >= ? AND ip.created_at < ? AND ip.down_payment > 0
-		`, monthStart, monthEnd).Scan(&profitFromDownPayments)
-		
-		profit = profitFromPayments + profitFromDownPayments
-		
-		// Subtract expenses (rent, electricity, etc.)
-		var expenseFromEntries float64
-		db.QueryRowContext(ctx, `
-			SELECT COALESCE(SUM(amount), 0) FROM accounting_entries 
-			WHERE type = 'expense' AND date >= ? AND date < ?
-		`, monthStart, monthEnd).Scan(&expenseFromEntries)
-		profit -= expenseFromEntries
-		
+
+		payPipeline := mongo.Pipeline{
+			bson.D{{Key: "$match", Value: bson.D{
+				{Key: "transactiondate", Value: bson.D{
+					{Key: "$gte", Value: monthStart},
+					{Key: "$lt", Value: monthEnd},
+				}},
+			}}},
+			bson.D{{Key: "$group", Value: bson.D{
+				{Key: "_id", Value: nil},
+				{Key: "total", Value: bson.D{{Key: "$sum", Value: "$amount"}}},
+			}}},
+		}
+		payCursor, _ := db.Collection("payments").Aggregate(ctx, payPipeline)
+		if payCursor != nil {
+			if payCursor.Next(ctx) {
+				var r struct{ Total float64 `bson:"total"` }
+				if payCursor.Decode(&r) == nil {
+					revenue = r.Total
+				}
+			}
+			payCursor.Close(ctx)
+		}
+
+		downPipeline := mongo.Pipeline{
+			bson.D{{Key: "$match", Value: bson.D{
+				{Key: "createdat", Value: bson.D{
+					{Key: "$gte", Value: monthStart},
+					{Key: "$lt", Value: monthEnd},
+				}},
+				{Key: "downpayment", Value: bson.D{{Key: "$gt", Value: 0}}},
+			}}},
+			bson.D{{Key: "$group", Value: bson.D{
+				{Key: "_id", Value: nil},
+				{Key: "total", Value: bson.D{{Key: "$sum", Value: "$downpayment"}}},
+			}}},
+		}
+		downCursor, _ := db.Collection("installment_plans").Aggregate(ctx, downPipeline)
+		if downCursor != nil {
+			if downCursor.Next(ctx) {
+				var r struct{ Total float64 `bson:"total"` }
+				if downCursor.Decode(&r) == nil {
+					revenue += r.Total
+				}
+			}
+			downCursor.Close(ctx)
+		}
+
+		expPipeline := mongo.Pipeline{
+			bson.D{{Key: "$match", Value: bson.D{
+				{Key: "type", Value: "expense"},
+				{Key: "date", Value: bson.D{
+					{Key: "$gte", Value: monthStart},
+					{Key: "$lt", Value: monthEnd},
+				}},
+			}}},
+			bson.D{{Key: "$group", Value: bson.D{
+				{Key: "_id", Value: nil},
+				{Key: "total", Value: bson.D{{Key: "$sum", Value: "$amount"}}},
+			}}},
+		}
+		expCursor, _ := db.Collection("accounting_entries").Aggregate(ctx, expPipeline)
+		if expCursor != nil {
+			if expCursor.Next(ctx) {
+				var r struct{ Total float64 `bson:"total"` }
+				if expCursor.Decode(&r) == nil {
+					profit = revenue - r.Total
+				}
+			}
+			expCursor.Close(ctx)
+		} else {
+			profit = revenue
+		}
+
 		results <- result{"monthRevenue", revenue}
 		results <- result{"monthProfit", profit}
 	}()
 
-
-	// 6. Total Pending (amount)
+	// 6. Total Pending
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		var total float64
-		db.QueryRowContext(ctx, `SELECT COALESCE(SUM(COALESCE(d.amount, 0) + COALESCE(d.fine, 0) - COALESCE(d.partial_paid, 0)), 0) FROM installment_details d JOIN installment_plans p ON d.plan_id = p.id WHERE d.paid = 0 AND p.status = 'active'`).Scan(&total)
+		cursor, err := db.Collection("installment_plans").Find(ctx, bson.M{"status": "active"})
+		if err == nil {
+			defer cursor.Close(ctx)
+			for cursor.Next(ctx) {
+				var plan domain.InstallmentPlan
+				if cursor.Decode(&plan) == nil {
+					for _, d := range plan.Installments {
+						if !d.Paid {
+							total += d.Amount + d.Fine - d.PartialPaid
+						}
+					}
+				}
+			}
+		}
 		results <- result{"totalPending", total}
 	}()
 
@@ -152,17 +321,44 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		var count int64
-		db.QueryRowContext(ctx, `SELECT COUNT(DISTINCT p.customer_id) FROM installment_details d JOIN installment_plans p ON d.plan_id = p.id WHERE d.paid = 0 AND p.status = 'active'`).Scan(&count)
-		results <- result{"pendingCustomers", count}
+		custMap := make(map[string]bool)
+		cursor, err := db.Collection("installment_plans").Find(ctx, bson.M{"status": "active"})
+		if err == nil {
+			defer cursor.Close(ctx)
+			for cursor.Next(ctx) {
+				var plan domain.InstallmentPlan
+				if cursor.Decode(&plan) == nil {
+					for _, d := range plan.Installments {
+						if !d.Paid {
+							custMap[plan.CustomerID] = true
+							break
+						}
+					}
+				}
+			}
+		}
+		results <- result{"pendingCustomers", int64(len(custMap))}
 	}()
 
-	// 6c. Pending Total Amount (for frontend)
+	// 6c. Pending Total Amount
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		var total float64
-		db.QueryRowContext(ctx, `SELECT COALESCE(SUM(COALESCE(d.amount, 0) + COALESCE(d.fine, 0) - COALESCE(d.partial_paid, 0)), 0) FROM installment_details d JOIN installment_plans p ON d.plan_id = p.id WHERE d.paid = 0 AND p.status = 'active'`).Scan(&total)
+		cursor, err := db.Collection("installment_plans").Find(ctx, bson.M{"status": "active"})
+		if err == nil {
+			defer cursor.Close(ctx)
+			for cursor.Next(ctx) {
+				var plan domain.InstallmentPlan
+				if cursor.Decode(&plan) == nil {
+					for _, d := range plan.Installments {
+						if !d.Paid {
+							total += d.Amount + d.Fine - d.PartialPaid
+						}
+					}
+				}
+			}
+		}
 		results <- result{"pendingTotal", total}
 	}()
 
@@ -170,8 +366,23 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		pipeline := mongo.Pipeline{
+			bson.D{{Key: "$group", Value: bson.D{
+				{Key: "_id", Value: nil},
+				{Key: "total", Value: bson.D{{Key: "$sum", Value: "$amount"}}},
+			}}},
+		}
 		var total float64
-		db.QueryRowContext(ctx, "SELECT COALESCE(SUM(amount), 0) FROM payments").Scan(&total)
+		cursor, err := db.Collection("payments").Aggregate(ctx, pipeline)
+		if err == nil {
+			defer cursor.Close(ctx)
+			if cursor.Next(ctx) {
+				var r struct{ Total float64 `bson:"total"` }
+				if cursor.Decode(&r) == nil {
+					total = r.Total
+				}
+			}
+		}
 		results <- result{"totalPaid", total}
 	}()
 
@@ -179,8 +390,7 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		var count int64
-		db.QueryRowContext(ctx, "SELECT COUNT(*) FROM customers").Scan(&count)
+		count, _ := db.Collection("customers").CountDocuments(ctx, bson.M{})
 		results <- result{"totalCustomers", count}
 	}()
 
@@ -188,8 +398,7 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		var count int64
-		db.QueryRowContext(ctx, "SELECT COUNT(*) FROM installment_plans WHERE status = 'active'").Scan(&count)
+		count, _ := db.Collection("installment_plans").CountDocuments(ctx, bson.M{"status": "active"})
 		results <- result{"activeInstallments", count}
 	}()
 
@@ -197,8 +406,7 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		var count int64
-		db.QueryRowContext(ctx, "SELECT COUNT(*) FROM installment_plans WHERE status = 'completed'").Scan(&count)
+		count, _ := db.Collection("installment_plans").CountDocuments(ctx, bson.M{"status": "completed"})
 		results <- result{"completedInstallments", count}
 	}()
 
@@ -206,8 +414,7 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		var count int64
-		db.QueryRowContext(ctx, "SELECT COUNT(*) FROM products").Scan(&count)
+		count, _ := db.Collection("products").CountDocuments(ctx, bson.M{})
 		results <- result{"totalProducts", count}
 	}()
 
@@ -215,17 +422,39 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		var count int64
-		db.QueryRowContext(ctx, "SELECT COUNT(*) FROM products WHERE in_stock = 1 AND stock_count <= 5").Scan(&count)
+		count, _ := db.Collection("products").CountDocuments(ctx, bson.M{
+			"instock":    true,
+			"stockcount": bson.M{"$lte": 5},
+		})
 		results <- result{"lowStock", count}
 	}()
 
-	// 13. Inventory Value (only in_stock items, using purchase_price * quantity)
+	// 13. Inventory Value
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		pipeline := mongo.Pipeline{
+			bson.D{{Key: "$match", Value: bson.D{
+				{Key: "status", Value: "in_stock"},
+			}}},
+			bson.D{{Key: "$group", Value: bson.D{
+				{Key: "_id", Value: nil},
+				{Key: "total", Value: bson.D{{Key: "$sum", Value: bson.D{
+					{Key: "$multiply", Value: bson.A{"$purchaseprice", bson.D{{Key: "$ifNull", Value: bson.A{"$quantity", 1}}}}},
+				}}}},
+			}}},
+		}
 		var value float64
-		db.QueryRowContext(ctx, "SELECT COALESCE(SUM(COALESCE(purchase_price, 0) * COALESCE(quantity, 1)), 0) FROM inventory_items WHERE status = 'in_stock'").Scan(&value)
+		cursor, err := db.Collection("inventory_items").Aggregate(ctx, pipeline)
+		if err == nil {
+			defer cursor.Close(ctx)
+			if cursor.Next(ctx) {
+				var r struct{ Total float64 `bson:"total"` }
+				if cursor.Decode(&r) == nil {
+					value = r.Total
+				}
+			}
+		}
 		results <- result{"inventoryValue", value}
 	}()
 
@@ -233,9 +462,11 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		var count int64
 		cutoff := now.AddDate(0, 0, -90)
-		db.QueryRowContext(ctx, "SELECT COUNT(*) FROM inventory_items WHERE created_at <= ? AND status = 'in_stock'", cutoff).Scan(&count)
+		count, _ := db.Collection("inventory_items").CountDocuments(ctx, bson.M{
+			"createdat": bson.M{"$lte": cutoff},
+			"status":    "in_stock",
+		})
 		results <- result{"ageingInventory", count}
 	}()
 
@@ -244,7 +475,20 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		defer wg.Done()
 		var count int64
-		db.QueryRowContext(ctx, `SELECT COUNT(*) FROM installment_details d JOIN installment_plans p ON d.plan_id = p.id WHERE d.paid = 0 AND p.status = 'active' AND d.due_date < ?`, todayStart).Scan(&count)
+		cursor, err := db.Collection("installment_plans").Find(ctx, bson.M{"status": "active"})
+		if err == nil {
+			defer cursor.Close(ctx)
+			for cursor.Next(ctx) {
+				var plan domain.InstallmentPlan
+				if cursor.Decode(&plan) == nil {
+					for _, d := range plan.Installments {
+						if !d.Paid && d.DueDate.Before(todayStart) {
+							count++
+						}
+					}
+				}
+			}
+		}
 		results <- result{"overdueCount", count}
 	}()
 
@@ -253,7 +497,20 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		defer wg.Done()
 		var count int64
-		db.QueryRowContext(ctx, `SELECT COUNT(*) FROM installment_details d JOIN installment_plans p ON d.plan_id = p.id WHERE d.paid = 0 AND p.status = 'active' AND d.due_date >= ? AND d.due_date < ?`, todayStart, todayEnd).Scan(&count)
+		cursor, err := db.Collection("installment_plans").Find(ctx, bson.M{"status": "active"})
+		if err == nil {
+			defer cursor.Close(ctx)
+			for cursor.Next(ctx) {
+				var plan domain.InstallmentPlan
+				if cursor.Decode(&plan) == nil {
+					for _, d := range plan.Installments {
+						if !d.Paid && (d.DueDate.Equal(todayStart) || (d.DueDate.After(todayStart) && d.DueDate.Before(todayEnd))) {
+							count++
+						}
+					}
+				}
+			}
+		}
 		results <- result{"todayDueCount", count}
 	}()
 
@@ -262,7 +519,20 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		defer wg.Done()
 		var count int64
-		db.QueryRowContext(ctx, `SELECT COUNT(*) FROM installment_details d JOIN installment_plans p ON d.plan_id = p.id WHERE d.paid = 0 AND p.status = 'active' AND d.due_date >= ? AND d.due_date < ?`, monthStart, monthEnd).Scan(&count)
+		cursor, err := db.Collection("installment_plans").Find(ctx, bson.M{"status": "active"})
+		if err == nil {
+			defer cursor.Close(ctx)
+			for cursor.Next(ctx) {
+				var plan domain.InstallmentPlan
+				if cursor.Decode(&plan) == nil {
+					for _, d := range plan.Installments {
+						if !d.Paid && (d.DueDate.Equal(monthStart) || (d.DueDate.After(monthStart) && d.DueDate.Before(monthEnd))) {
+							count++
+						}
+					}
+				}
+			}
+		}
 		results <- result{"monthlyDueCount", count}
 	}()
 
@@ -290,98 +560,134 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *DashboardHandler) TodayInstallments(w http.ResponseWriter, r *http.Request) {
-	db := config.DB
+	db := config.MongoDatabase
+	if db == nil {
+		respondJSON(w, http.StatusOK, []interface{}{})
+		return
+	}
+
 	now := time.Now()
 	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	end := start.Add(24 * time.Hour)
 
-	rows, err := db.QueryContext(r.Context(), `
-		SELECT p.id, c.name, COALESCE(c.name_urdu, ''), COALESCE(c.father_name, ''), COALESCE(c.phone, ''),
-			COALESCE(prod.name, ''), COALESCE(prod.name_urdu, ''), d.installment_no, d.due_date, d.amount,
-			d.paid, d.partial_paid, d.paid_date, d.remaining, COALESCE(d.collected_by, ''),
-			p.total_amount, p.down_payment, p.remaining_amount, p.num_installments
-		FROM installment_details d
-		JOIN installment_plans p ON d.plan_id = p.id
-		LEFT JOIN customers c ON p.customer_id = c.id
-		LEFT JOIN products prod ON p.product_id = prod.id
-		WHERE d.paid = 0 AND p.status = 'active' AND d.due_date >= ? AND d.due_date < ?
-		ORDER BY d.due_date
-	`, start, end)
+	cursor, err := db.Collection("installment_plans").Find(r.Context(), bson.M{"status": "active"})
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "Failed to fetch", "ناکام")
 		return
 	}
-	defer rows.Close()
+	defer cursor.Close(r.Context())
 
 	var result []map[string]interface{}
-	for rows.Next() {
-		var planID, name, nameUrdu, father, phone, prodName, prodNameUrdu, cBy string
-		var instNo int
-		var dueDate time.Time
-		var amount, partialPaid, remaining, totalAmt, downPayment, remainingAmt float64
-		var paid bool
-		var paidDate sql.NullTime
-		var numInst int
-		rows.Scan(&planID, &name, &nameUrdu, &father, &phone, &prodName, &prodNameUrdu,
-			&instNo, &dueDate, &amount, &paid, &partialPaid, &paidDate, &remaining, &cBy,
-			&totalAmt, &downPayment, &remainingAmt, &numInst)
-		item := map[string]interface{}{
-			"id": planID, "customer_name": name, "customer_urdu": nameUrdu, "father_name": father,
-			"phone": phone, "product_name": prodName, "product_name_urdu": prodNameUrdu,
-			"installment_no": instNo, "due_date": dueDate.Format("2006-01-02"), "amount": amount,
-			"paid": paid, "partial_paid": partialPaid, "remaining": remaining,
-			"collected_by": cBy, "total_amount": totalAmt, "down_payment": downPayment,
-			"remaining_amount": remainingAmt, "num_installments": numInst,
+	for cursor.Next(r.Context()) {
+		var plan domain.InstallmentPlan
+		if err := cursor.Decode(&plan); err != nil {
+			continue
 		}
-		if paidDate.Valid { item["paid_date"] = paidDate.Time.Format("2006-01-02") }
-		result = append(result, item)
+
+		var cust domain.Customer
+		if err := db.Collection("customers").FindOne(r.Context(), bson.M{"_id": plan.CustomerID}).Decode(&cust); err != nil {
+			continue
+		}
+
+		var prodName, prodNameUrdu string
+		if plan.ProductID != "" {
+			var prod domain.Product
+			if err := db.Collection("products").FindOne(r.Context(), bson.M{"_id": plan.ProductID}).Decode(&prod); err == nil {
+				prodName = prod.Name
+				prodNameUrdu = prod.NameUrdu
+			}
+		}
+
+		for _, d := range plan.Installments {
+			if d.Paid {
+				continue
+			}
+			if d.DueDate.Before(start) || d.DueDate.After(end) || d.DueDate.Equal(end) {
+				continue
+			}
+
+			item := map[string]interface{}{
+				"id": plan.ID, "customer_name": cust.Name, "customer_urdu": cust.NameUrdu,
+				"father_name": cust.FatherName, "phone": cust.Phone,
+				"product_name": prodName, "product_name_urdu": prodNameUrdu,
+				"installment_no": d.InstallmentNo, "due_date": d.DueDate.Format("2006-01-02"),
+				"amount": d.Amount, "paid": d.Paid, "partial_paid": d.PartialPaid,
+				"remaining": d.Remaining, "collected_by": d.CollectedBy,
+				"total_amount": plan.TotalAmount, "down_payment": plan.DownPayment,
+				"remaining_amount": plan.RemainingAmount, "num_installments": plan.NumberOfInstallments,
+			}
+			if d.PaidDate != nil {
+				item["paid_date"] = d.PaidDate.Format("2006-01-02")
+			}
+			result = append(result, item)
+		}
 	}
-	if result == nil { result = []map[string]interface{}{} }
+	if result == nil {
+		result = []map[string]interface{}{}
+	}
 	respondJSON(w, http.StatusOK, result)
 }
 
 func (h *DashboardHandler) OverdueDetails(w http.ResponseWriter, r *http.Request) {
-	db := config.DB
+	db := config.MongoDatabase
+	if db == nil {
+		respondJSON(w, http.StatusOK, []interface{}{})
+		return
+	}
+
 	now := time.Now()
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 
-	rows, err := db.QueryContext(r.Context(), `
-		SELECT p.id, c.name, COALESCE(c.name_urdu, ''), COALESCE(c.father_name, ''), COALESCE(c.phone, ''),
-			COALESCE(prod.name, ''), COALESCE(prod.name_urdu, ''), d.installment_no, d.due_date, d.amount,
-			d.paid, d.partial_paid, d.remaining, COALESCE(d.collected_by, ''), d.fine,
-			p.total_amount, p.remaining_amount
-		FROM installment_details d
-		JOIN installment_plans p ON d.plan_id = p.id
-		LEFT JOIN customers c ON p.customer_id = c.id
-		LEFT JOIN products prod ON p.product_id = prod.id
-		WHERE d.paid = 0 AND p.status = 'active' AND d.due_date < ?
-		ORDER BY d.due_date
-	`, today)
+	cursor, err := db.Collection("installment_plans").Find(r.Context(), bson.M{"status": "active"})
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "Failed to fetch overdue", "ناکام")
 		return
 	}
-	defer rows.Close()
+	defer cursor.Close(r.Context())
 
 	var result []map[string]interface{}
-	for rows.Next() {
-		var planID, name, nameUrdu, father, phone, prodName, prodNameUrdu, cBy string
-		var instNo int
-		var dueDate time.Time
-		var amount, partialPaid, remaining, fine, totalAmt, remainingAmt float64
-		var paid bool
-		rows.Scan(&planID, &name, &nameUrdu, &father, &phone, &prodName, &prodNameUrdu,
-			&instNo, &dueDate, &amount, &paid, &partialPaid, &remaining, &cBy, &fine,
-			&totalAmt, &remainingAmt)
-		result = append(result, map[string]interface{}{
-			"id": planID, "customer_name": name, "customer_urdu": nameUrdu, "father_name": father,
-			"phone": phone, "product_name": prodName, "product_name_urdu": prodNameUrdu,
-			"installment_no": instNo, "due_date": dueDate.Format("2006-01-02"), "amount": amount,
-			"paid": paid, "partial_paid": partialPaid, "remaining": remaining,
-			"collected_by": cBy, "fine": fine, "total_amount": totalAmt, "remaining_amount": remainingAmt,
-		})
+	for cursor.Next(r.Context()) {
+		var plan domain.InstallmentPlan
+		if err := cursor.Decode(&plan); err != nil {
+			continue
+		}
+
+		var cust domain.Customer
+		if err := db.Collection("customers").FindOne(r.Context(), bson.M{"_id": plan.CustomerID}).Decode(&cust); err != nil {
+			continue
+		}
+
+		var prodName, prodNameUrdu string
+		if plan.ProductID != "" {
+			var prod domain.Product
+			if err := db.Collection("products").FindOne(r.Context(), bson.M{"_id": plan.ProductID}).Decode(&prod); err == nil {
+				prodName = prod.Name
+				prodNameUrdu = prod.NameUrdu
+			}
+		}
+
+		for _, d := range plan.Installments {
+			if d.Paid {
+				continue
+			}
+			if !d.DueDate.Before(today) {
+				continue
+			}
+
+			result = append(result, map[string]interface{}{
+				"id": plan.ID, "customer_name": cust.Name, "customer_urdu": cust.NameUrdu,
+				"father_name": cust.FatherName, "phone": cust.Phone,
+				"product_name": prodName, "product_name_urdu": prodNameUrdu,
+				"installment_no": d.InstallmentNo, "due_date": d.DueDate.Format("2006-01-02"),
+				"amount": d.Amount, "paid": d.Paid, "partial_paid": d.PartialPaid,
+				"remaining": d.Remaining, "collected_by": d.CollectedBy, "fine": d.Fine,
+				"total_amount": plan.TotalAmount, "remaining_amount": plan.RemainingAmount,
+			})
+		}
 	}
-	if result == nil { result = []map[string]interface{}{} }
+	if result == nil {
+		result = []map[string]interface{}{}
+	}
 	respondJSON(w, http.StatusOK, result)
 }
 
@@ -390,295 +696,288 @@ func (h *DashboardHandler) TodayDueDetails(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *DashboardHandler) LowStockDetails(w http.ResponseWriter, r *http.Request) {
-	db := config.DB
-	rows, err := db.QueryContext(r.Context(), `SELECT id, name, name_urdu, stock_count, price, purchase_price FROM products WHERE in_stock = 1 AND stock_count <= 5 ORDER BY stock_count LIMIT 50`)
+	db := config.MongoDatabase
+	if db == nil {
+		respondJSON(w, http.StatusOK, []interface{}{})
+		return
+	}
+
+	cursor, err := db.Collection("products").Find(r.Context(), bson.M{
+		"instock":    true,
+		"stockcount": bson.M{"$lte": 5},
+	})
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "Failed to fetch", "ناکام")
 		return
 	}
-	defer rows.Close()
+	defer cursor.Close(r.Context())
+
 	var result []map[string]interface{}
-	for rows.Next() {
-		var id, name, nameUrdu string
-		var stock int; var price, pp float64
-		rows.Scan(&id, &name, &nameUrdu, &stock, &price, &pp)
-		result = append(result, map[string]interface{}{"id": id, "name": name, "name_urdu": nameUrdu, "stock_count": stock, "price": price, "purchase_price": pp})
+	for cursor.Next(r.Context()) {
+		var prod domain.Product
+		if cursor.Decode(&prod) == nil {
+			result = append(result, map[string]interface{}{
+				"id": prod.ID, "name": prod.Name, "name_urdu": prod.NameUrdu,
+				"stock_count": prod.StockCount, "price": prod.Price, "purchase_price": prod.PurchasePrice,
+			})
+		}
 	}
-	if result == nil { result = []map[string]interface{}{} }
+	if result == nil {
+		result = []map[string]interface{}{}
+	}
 	respondJSON(w, http.StatusOK, result)
 }
 
 func (h *DashboardHandler) MonthlyDueDetails(w http.ResponseWriter, r *http.Request) {
-	db := config.DB
+	db := config.MongoDatabase
+	if db == nil {
+		respondJSON(w, http.StatusOK, []interface{}{})
+		return
+	}
+
 	now := time.Now()
 	start := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
 	end := start.AddDate(0, 1, 0)
 
-	rows, err := db.QueryContext(r.Context(), `
-		SELECT p.id, c.name, COALESCE(c.name_urdu, ''), COALESCE(c.father_name, ''), COALESCE(c.phone, ''),
-			COALESCE(prod.name, ''), COALESCE(prod.name_urdu, ''), d.installment_no, d.due_date, d.amount,
-			d.paid, d.partial_paid, d.remaining, p.total_amount
-		FROM installment_details d
-		JOIN installment_plans p ON d.plan_id = p.id
-		LEFT JOIN customers c ON p.customer_id = c.id
-		LEFT JOIN products prod ON p.product_id = prod.id
-		WHERE d.paid = 0 AND p.status = 'active' AND d.due_date >= ? AND d.due_date < ?
-		ORDER BY d.due_date
-	`, start, end)
+	cursor, err := db.Collection("installment_plans").Find(r.Context(), bson.M{"status": "active"})
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "Failed to fetch", "ناکام")
 		return
 	}
-	defer rows.Close()
+	defer cursor.Close(r.Context())
 
 	var result []map[string]interface{}
-	for rows.Next() {
-		var planID, name, nameUrdu, father, phone, prodName, prodNameUrdu string
-		var instNo int
-		var dueDate time.Time
-		var amount, partialPaid, remaining, totalAmt float64
-		var paid bool
-		rows.Scan(&planID, &name, &nameUrdu, &father, &phone, &prodName, &prodNameUrdu,
-			&instNo, &dueDate, &amount, &paid, &partialPaid, &remaining, &totalAmt)
-		result = append(result, map[string]interface{}{
-			"id": planID, "customer_name": name, "customer_urdu": nameUrdu, "father_name": father,
-			"phone": phone, "product_name": prodName, "product_name_urdu": prodNameUrdu,
-			"installment_no": instNo, "due_date": dueDate.Format("2006-01-02"), "amount": amount,
-			"paid": paid, "partial_paid": partialPaid, "remaining": remaining, "total_amount": totalAmt,
-		})
+	for cursor.Next(r.Context()) {
+		var plan domain.InstallmentPlan
+		if err := cursor.Decode(&plan); err != nil {
+			continue
+		}
+
+		var cust domain.Customer
+		if err := db.Collection("customers").FindOne(r.Context(), bson.M{"_id": plan.CustomerID}).Decode(&cust); err != nil {
+			continue
+		}
+
+		var prodName, prodNameUrdu string
+		if plan.ProductID != "" {
+			var prod domain.Product
+			if err := db.Collection("products").FindOne(r.Context(), bson.M{"_id": plan.ProductID}).Decode(&prod); err == nil {
+				prodName = prod.Name
+				prodNameUrdu = prod.NameUrdu
+			}
+		}
+
+		for _, d := range plan.Installments {
+			if d.Paid {
+				continue
+			}
+			if d.DueDate.Before(start) || d.DueDate.After(end) || d.DueDate.Equal(end) {
+				continue
+			}
+
+			result = append(result, map[string]interface{}{
+				"id": plan.ID, "customer_name": cust.Name, "customer_urdu": cust.NameUrdu,
+				"father_name": cust.FatherName, "phone": cust.Phone,
+				"product_name": prodName, "product_name_urdu": prodNameUrdu,
+				"installment_no": d.InstallmentNo, "due_date": d.DueDate.Format("2006-01-02"),
+				"amount": d.Amount, "paid": d.Paid, "partial_paid": d.PartialPaid,
+				"remaining": d.Remaining, "total_amount": plan.TotalAmount,
+			})
+		}
 	}
-	if result == nil { result = []map[string]interface{}{} }
+	if result == nil {
+		result = []map[string]interface{}{}
+	}
 	respondJSON(w, http.StatusOK, result)
 }
 
 func (h *DashboardHandler) ActiveInstallments(w http.ResponseWriter, r *http.Request) {
-	db := config.DB
-	rows, err := db.QueryContext(r.Context(), `
-		SELECT p.id, c.name, COALESCE(c.name_urdu, ''), COALESCE(c.father_name, ''), COALESCE(c.phone, ''),
-			COALESCE(prod.name, ''), COALESCE(prod.name_urdu, ''), p.total_amount, p.down_payment,
-			p.remaining_amount, p.num_installments, p.start_date, p.end_date, p.status, p.created_by, p.created_at
-		FROM installment_plans p
-		LEFT JOIN customers c ON p.customer_id = c.id
-		LEFT JOIN products prod ON p.product_id = prod.id
-		WHERE p.status = 'active'
-		ORDER BY p.created_at DESC
-	`)
+	db := config.MongoDatabase
+	if db == nil {
+		respondJSON(w, http.StatusOK, []interface{}{})
+		return
+	}
+
+	cursor, err := db.Collection("installment_plans").Find(r.Context(), bson.M{"status": "active"})
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "Failed to fetch", "ناکام")
 		return
 	}
-	defer rows.Close()
+	defer cursor.Close(r.Context())
+
 	var result []map[string]interface{}
-	for rows.Next() {
-		var planID, name, nameUrdu, father, phone, prodName, prodNameUrdu, status, createdBy string
-		var totalAmt, downPayment, remainingAmt float64
-		var numInst int
-		var startDate, endDate, createdAt time.Time
-		rows.Scan(&planID, &name, &nameUrdu, &father, &phone, &prodName, &prodNameUrdu,
-			&totalAmt, &downPayment, &remainingAmt, &numInst, &startDate, &endDate, &status, &createdBy, &createdAt)
-		
-		// Calculate paid amount = down_payment + sum of all payments for this plan
+	for cursor.Next(r.Context()) {
+		var plan domain.InstallmentPlan
+		if err := cursor.Decode(&plan); err != nil {
+			continue
+		}
+
+		var cust domain.Customer
+		if err := db.Collection("customers").FindOne(r.Context(), bson.M{"_id": plan.CustomerID}).Decode(&cust); err != nil {
+			continue
+		}
+
+		var prodName, prodNameUrdu string
+		if plan.ProductID != "" {
+			var prod domain.Product
+			if err := db.Collection("products").FindOne(r.Context(), bson.M{"_id": plan.ProductID}).Decode(&prod); err == nil {
+				prodName = prod.Name
+				prodNameUrdu = prod.NameUrdu
+			}
+		}
+
 		var paidAmount float64
 		var paidCount int
-		db.QueryRowContext(r.Context(), `SELECT COALESCE(SUM(amount), 0), COUNT(*) FROM payments WHERE installment_plan_id = ?`, planID).Scan(&paidAmount, &paidCount)
-		paidAmount += downPayment // Include down payment in total paid
-		
+		payPipeline := mongo.Pipeline{
+			bson.D{{Key: "$match", Value: bson.D{
+				{Key: "installmentplanid", Value: plan.ID},
+			}}},
+			bson.D{{Key: "$group", Value: bson.D{
+				{Key: "_id", Value: nil},
+				{Key: "total", Value: bson.D{{Key: "$sum", Value: "$amount"}}},
+				{Key: "count", Value: bson.D{{Key: "$sum", Value: 1}}},
+			}}},
+		}
+		payCursor, _ := db.Collection("payments").Aggregate(r.Context(), payPipeline)
+		if payCursor != nil {
+			if payCursor.Next(r.Context()) {
+				var r struct {
+					Total float64 `bson:"total"`
+					Count int     `bson:"count"`
+				}
+				if payCursor.Decode(&r) == nil {
+					paidAmount = r.Total
+					paidCount = r.Count
+				}
+			}
+			payCursor.Close(r.Context())
+		}
+		paidAmount += plan.DownPayment
+
 		result = append(result, map[string]interface{}{
-			"id": planID, "customer_name": name, "customer_urdu": nameUrdu, "father_name": father,
-			"phone": phone, "product_name": prodName, "product_name_urdu": prodNameUrdu,
-			"total_amount": totalAmt, "down_payment": downPayment, "remaining_amount": remainingAmt,
-			"num_installments": numInst, "paid_amount": paidAmount, "paid_count": paidCount,
-			"start_date": startDate.Format("2006-01-02"),
-			"end_date": endDate.Format("2006-01-02"), "status": status, "created_by": createdBy,
+			"id": plan.ID, "customer_name": cust.Name, "customer_urdu": cust.NameUrdu,
+			"father_name": cust.FatherName, "phone": cust.Phone,
+			"product_name": prodName, "product_name_urdu": prodNameUrdu,
+			"total_amount": plan.TotalAmount, "down_payment": plan.DownPayment,
+			"remaining_amount": plan.RemainingAmount, "num_installments": plan.NumberOfInstallments,
+			"paid_amount": paidAmount, "paid_count": paidCount,
+			"start_date": plan.StartDate.Format("2006-01-02"),
+			"end_date":   plan.EndDate.Format("2006-01-02"),
+			"status":     plan.Status, "created_by": plan.CreatedBy,
 		})
 	}
-	if result == nil { result = []map[string]interface{}{} }
+	if result == nil {
+		result = []map[string]interface{}{}
+	}
 	respondJSON(w, http.StatusOK, result)
 }
+
 func (h *DashboardHandler) CompletedInstallments(w http.ResponseWriter, r *http.Request) {
-	db := config.DB
-	rows, err := db.QueryContext(r.Context(), `
-		SELECT p.id, c.name, COALESCE(c.name_urdu, ''), COALESCE(c.father_name, ''), COALESCE(c.phone, ''),
-			COALESCE(prod.name, ''), COALESCE(prod.name_urdu, ''), p.total_amount, p.down_payment,
-			p.remaining_amount, p.num_installments, p.start_date, p.end_date, p.status, p.created_by, p.created_at
-		FROM installment_plans p
-		LEFT JOIN customers c ON p.customer_id = c.id
-		LEFT JOIN products prod ON p.product_id = prod.id
-		WHERE p.status = 'completed'
-		ORDER BY p.updated_at DESC
-	`)
+	db := config.MongoDatabase
+	if db == nil {
+		respondJSON(w, http.StatusOK, []interface{}{})
+		return
+	}
+
+	cursor, err := db.Collection("installment_plans").Find(r.Context(), bson.M{"status": "completed"})
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "Failed to fetch", "ناکام")
 		return
 	}
-	defer rows.Close()
+	defer cursor.Close(r.Context())
+
 	var result []map[string]interface{}
-	for rows.Next() {
-		var planID, name, nameUrdu, father, phone, prodName, prodNameUrdu, status, createdBy string
-		var totalAmt, downPayment, remainingAmt float64
-		var numInst int
-		var startDate, endDate, createdAt time.Time
-		rows.Scan(&planID, &name, &nameUrdu, &father, &phone, &prodName, &prodNameUrdu,
-			&totalAmt, &downPayment, &remainingAmt, &numInst, &startDate, &endDate, &status, &createdBy, &createdAt)
-		
-		// Calculate paid amount = down_payment + sum of all payments for this plan
-		var paidAmount float64
-		var paidCount int
-		db.QueryRowContext(r.Context(), `SELECT COALESCE(SUM(amount), 0), COUNT(*) FROM payments WHERE installment_plan_id = ?`, planID).Scan(&paidAmount, &paidCount)
-		paidAmount += downPayment // Include down payment in total paid
-		
+	for cursor.Next(r.Context()) {
+		var plan domain.InstallmentPlan
+		if err := cursor.Decode(&plan); err != nil {
+			continue
+		}
+
+		var cust domain.Customer
+		if err := db.Collection("customers").FindOne(r.Context(), bson.M{"_id": plan.CustomerID}).Decode(&cust); err != nil {
+			continue
+		}
+
+		var prodName, prodNameUrdu string
+		if plan.ProductID != "" {
+			var prod domain.Product
+			if err := db.Collection("products").FindOne(r.Context(), bson.M{"_id": plan.ProductID}).Decode(&prod); err == nil {
+				prodName = prod.Name
+				prodNameUrdu = prod.NameUrdu
+			}
+		}
+
 		result = append(result, map[string]interface{}{
-			"id": planID, "customer_name": name, "customer_urdu": nameUrdu, "father_name": father,
-			"phone": phone, "product_name": prodName, "product_name_urdu": prodNameUrdu,
-			"total_amount": totalAmt, "down_payment": downPayment, "remaining_amount": remainingAmt,
-			"num_installments": numInst, "paid_amount": paidAmount, "paid_count": paidCount,
-			"start_date": startDate.Format("2006-01-02"),
-			"end_date": endDate.Format("2006-01-02"), "status": status, "created_by": createdBy,
+			"id": plan.ID, "customer_name": cust.Name, "customer_urdu": cust.NameUrdu,
+			"father_name": cust.FatherName, "phone": cust.Phone,
+			"product_name": prodName, "product_name_urdu": prodNameUrdu,
+			"total_amount": plan.TotalAmount, "down_payment": plan.DownPayment,
+			"remaining_amount": plan.RemainingAmount, "num_installments": plan.NumberOfInstallments,
+			"start_date": plan.StartDate.Format("2006-01-02"),
+			"end_date":   plan.EndDate.Format("2006-01-02"),
+			"status":     plan.Status, "created_by": plan.CreatedBy,
 		})
 	}
-	if result == nil { result = []map[string]interface{}{} }
+	if result == nil {
+		result = []map[string]interface{}{}
+	}
 	respondJSON(w, http.StatusOK, result)
-}
-
-// TodayInstallmentStats returns today's installment collection stats
-
-func (h *DashboardHandler) TodayInstallmentStats(w http.ResponseWriter, r *http.Request) {
-	db := config.DB
-	now := time.Now()
-	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	tomorrow := today.Add(24 * time.Hour)
-
-	var totalDueCount int
-	var totalDueAmount float64
-	db.QueryRowContext(r.Context(), `
-		SELECT COUNT(*), COALESCE(SUM(COALESCE(d.amount,0)+COALESCE(d.fine,0)-COALESCE(d.partial_paid,0)), 0)
-		FROM installment_details d
-		JOIN installment_plans p ON d.plan_id = p.id
-		WHERE d.paid = 0 AND p.status IN ('active','overdue')
-		AND d.due_date >= ? AND d.due_date < ?
-	`, today, tomorrow).Scan(&totalDueCount, &totalDueAmount)
-
-	var collectedCount int
-	var collectedAmount float64
-	db.QueryRowContext(r.Context(), `
-		SELECT COUNT(*), COALESCE(SUM(amount), 0)
-		FROM payments
-		WHERE transaction_date >= ? AND transaction_date < ?
-	`, today, tomorrow).Scan(&collectedCount, &collectedAmount)
-
-	remainingCount := totalDueCount - collectedCount
-	remainingAmount := totalDueAmount - collectedAmount
-	if remainingCount < 0 { remainingCount = 0 }
-	if remainingAmount < 0 { remainingAmount = 0 }
-
-	collectedRows, err := db.QueryContext(r.Context(), `
-		SELECT c.id, c.name, COALESCE(c.name_urdu, ''), COALESCE(c.father_name, ''), COALESCE(c.phone, ''),
-			COALESCE(c.address, ''), COALESCE(c.address_urdu, ''), pay.amount, pay.installment_no, pay.transaction_date,
-			COALESCE(prod.name, ''), pay.installment_plan_id
-		FROM payments pay
-		JOIN installment_plans p ON pay.installment_plan_id = p.id
-		JOIN customers c ON p.customer_id = c.id
-		LEFT JOIN products prod ON p.product_id = prod.id
-		WHERE pay.transaction_date >= ? AND pay.transaction_date < ?
-		ORDER BY pay.transaction_date
-	`, today, tomorrow)
-	var collectedCustomers []map[string]interface{}
-	if err == nil {
-		defer collectedRows.Close()
-		for collectedRows.Next() {
-			var cid, name, nameUrdu, father, phone, addr, addrUrdu, prodName, planID string
-			var amount float64
-			var instNo int
-			var txnDate time.Time
-			collectedRows.Scan(&cid, &name, &nameUrdu, &father, &phone, &addr, &addrUrdu, &amount, &instNo, &txnDate, &prodName, &planID)
-			collectedCustomers = append(collectedCustomers, map[string]interface{}{
-				"customer_id": cid, "customer_name": name, "customer_name_urdu": nameUrdu,
-				"father_name": father, "phone": phone, "address": addr, "address_urdu": addrUrdu,
-				"amount": amount, "installment_no": instNo, "date": txnDate.Format("2006-01-02"),
-				"product_name": prodName, "plan_id": planID,
-			})
-		}
-	}
-	if collectedCustomers == nil { collectedCustomers = []map[string]interface{}{} }
-
-	remainingRows, err := db.QueryContext(r.Context(), `
-		SELECT c.id, c.name, COALESCE(c.name_urdu, ''), COALESCE(c.father_name, ''), COALESCE(c.phone, ''),
-			COALESCE(c.address, ''), COALESCE(c.address_urdu, ''), d.amount, d.installment_no, d.due_date,
-			COALESCE(prod.name, ''), d.plan_id
-		FROM installment_details d
-		JOIN installment_plans p ON d.plan_id = p.id
-		JOIN customers c ON p.customer_id = c.id
-		LEFT JOIN products prod ON p.product_id = prod.id
-		WHERE d.paid = 0 AND p.status IN ('active','overdue')
-		AND d.due_date >= ? AND d.due_date < ?
-		ORDER BY d.due_date
-	`, today, tomorrow)
-	var remainingCustomers []map[string]interface{}
-	if err == nil {
-		defer remainingRows.Close()
-		for remainingRows.Next() {
-			var cid, name, nameUrdu, father, phone, addr, addrUrdu, prodName, planID string
-			var amount float64
-			var instNo int
-			var dueDate time.Time
-			remainingRows.Scan(&cid, &name, &nameUrdu, &father, &phone, &addr, &addrUrdu, &amount, &instNo, &dueDate, &prodName, &planID)
-			remainingCustomers = append(remainingCustomers, map[string]interface{}{
-				"customer_id": cid, "customer_name": name, "customer_name_urdu": nameUrdu,
-				"father_name": father, "phone": phone, "address": addr, "address_urdu": addrUrdu,
-				"amount": amount, "installment_no": instNo, "due_date": dueDate.Format("2006-01-02"),
-				"product_name": prodName, "plan_id": planID,
-			})
-		}
-	}
-	if remainingCustomers == nil { remainingCustomers = []map[string]interface{}{} }
-
-	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"total_due_count":     totalDueCount,
-		"total_due_amount":    totalDueAmount,
-		"collected_count":     collectedCount,
-		"collected_amount":    collectedAmount,
-		"remaining_count":     remainingCount,
-		"remaining_amount":    remainingAmount,
-		"collected_customers": collectedCustomers,
-		"remaining_customers": remainingCustomers,
-	})
 }
 
 func (h *DashboardHandler) CustomersWithFinance(w http.ResponseWriter, r *http.Request) {
-	db := config.DB
-	rows, err := db.QueryContext(r.Context(), `
-		SELECT c.id, c.name, COALESCE(c.name_urdu, ''), COALESCE(c.father_name, ''), COALESCE(c.phone, ''),
-			COALESCE(c.cnic, ''), COALESCE(c.address, ''), COALESCE(c.address_urdu, ''),
-			COUNT(p.id) as total_plans,
-			COALESCE(SUM(p.total_amount), 0) as total_purchase,
-			COALESCE(SUM(CASE WHEN p.status = 'active' THEN p.remaining_amount ELSE 0 END), 0) as total_outstanding,
-			COALESCE(SUM((SELECT COALESCE(SUM(pay.amount), 0) FROM payments pay WHERE pay.installment_plan_id = p.id)), 0) as total_paid,
-			c.created_at
-		FROM customers c
-		LEFT JOIN installment_plans p ON c.id = p.customer_id
-		GROUP BY c.id
-		ORDER BY total_outstanding DESC
-	`)
+	db := config.MongoDatabase
+	if db == nil {
+		respondJSON(w, http.StatusOK, []interface{}{})
+		return
+	}
+
+	cursor, err := db.Collection("installment_plans").Find(r.Context(), bson.M{"status": "active"})
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "Failed to fetch", "ناکام")
 		return
 	}
-	defer rows.Close()
-	var result []map[string]interface{}
-	for rows.Next() {
-		var id, name, nameUrdu, father, phone, cnic, addr, addrUrdu string
-		var totalPlans int
-		var totalPurchase, totalOutstanding, totalPaid float64
-		var createdAt time.Time
-		rows.Scan(&id, &name, &nameUrdu, &father, &phone, &cnic, &addr, &addrUrdu, &totalPlans, &totalPurchase, &totalOutstanding, &totalPaid, &createdAt)
-		result = append(result, map[string]interface{}{
-			"id": id, "name": name, "name_urdu": nameUrdu, "father_name": father, "phone": phone,
-			"cnic": cnic, "address": addr, "address_urdu": addrUrdu,
-			"total_plans": totalPlans, "total_purchase": totalPurchase,
-			"total_outstanding": totalOutstanding, "total_paid": totalPaid,
-			"created_at": createdAt.Format("2006-01-02"),
-		})
+	defer cursor.Close(r.Context())
+
+	custMap := make(map[string]map[string]interface{})
+	for cursor.Next(r.Context()) {
+		var plan domain.InstallmentPlan
+		if err := cursor.Decode(&plan); err != nil {
+			continue
+		}
+
+		if _, exists := custMap[plan.CustomerID]; !exists {
+			var cust domain.Customer
+			if err := db.Collection("customers").FindOne(r.Context(), bson.M{"_id": plan.CustomerID}).Decode(&cust); err != nil {
+				continue
+			}
+
+			var prodName, prodNameUrdu string
+			if plan.ProductID != "" {
+				var prod domain.Product
+				if err := db.Collection("products").FindOne(r.Context(), bson.M{"_id": plan.ProductID}).Decode(&prod); err == nil {
+					prodName = prod.Name
+					prodNameUrdu = prod.NameUrdu
+				}
+			}
+
+			custMap[plan.CustomerID] = map[string]interface{}{
+				"customer_id": cust.ID, "customer_name": cust.Name, "customer_urdu": cust.NameUrdu,
+				"father_name": cust.FatherName, "phone": cust.Phone, "cnic": cust.CNIC,
+				"address": cust.Address, "product_name": prodName, "product_name_urdu": prodNameUrdu,
+				"plan_id": plan.ID, "total_amount": plan.TotalAmount, "down_payment": plan.DownPayment,
+				"remaining_amount": plan.RemainingAmount, "num_installments": plan.NumberOfInstallments,
+				"installment_amount": plan.InstallmentAmount, "start_date": plan.StartDate.Format("2006-01-02"),
+				"end_date": plan.EndDate.Format("2006-01-02"), "status": plan.Status,
+			}
+		}
 	}
-	if result == nil { result = []map[string]interface{}{} }
+
+	var result []map[string]interface{}
+	for _, v := range custMap {
+		result = append(result, v)
+	}
+	if result == nil {
+		result = []map[string]interface{}{}
+	}
 	respondJSON(w, http.StatusOK, result)
 }

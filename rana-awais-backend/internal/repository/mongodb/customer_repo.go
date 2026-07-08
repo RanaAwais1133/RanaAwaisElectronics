@@ -36,12 +36,8 @@ func (r *CustomerRepository) Create(ctx context.Context, c *domain.Customer) err
 }
 
 func (r *CustomerRepository) GetByID(ctx context.Context, id string) (*domain.Customer, error) {
-	objID, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
-		return nil, err
-	}
 	var c domain.Customer
-	err = r.coll.FindOne(ctx, bson.M{"_id": objID}).Decode(&c)
+	err := r.coll.FindOne(ctx, bson.M{"_id": id}).Decode(&c)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return nil, nil
@@ -65,20 +61,12 @@ func (r *CustomerRepository) GetByPhone(ctx context.Context, phone string) (*dom
 
 func (r *CustomerRepository) Update(ctx context.Context, id string, c *domain.Customer) error {
 	c.UpdatedAt = time.Now()
-	objID, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
-		return err
-	}
-	_, err = r.coll.ReplaceOne(ctx, bson.M{"_id": objID}, c)
+	_, err := r.coll.ReplaceOne(ctx, bson.M{"_id": id}, c)
 	return err
 }
 
 func (r *CustomerRepository) Delete(ctx context.Context, id string) error {
-	objID, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
-		return err
-	}
-	_, err = r.coll.DeleteOne(ctx, bson.M{"_id": objID})
+	_, err := r.coll.DeleteOne(ctx, bson.M{"_id": id})
 	return err
 }
 
