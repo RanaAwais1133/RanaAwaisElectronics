@@ -113,6 +113,67 @@ func ConnectMongoDB(cfg *Config) {
 
 	// Run first-time setup for MongoDB
 	runMongoFirstTimeSetup(ctx, cfg)
+
+	// ═══════════════════════════════════════
+	// Also connect SQLite for sync log tracking
+	// ═══════════════════════════════════════
+	connectSyncSQLite(cfg)
+}
+
+// connectSyncSQLite opens a SQLite connection solely for sync log tracking
+func connectSyncSQLite(cfg *Config) {
+	dbPath := cfg.SQLitePath
+	if dbPath == "" {
+		dbPath = getEnv("SQLITE_PATH", "./rana-awais.db")
+	}
+
+	// Ensure directory exists
+	dbDir := filepath.Dir(dbPath)
+	if err := os.MkdirAll(dbDir, 0755); err != nil {
+		log.Printf("⚠️  Could not create sync db directory: %v", err)
+	}
+
+	log.Printf("🔌 Connecting sync SQLite: %s", dbPath)
+
+	var err error
+	DB, err = sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=on")
+	if err != nil {
+		log.Printf("⚠️  Failed to open sync SQLite database: %v", err)
+		return
+	}
+
+	// Configure connection pool
+	DB.SetMaxOpenConns(5)
+	DB.SetMaxIdleConns(2)
+	DB.SetConnMaxLifetime(5 * time.Minute)
+
+	// Test connection
+	if err := DB.Ping(); err != nil {
+		log.Printf("⚠️  Failed to ping sync SQLite database: %v", err)
+		DB = nil
+		return
+	}
+
+	log.Printf("✅ Sync SQLite connected successfully: %s", dbPath)
+
+	// Create sync_logs table if not exists
+	_, err = DB.Exec(`
+		CREATE TABLE IF NOT EXISTS sync_logs (
+			id TEXT PRIMARY KEY,
+			entity TEXT NOT NULL,
+			entity_id TEXT NOT NULL,
+			operation TEXT NOT NULL,
+			status TEXT NOT NULL DEFAULT 'pending',
+			error TEXT,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			last_attempt DATETIME,
+			synced_at DATETIME,
+			retry_count INTEGER DEFAULT 0
+		)
+	`)
+	if err != nil {
+		log.Printf("⚠️  Failed to create sync_logs table: %v", err)
+	}
 }
 
 
@@ -301,6 +362,9 @@ func hashPassword(password string) string {
 
 // HealthCheck checks if the database is reachable
 func HealthCheck() error {
+	if DB == nil {
+		return nil // In MongoDB mode, SQLite is optional (sync only)
+	}
 	return DB.Ping()
 }
 

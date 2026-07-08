@@ -98,6 +98,11 @@ func (e *SyncEngine) syncLoop() {
 
 // syncAll syncs all pending records from local to cloud
 func (e *SyncEngine) syncAll() {
+	// Safety check: if localDB is nil, skip sync (MongoDB-only mode)
+	if e.localDB == nil {
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
