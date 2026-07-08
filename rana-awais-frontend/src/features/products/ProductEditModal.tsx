@@ -40,8 +40,27 @@ const ProductEditModal: React.FC<Props> = ({ productId, onClose, onSuccess }) =>
     document.title = `${isUrdu ? 'پروڈکٹ میں ترمیم' : 'Edit Product'} | ${APP_CONFIG.companyName}`;
   }, [isUrdu]);
 
-  // ✅ Fetch product
+  // ✅ Fetch product from store first (instant), then refresh from API
   useEffect(() => {
+    const products = useProductStore.getState().products;
+    const cached = products.find(p => p.id === productId);
+    
+    if (cached) {
+      setName(cached.name || '');
+      setNameUrdu(cached.nameUrdu || '');
+      setCompany(cached.company || '');
+      setCompanyUrdu(cached.companyUrdu || '');
+      setCategory(cached.category || '');
+      setSellingPrice(cached.price ? String(cached.price) : '');
+      setPurchasePrice(cached.purchasePrice ? String(cached.purchasePrice) : '');
+      setDescription(cached.description || '');
+      setSku(cached.sku || '');
+      setStockCount(cached.stockCount || 0);
+      setError('');
+      setFetching(false);
+    }
+
+    // Refresh from API in background
     api.get(`/products/${productId}`)
       .then(res => {
         const p = res.data;
@@ -58,7 +77,10 @@ const ProductEditModal: React.FC<Props> = ({ productId, onClose, onSuccess }) =>
         setError('');
       })
       .catch(() => {
-        setError(isUrdu ? 'پروڈکٹ نہیں ملی' : t('product_not_found'));
+        // If no cached data and API fails, show error
+        if (!cached) {
+          setError(isUrdu ? 'پروڈکٹ نہیں ملی' : t('product_not_found'));
+        }
       })
       .finally(() => setFetching(false));
   }, [productId, t, isUrdu]);

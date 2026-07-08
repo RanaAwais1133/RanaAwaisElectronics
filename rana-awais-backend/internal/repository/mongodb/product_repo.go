@@ -64,7 +64,26 @@ func (r *ProductRepository) Update(ctx context.Context, id string, p *domain.Pro
 	if err != nil {
 		return err
 	}
-	_, err = r.coll.ReplaceOne(ctx, bson.M{"_id": objID}, p)
+
+	// Use UpdateOne instead of ReplaceOne to preserve fields not in the update payload
+	update := bson.M{
+		"$set": bson.M{
+			"name":          p.Name,
+			"nameurdu":      p.NameUrdu,
+			"company":       p.Company,
+			"companyurdu":   p.CompanyUrdu,
+			"category":      p.Category,
+			"price":         p.Price,
+			"purchaseprice": p.PurchasePrice,
+			"description":   p.Description,
+			"sku":           p.SKU,
+			"stockcount":    p.StockCount,
+			"in_stock":      p.InStock,
+			"updatedat":     p.UpdatedAt,
+		},
+	}
+
+	_, err = r.coll.UpdateOne(ctx, bson.M{"_id": objID}, update)
 	return err
 }
 
