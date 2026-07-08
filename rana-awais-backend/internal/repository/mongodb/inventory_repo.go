@@ -33,12 +33,8 @@ func (r *InventoryRepository) Create(ctx context.Context, item *domain.Inventory
 }
 
 func (r *InventoryRepository) GetByID(ctx context.Context, id string) (*domain.InventoryItem, error) {
-	objID, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
-		return nil, err
-	}
 	var item domain.InventoryItem
-	err = r.coll.FindOne(ctx, bson.M{"_id": objID}).Decode(&item)
+	err := r.coll.FindOne(ctx, getFilterByID(id)).Decode(&item)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return nil, nil
@@ -50,20 +46,12 @@ func (r *InventoryRepository) GetByID(ctx context.Context, id string) (*domain.I
 
 func (r *InventoryRepository) Update(ctx context.Context, id string, item *domain.InventoryItem) error {
 	item.UpdatedAt = time.Now()
-	objID, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
-		return err
-	}
-	_, err = r.coll.ReplaceOne(ctx, bson.M{"_id": objID}, item)
+	_, err := r.coll.ReplaceOne(ctx, getFilterByID(id), item)
 	return err
 }
 
 func (r *InventoryRepository) Delete(ctx context.Context, id string) error {
-	objID, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
-		return err
-	}
-	_, err = r.coll.DeleteOne(ctx, bson.M{"_id": objID})
+	_, err := r.coll.DeleteOne(ctx, getFilterByID(id))
 	return err
 }
 

@@ -2,6 +2,7 @@ package mongodb
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/domain"
@@ -21,14 +22,21 @@ func NewProductRepository(db *mongo.Database) *ProductRepository {
 	}
 }
 
-// getFilterByID handles both ObjectID hex strings and plain string IDs
+// getFilterByID creates a filter that matches both ObjectID and string _id fields
+// This handles the case where MongoDB stores _id as a string (via bson:"_id" tag on a string field)
 func getFilterByID(id string) bson.M {
-	// Try ObjectID first
-	if objID, err := primitive.ObjectIDFromHex(id); err == nil {
-		return bson.M{"_id": objID}
+	// Always try string match first since our domain models use string IDs
+	// Also try ObjectID match for legacy data that might be stored as ObjectID
+	orConditions := []bson.M{
+		{"_id": id},
 	}
-	// Fall back to string ID
-	return bson.M{"_id": id}
+	if objID, err := primitive.ObjectIDFromHex(id); err == nil {
+		orConditions = append(orConditions, bson.M{"_id": objID})
+	}
+	if len(orConditions) == 1 {
+		return orConditions[0]
+	}
+	return bson.M{"$or": orConditions}
 }
 
 func (r *ProductRepository) Create(ctx context.Context, p *domain.Product) error {
@@ -92,8 +100,14 @@ func (r *ProductRepository) Update(ctx context.Context, id string, p *domain.Pro
 }
 
 func (r *ProductRepository) Delete(ctx context.Context, id string) error {
-	_, err := r.coll.DeleteOne(ctx, getFilterByID(id))
-	return err
+	result, err := r.coll.DeleteOne(ctx, getFilterByID(id))
+	if err != nil {
+		return err
+	}
+	if result.DeletedCount == 0 {
+		return fmt.Errorf("product not found with id: %s", id)
+	}
+	return nil
 }
 
 func (r *ProductRepository) List(ctx context.Context, skip, limit int64) ([]domain.Product, error) {
@@ -178,28 +192,19 @@ func (r *ProductRepository) Search(ctx context.Context, query string, skip, limi
 
 // BulkDelete deletes multiple products by IDs
 func (r *ProductRepository) BulkDelete(ctx context.Context, ids []string) error {
-	var objIDs []primitive.ObjectID
-	var strIDs []string
+	// Build filter that matches both string and ObjectID _id fields
+	orConditions := []bson.M{
+		{"_id": bson.M{"$in": ids}},
+	}
 
+	var objIDs []primitive.ObjectID
 	for _, id := range ids {
 		if objID, err := primitive.ObjectIDFromHex(id); err == nil {
 			objIDs = append(objIDs, objID)
-		} else {
-			strIDs = append(strIDs, id)
 		}
 	}
-
-	// Build filter for both ObjectID and string IDs
-	orConditions := []bson.M{}
 	if len(objIDs) > 0 {
 		orConditions = append(orConditions, bson.M{"_id": bson.M{"$in": objIDs}})
-	}
-	if len(strIDs) > 0 {
-		orConditions = append(orConditions, bson.M{"_id": bson.M{"$in": strIDs}})
-	}
-
-	if len(orConditions) == 0 {
-		return nil
 	}
 
 	filter := bson.M{"$or": orConditions}

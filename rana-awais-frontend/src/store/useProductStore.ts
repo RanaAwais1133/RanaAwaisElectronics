@@ -389,6 +389,9 @@ export const useProductStore = create<ProductState>()((set, get) => {
 
       try {
         await deleteProduct(id);
+        // Force cache expiry so next fetchProducts gets fresh data from backend
+        localStorage.removeItem(STORAGE_KEYS.LAST_FETCHED);
+        localStorage.removeItem(STORAGE_KEYS.PRODUCTS);
         toast.success(`✅ Product deleted`);
         return true;
       } catch (err: any) {
