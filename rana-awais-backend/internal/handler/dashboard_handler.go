@@ -96,35 +96,8 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// Down payments today
-		downPipeline := mongo.Pipeline{
-			bson.D{{Key: "$match", Value: bson.D{
-				{Key: "createdat", Value: bson.D{
-					{Key: "$gte", Value: todayStart},
-					{Key: "$lt", Value: todayEnd},
-				}},
-				{Key: "downpayment", Value: bson.D{{Key: "$gt", Value: 0}}},
-			}}},
-			bson.D{{Key: "$group", Value: bson.D{
-				{Key: "_id", Value: nil},
-				{Key: "total", Value: bson.D{{Key: "$sum", Value: "$downpayment"}}},
-				{Key: "count", Value: bson.D{{Key: "$sum", Value: 1}}},
-			}}},
-		}
-		downCursor, err := db.Collection("installment_plans").Aggregate(ctx, downPipeline)
-		if err == nil {
-			defer downCursor.Close(ctx)
-			if downCursor.Next(ctx) {
-				var r struct {
-					Total float64 `bson:"total"`
-					Count int64   `bson:"count"`
-				}
-				if downCursor.Decode(&r) == nil {
-					total += r.Total
-					count += r.Count
-				}
-			}
-		}
+		// Down payments are already recorded in payments collection by CreatePlan
+		// No need to query installment_plans separately - avoids double counting
 
 		results <- result{"todayCollection", map[string]interface{}{"total": total, "count": count}}
 	}()
@@ -158,29 +131,7 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 			payCursor.Close(ctx)
 		}
 
-		downPipeline := mongo.Pipeline{
-			bson.D{{Key: "$match", Value: bson.D{
-				{Key: "createdat", Value: bson.D{
-					{Key: "$gte", Value: todayStart},
-					{Key: "$lt", Value: todayEnd},
-				}},
-				{Key: "downpayment", Value: bson.D{{Key: "$gt", Value: 0}}},
-			}}},
-			bson.D{{Key: "$group", Value: bson.D{
-				{Key: "_id", Value: nil},
-				{Key: "total", Value: bson.D{{Key: "$sum", Value: "$downpayment"}}},
-			}}},
-		}
-		downCursor, _ := db.Collection("installment_plans").Aggregate(ctx, downPipeline)
-		if downCursor != nil {
-			if downCursor.Next(ctx) {
-				var r struct{ Total float64 `bson:"total"` }
-				if downCursor.Decode(&r) == nil {
-					revenue += r.Total
-				}
-			}
-			downCursor.Close(ctx)
-		}
+		// Down payments already counted in payments collection - skip to avoid double counting
 
 		expPipeline := mongo.Pipeline{
 			bson.D{{Key: "$match", Value: bson.D{
@@ -241,29 +192,7 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 			payCursor.Close(ctx)
 		}
 
-		downPipeline := mongo.Pipeline{
-			bson.D{{Key: "$match", Value: bson.D{
-				{Key: "createdat", Value: bson.D{
-					{Key: "$gte", Value: monthStart},
-					{Key: "$lt", Value: monthEnd},
-				}},
-				{Key: "downpayment", Value: bson.D{{Key: "$gt", Value: 0}}},
-			}}},
-			bson.D{{Key: "$group", Value: bson.D{
-				{Key: "_id", Value: nil},
-				{Key: "total", Value: bson.D{{Key: "$sum", Value: "$downpayment"}}},
-			}}},
-		}
-		downCursor, _ := db.Collection("installment_plans").Aggregate(ctx, downPipeline)
-		if downCursor != nil {
-			if downCursor.Next(ctx) {
-				var r struct{ Total float64 `bson:"total"` }
-				if downCursor.Decode(&r) == nil {
-					revenue += r.Total
-				}
-			}
-			downCursor.Close(ctx)
-		}
+		// Down payments already counted in payments collection - skip to avoid double counting
 
 		expPipeline := mongo.Pipeline{
 			bson.D{{Key: "$match", Value: bson.D{
@@ -423,7 +352,7 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		defer wg.Done()
 		count, _ := db.Collection("products").CountDocuments(ctx, bson.M{
-			"instock":    true,
+			"in_stock":   true,
 			"stockcount": bson.M{"$lte": 5},
 		})
 		results <- result{"lowStock", count}
@@ -703,7 +632,7 @@ func (h *DashboardHandler) LowStockDetails(w http.ResponseWriter, r *http.Reques
 	}
 
 	cursor, err := db.Collection("products").Find(r.Context(), bson.M{
-		"instock":    true,
+		"in_stock":   true,
 		"stockcount": bson.M{"$lte": 5},
 	})
 	if err != nil {
@@ -852,7 +781,8 @@ func (h *DashboardHandler) ActiveInstallments(w http.ResponseWriter, r *http.Req
 			}
 			payCursor.Close(r.Context())
 		}
-		paidAmount += plan.DownPayment
+		// Down payment is already recorded in payments collection by CreatePlan
+		// No need to add it again - avoids double counting
 
 		result = append(result, map[string]interface{}{
 			"id": plan.ID, "customer_name": cust.Name, "customer_urdu": cust.NameUrdu,
