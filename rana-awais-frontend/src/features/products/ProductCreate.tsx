@@ -1,16 +1,22 @@
-﻿import React, { useState, useCallback, useEffect } from 'react';
+﻿// ═══════════════════════════════════════════════════════════════
+// ✅ Rana Awais Electronics - Product Create/Edit Modal
+// ✅ Merged create + edit mode
+// ✅ Optimistic updates with rollback
+// ✅ Real-time SSE sync
+// ═══════════════════════════════════════════════════════════════
+
+import React, { useState, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
-import api from '../../utils/api';
 import FormField from '../../components/forms/FormField';
 import { useAuthStore } from '../../store/useAuthStore';
-import { useProductStore } from '../../store/useProductStore';
+import { useProductStore, Product } from '../../store/useProductStore';
 import { APP_CONFIG } from '../../config/app';
 
 interface Props {
   onClose: () => void;
   onSuccess: () => void;
-  initialData?: any; // âœ… NEW: Edit mode support
+  initialData?: Product;
 }
 
 const ProductCreate: React.FC<Props> = ({ onClose, onSuccess, initialData }) => {
@@ -18,7 +24,7 @@ const ProductCreate: React.FC<Props> = ({ onClose, onSuccess, initialData }) => 
   const isUrdu = i18n.language === 'ur';
   const currentUser = useAuthStore((state) => state.user);
 
-  // âœ… State
+  // State
   const [name, setName] = useState(initialData?.name || '');
   const [nameUrdu, setNameUrdu] = useState(initialData?.nameUrdu || '');
   const [company, setCompany] = useState(initialData?.company || '');
@@ -31,63 +37,54 @@ const ProductCreate: React.FC<Props> = ({ onClose, onSuccess, initialData }) => 
   const [sku, setSku] = useState(initialData?.sku || '');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [isEditMode] = useState(!!initialData?.id);
+  const isEditMode = !!initialData?.id;
 
-  // âœ… Page title
+  // Store actions
+  const storeCreateProduct = useProductStore(s => s.createProduct);
+  const storeUpdateProduct = useProductStore(s => s.updateProduct);
+
+  // Page title
   useEffect(() => {
-    document.title = `${isEditMode ? (isUrdu ? 'Ù¾Ø±ÙˆÚˆÚ©Ù¹ Ù…ÛŒÚº ØªØ±Ù…ÛŒÙ…' : 'Edit Product') : (isUrdu ? 'Ù†ÛŒØ§ Ù¾Ø±ÙˆÚˆÚ©Ù¹' : t('add_product'))} | ${APP_CONFIG.companyName}`;
+    document.title = `${isEditMode ? (isUrdu ? 'پروڈکٹ میں ترمیم' : 'Edit Product') : (isUrdu ? 'نیا پروڈکٹ' : t('add_product'))} | ${APP_CONFIG.companyName}`;
   }, [isEditMode, t, isUrdu]);
 
-  // âœ… Auto-fill helper
+  // Auto-fill helper
   const autoFillFromName = () => {
-    if (name && !nameUrdu) {
-      setNameUrdu(name);
-    }
-    if (nameUrdu && !name) {
-      setName(nameUrdu);
-    }
+    if (name && !nameUrdu) setNameUrdu(name);
+    if (nameUrdu && !name) setName(nameUrdu);
   };
 
   const autoFillCompany = () => {
-    if (company && !companyUrdu) {
-      setCompanyUrdu(company);
-    }
-    if (companyUrdu && !company) {
-      setCompany(companyUrdu);
-    }
+    if (company && !companyUrdu) setCompanyUrdu(company);
+    if (companyUrdu && !company) setCompany(companyUrdu);
   };
 
-  // âœ… Validation
+  // Validation
   const validateForm = useCallback(() => {
     if (!name && !nameUrdu) {
-      setError(isUrdu ? 'Ù†Ø§Ù… Ø¶Ø±ÙˆØ±ÛŒ ÛÛ’' : t('name_required'));
+      setError(isUrdu ? 'نام ضروری ہے' : t('name_required'));
       return false;
     }
     if (!sellingPrice || parseFloat(sellingPrice) <= 0) {
-      setError(isUrdu ? 'ÙØ±ÙˆØ®Øª Ù‚ÛŒÙ…Øª Ø¶Ø±ÙˆØ±ÛŒ ÛÛ’' : t('name_price_required'));
+      setError(isUrdu ? 'فروخت قیمت ضروری ہے' : t('name_price_required'));
       return false;
     }
     if (quantity < 0) {
-      setError(isUrdu ? 'Ù…Ù‚Ø¯Ø§Ø± Ù…Ù†ÙÛŒ Ù†ÛÛŒÚº ÛÙˆ Ø³Ú©ØªÛŒ' : 'Quantity cannot be negative');
+      setError(isUrdu ? 'مقدار منفی نہیں ہو سکتی' : 'Quantity cannot be negative');
       return false;
     }
     return true;
   }, [name, nameUrdu, sellingPrice, quantity, t, isUrdu]);
 
-  const addProduct = useProductStore(s => s.addProduct);
-  const updateProduct = useProductStore(s => s.updateProduct);
-
-  // âœ… Submit handler with OPTIMISTIC UI
+  // Submit handler
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
-    
     if (!validateForm()) return;
-    
+
     setLoading(true);
     setError('');
 
     const productData = {
-      ...(isEditMode && { id: initialData.id }),
       name: name || nameUrdu,
       nameUrdu: nameUrdu || name,
       company: company || companyUrdu,
@@ -103,82 +100,53 @@ const ProductCreate: React.FC<Props> = ({ onClose, onSuccess, initialData }) => 
     };
 
     try {
-      if (isEditMode) {
-        // ✅ Edit mode - OPTIMISTIC UI update
-        updateProduct(initialData.id, productData);
-        
-        await api.put(`/products/${initialData.id}`, productData);
-        toast.success(isUrdu ? 'Ù¾Ø±ÙˆÚˆÚ©Ù¹ Ø§Ù¾ ÚˆÛŒÙ¹ ÛÙˆ Ú¯Ø¦ÛŒ' : 'Product updated successfully');
-      } else {
-        // ✅ Create mode - OPTIMISTIC UI
-        const tempId = 'temp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-        const optimisticProduct = { ...productData, id: tempId };
-        addProduct(optimisticProduct as any);
-        
-        const productRes = await api.post('/products', productData);
-        const realId = productRes.data.id;
-        
-        // ✅ Replace temp ID with real ID
-        updateProduct(tempId, { id: realId } as any);
-        toast.success(isUrdu ? 'Ù¾Ø±ÙˆÚˆÚ©Ù¹ Ø¨Ù† Ú¯Ø¦ÛŒ' : t('product_created'));
-        
-        // ✅ Add initial stock if quantity > 0
-        if (Number(quantity) > 0) {
-          await api.post('/inventory/add-stock', {
-            product_id: realId,
-            quantity: Number(quantity),
-            purchase_price: Number(purchasePrice) || 0,
-            selling_price: Number(sellingPrice) || 0,
-            created_by: currentUser?.displayName || currentUser?.username || '',
-          });
+      if (isEditMode && initialData?.id) {
+        // Edit mode - use store's optimistic update
+        const success = await storeUpdateProduct(initialData.id, productData);
+        if (!success) {
+          setError(isUrdu ? 'اپ ڈیٹ ناکام' : 'Update failed');
+          return;
         }
+        toast.success(isUrdu ? 'پروڈکٹ اپ ڈیٹ ہو گئی' : 'Product updated successfully');
+      } else {
+        // Create mode - use store's optimistic create
+        const result = await storeCreateProduct(productData);
+        if (!result) {
+          setError(isUrdu ? 'پروڈکٹ بنانے میں ناکامی' : 'Failed to create product');
+          return;
+        }
+        toast.success(isUrdu ? 'پروڈکٹ بن گئی' : t('product_created'));
       }
 
       onSuccess();
       onClose();
     } catch (err: any) {
-      const errorMsg = err.response?.data?.error || err.response?.data?.message || 
-                       (isUrdu ? 'Ù¾Ø±ÙˆÚˆÚ©Ù¹ Ø¨Ù†Ø§Ù†Û’ Ù…ÛŒÚº Ù†Ø§Ú©Ø§Ù…ÛŒ' : t('error_creating_product'));
+      const errorMsg = err.response?.data?.error || err.response?.data?.message ||
+        (isUrdu ? 'پروڈکٹ بنانے میں ناکامی' : t('error_creating_product'));
       setError(errorMsg);
     } finally {
       setLoading(false);
     }
   }, [
-    name,
-    nameUrdu,
-    company,
-    companyUrdu,
-    category,
-    sellingPrice,
-    purchasePrice,
-    description,
-    quantity,
-    sku,
-    isEditMode,
-    initialData,
-    currentUser,
-    onSuccess,
-    onClose,
-    t,
-    isUrdu,
-    validateForm,
-    addProduct,
-    updateProduct,
+    name, nameUrdu, company, companyUrdu, category,
+    sellingPrice, purchasePrice, description, quantity, sku,
+    isEditMode, initialData, currentUser, onSuccess, onClose,
+    t, isUrdu, validateForm, storeCreateProduct, storeUpdateProduct,
   ]);
 
   return (
-    <div 
+    <div
       className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/50 backdrop-blur-sm"
       onClick={onClose}
     >
-      <div 
+      <div
         className="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl w-full max-w-lg max-h-[95vh] overflow-y-auto mx-2"
         onClick={e => e.stopPropagation()}
       >
-        {/* âœ… Header */}
+        {/* Header */}
         <div className="sticky top-0 bg-white dark:bg-gray-800 flex justify-between items-center px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-200 dark:border-gray-700 rounded-t-3xl z-10">
           <h2 className="text-lg sm:text-xl font-bold text-gray-800 dark:text-white">
-            {isEditMode ? (isUrdu ? 'Ù¾Ø±ÙˆÚˆÚ©Ù¹ Ù…ÛŒÚº ØªØ±Ù…ÛŒÙ…' : 'Edit Product') : (isUrdu ? 'Ù†ÛŒØ§ Ù¾Ø±ÙˆÚˆÚ©Ù¹' : t('add_product'))}
+            {isEditMode ? (isUrdu ? 'پروڈکٹ میں ترمیم' : 'Edit Product') : (isUrdu ? 'نیا پروڈکٹ' : t('add_product'))}
           </h2>
           <button
             onClick={onClose}
@@ -188,12 +156,12 @@ const ProductCreate: React.FC<Props> = ({ onClose, onSuccess, initialData }) => 
           </button>
         </div>
 
-        {/* âœ… Form */}
+        {/* Form */}
         <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-3 sm:space-y-4">
           {/* Name Fields */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <FormField
-              label={isUrdu ? 'Ù†Ø§Ù… (Ø§Ù†Ú¯Ø±ÛŒØ²ÛŒ)' : 'Name (English)'}
+              label={isUrdu ? 'نام (انگریزی)' : 'Name (English)'}
               name="name"
               value={name}
               onChange={e => setName(e.target.value)}
@@ -201,7 +169,7 @@ const ProductCreate: React.FC<Props> = ({ onClose, onSuccess, initialData }) => 
               required
             />
             <FormField
-              label={isUrdu ? 'Ù†Ø§Ù… (Ø§Ø±Ø¯Ùˆ)' : 'Name (Urdu)'}
+              label={isUrdu ? 'نام (اردو)' : 'Name (Urdu)'}
               name="nameUrdu"
               value={nameUrdu}
               onChange={e => setNameUrdu(e.target.value)}
@@ -213,14 +181,14 @@ const ProductCreate: React.FC<Props> = ({ onClose, onSuccess, initialData }) => 
           {/* Company Fields */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <FormField
-              label={isUrdu ? 'Ú©Ù…Ù¾Ù†ÛŒ (Ø§Ù†Ú¯Ø±ÛŒØ²ÛŒ)' : 'Company (English)'}
+              label={isUrdu ? 'کمپنی (انگریزی)' : 'Company (English)'}
               name="company"
               value={company}
               onChange={e => setCompany(e.target.value)}
               onBlur={autoFillCompany}
             />
             <FormField
-              label={isUrdu ? 'Ú©Ù…Ù¾Ù†ÛŒ (Ø§Ø±Ø¯Ùˆ)' : 'Company (Urdu)'}
+              label={isUrdu ? 'کمپنی (اردو)' : 'Company (Urdu)'}
               name="companyUrdu"
               value={companyUrdu}
               onChange={e => setCompanyUrdu(e.target.value)}
@@ -231,11 +199,11 @@ const ProductCreate: React.FC<Props> = ({ onClose, onSuccess, initialData }) => 
           {/* Category & SKU */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <FormField
-              label={isUrdu ? 'Ú©ÛŒÙ¹ÛŒÚ¯Ø±ÛŒ' : t('category')}
+              label={isUrdu ? 'کیٹیگری' : t('category')}
               name="category"
               value={category}
               onChange={e => setCategory(e.target.value)}
-              placeholder={isUrdu ? 'Ù…Ø«Ø§Ù„: Ù…ÙˆØ¨Ø§Ø¦Ù„' : 'e.g., Mobile'}
+              placeholder={isUrdu ? 'مثال: موبائل' : 'e.g., Mobile'}
             />
             <FormField
               label="SKU"
@@ -249,7 +217,7 @@ const ProductCreate: React.FC<Props> = ({ onClose, onSuccess, initialData }) => 
           {/* Prices */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <FormField
-              label={isUrdu ? 'ÙØ±ÙˆØ®Øª Ù‚ÛŒÙ…Øª' : t('selling_price')}
+              label={isUrdu ? 'فروخت قیمت' : t('selling_price')}
               name="sellingPrice"
               type="number"
               value={sellingPrice}
@@ -260,7 +228,7 @@ const ProductCreate: React.FC<Props> = ({ onClose, onSuccess, initialData }) => 
               placeholder="0"
             />
             <FormField
-              label={isUrdu ? 'Ø®Ø±ÛŒØ¯Ø§Ø±ÛŒ Ù‚ÛŒÙ…Øª' : t('purchase_price')}
+              label={isUrdu ? 'خریداری قیمت' : t('purchase_price')}
               name="purchasePrice"
               type="number"
               value={purchasePrice}
@@ -274,7 +242,7 @@ const ProductCreate: React.FC<Props> = ({ onClose, onSuccess, initialData }) => 
           {/* Quantity (only for new products) */}
           {!isEditMode && (
             <FormField
-              label={isUrdu ? 'Ù…Ù‚Ø¯Ø§Ø± (Ø§Ø³Ù¹Ø§Ú©)' : t('quantity')}
+              label={isUrdu ? 'مقدار (اسٹاک)' : t('quantity')}
               name="quantity"
               type="number"
               value={quantity}
@@ -287,28 +255,28 @@ const ProductCreate: React.FC<Props> = ({ onClose, onSuccess, initialData }) => 
 
           {/* Description */}
           <FormField
-            label={isUrdu ? 'ØªÙØµÛŒÙ„' : t('description')}
+            label={isUrdu ? 'تفصیل' : t('description')}
             name="description"
             value={description}
             onChange={e => setDescription(e.target.value)}
-            placeholder={isUrdu ? 'Ø§Ø®ØªÛŒØ§Ø±ÛŒ' : 'Optional'}
+            placeholder={isUrdu ? 'اختیاری' : 'Optional'}
           />
 
-          {/* âœ… Error */}
+          {/* Error */}
           {error && (
             <div className="text-red-500 text-sm bg-red-50 dark:bg-red-900/30 p-3 rounded-xl border border-red-200 dark:border-red-800">
               {error}
             </div>
           )}
 
-          {/* âœ… Actions */}
+          {/* Actions */}
           <div className="flex flex-col sm:flex-row justify-end gap-2 sm:gap-3 pt-2 border-t border-gray-200 dark:border-gray-700">
             <button
               type="button"
               onClick={onClose}
               className="px-4 sm:px-5 py-2.5 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-200 transition-all"
             >
-              {isUrdu ? 'Ù…Ù†Ø³ÙˆØ® Ú©Ø±ÛŒÚº' : t('cancel')}
+              {isUrdu ? 'منسوخ کریں' : t('cancel')}
             </button>
             <button
               type="submit"
@@ -318,10 +286,10 @@ const ProductCreate: React.FC<Props> = ({ onClose, onSuccess, initialData }) => 
               {loading ? (
                 <span className="flex items-center gap-2">
                   <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                  {isUrdu ? 'Ù…Ø­ÙÙˆØ¸ ÛÙˆ Ø±ÛØ§...' : t('saving')}
+                  {isUrdu ? 'محفوظ ہو رہا...' : t('saving')}
                 </span>
               ) : (
-                isEditMode ? (isUrdu ? 'Ø§Ù¾ ÚˆÛŒÙ¹ Ú©Ø±ÛŒÚº' : 'Update') : (isUrdu ? 'Ù…Ø­ÙÙˆØ¸ Ú©Ø±ÛŒÚº' : t('save'))
+                isEditMode ? (isUrdu ? 'اپ ڈیٹ کریں' : 'Update') : (isUrdu ? 'محفوظ کریں' : t('save'))
               )}
             </button>
           </div>

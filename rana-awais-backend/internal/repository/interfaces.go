@@ -39,7 +39,11 @@ type ProductRepository interface {
 	List(ctx context.Context, skip, limit int64) ([]domain.Product, error)
 	ListByCategory(ctx context.Context, category string) ([]domain.Product, error)
 	Count(ctx context.Context) (int64, error)
+	Search(ctx context.Context, query string, skip, limit int64) ([]domain.Product, error)
+	BulkDelete(ctx context.Context, ids []string) error
+	GetLowStock(ctx context.Context, threshold int) ([]domain.Product, error)
 }
+
 
 type InventoryRepository interface {
 	Create(ctx context.Context, item *domain.InventoryItem) error

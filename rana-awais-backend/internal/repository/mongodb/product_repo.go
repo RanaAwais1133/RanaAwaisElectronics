@@ -21,6 +21,16 @@ func NewProductRepository(db *mongo.Database) *ProductRepository {
 	}
 }
 
+// getFilterByID handles both ObjectID hex strings and plain string IDs
+func getFilterByID(id string) bson.M {
+	// Try ObjectID first
+	if objID, err := primitive.ObjectIDFromHex(id); err == nil {
+		return bson.M{"_id": objID}
+	}
+	// Fall back to string ID
+	return bson.M{"_id": id}
+}
+
 func (r *ProductRepository) Create(ctx context.Context, p *domain.Product) error {
 	if p.ID == "" {
 		p.ID = primitive.NewObjectID().Hex()
@@ -39,12 +49,8 @@ func (r *ProductRepository) Create(ctx context.Context, p *domain.Product) error
 }
 
 func (r *ProductRepository) GetByID(ctx context.Context, id string) (*domain.Product, error) {
-	objID, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
-		return nil, err
-	}
 	var p domain.Product
-	err = r.coll.FindOne(ctx, bson.M{"_id": objID}).Decode(&p)
+	err := r.coll.FindOne(ctx, getFilterByID(id)).Decode(&p)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return nil, nil
@@ -60,40 +66,33 @@ func (r *ProductRepository) GetByIDWithStock(ctx context.Context, id string) (*d
 
 func (r *ProductRepository) Update(ctx context.Context, id string, p *domain.Product) error {
 	p.UpdatedAt = time.Now()
-	objID, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
-		return err
+
+	// Build update with lowercase JSON field names to match MongoDB stored format
+	updateFields := bson.M{
+		"name":          p.Name,
+		"nameUrdu":      p.NameUrdu,
+		"company":       p.Company,
+		"companyUrdu":   p.CompanyUrdu,
+		"category":      p.Category,
+		"price":         p.Price,
+		"purchasePrice": p.PurchasePrice,
+		"description":   p.Description,
+		"sku":           p.SKU,
+		"stockCount":    p.StockCount,
+		"in_stock":      p.InStock,
+		"created_by":    p.CreatedBy,
+		"updatedAt":     p.UpdatedAt,
 	}
 
-	// Use UpdateOne to preserve fields not in the update payload
-	// Use struct field names (uppercase) to match MongoDB stored document format
-	update := bson.M{
-		"$set": bson.M{
-			"Name":          p.Name,
-			"NameUrdu":      p.NameUrdu,
-			"Company":       p.Company,
-			"CompanyUrdu":   p.CompanyUrdu,
-			"Category":      p.Category,
-			"Price":         p.Price,
-			"PurchasePrice": p.PurchasePrice,
-			"Description":   p.Description,
-			"SKU":           p.SKU,
-			"StockCount":    p.StockCount,
-			"InStock":       p.InStock,
-			"UpdatedAt":     p.UpdatedAt,
-		},
-	}
+	// Only include non-zero fields to allow partial updates
+	update := bson.M{"$set": updateFields}
 
-	_, err = r.coll.UpdateOne(ctx, bson.M{"_id": objID}, update)
+	_, err := r.coll.UpdateOne(ctx, getFilterByID(id), update)
 	return err
 }
 
 func (r *ProductRepository) Delete(ctx context.Context, id string) error {
-	objID, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
-		return err
-	}
-	_, err = r.coll.DeleteOne(ctx, bson.M{"_id": objID})
+	_, err := r.coll.DeleteOne(ctx, getFilterByID(id))
 	return err
 }
 
@@ -101,7 +100,7 @@ func (r *ProductRepository) List(ctx context.Context, skip, limit int64) ([]doma
 	opts := options.Find().
 		SetSkip(skip).
 		SetLimit(limit).
-		SetSort(bson.D{{Key: "createdat", Value: -1}})
+		SetSort(bson.D{{Key: "createdAt", Value: -1}})
 	cursor, err := r.coll.Find(ctx, bson.M{}, opts)
 	if err != nil {
 		return nil, err
@@ -140,3 +139,92 @@ func (r *ProductRepository) ListByCategory(ctx context.Context, category string)
 func (r *ProductRepository) Count(ctx context.Context) (int64, error) {
 	return r.coll.CountDocuments(ctx, bson.M{})
 }
+
+// Search performs text search on products
+func (r *ProductRepository) Search(ctx context.Context, query string, skip, limit int64) ([]domain.Product, error) {
+	filter := bson.M{
+		"$or": []bson.M{
+			{"name": bson.M{"$regex": query, "$options": "i"}},
+			{"nameUrdu": bson.M{"$regex": query, "$options": "i"}},
+			{"category": bson.M{"$regex": query, "$options": "i"}},
+			{"company": bson.M{"$regex": query, "$options": "i"}},
+			{"companyUrdu": bson.M{"$regex": query, "$options": "i"}},
+			{"sku": bson.M{"$regex": query, "$options": "i"}},
+			{"description": bson.M{"$regex": query, "$options": "i"}},
+		},
+	}
+
+	opts := options.Find().
+		SetSkip(skip).
+		SetLimit(limit).
+		SetSort(bson.D{{Key: "createdAt", Value: -1}})
+
+	cursor, err := r.coll.Find(ctx, filter, opts)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var products []domain.Product
+	err = cursor.All(ctx, &products)
+	if err != nil {
+		return nil, err
+	}
+	if products == nil {
+		products = []domain.Product{}
+	}
+	return products, nil
+}
+
+// BulkDelete deletes multiple products by IDs
+func (r *ProductRepository) BulkDelete(ctx context.Context, ids []string) error {
+	var objIDs []primitive.ObjectID
+	var strIDs []string
+
+	for _, id := range ids {
+		if objID, err := primitive.ObjectIDFromHex(id); err == nil {
+			objIDs = append(objIDs, objID)
+		} else {
+			strIDs = append(strIDs, id)
+		}
+	}
+
+	// Build filter for both ObjectID and string IDs
+	orConditions := []bson.M{}
+	if len(objIDs) > 0 {
+		orConditions = append(orConditions, bson.M{"_id": bson.M{"$in": objIDs}})
+	}
+	if len(strIDs) > 0 {
+		orConditions = append(orConditions, bson.M{"_id": bson.M{"$in": strIDs}})
+	}
+
+	if len(orConditions) == 0 {
+		return nil
+	}
+
+	filter := bson.M{"$or": orConditions}
+	_, err := r.coll.DeleteMany(ctx, filter)
+	return err
+}
+
+// GetLowStock returns products with stock below threshold
+func (r *ProductRepository) GetLowStock(ctx context.Context, threshold int) ([]domain.Product, error) {
+	filter := bson.M{"stockCount": bson.M{"$lte": threshold, "$gte": 0}}
+	cursor, err := r.coll.Find(ctx, filter, options.Find().SetSort(bson.D{{Key: "stockCount", Value: 1}}))
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var products []domain.Product
+	err = cursor.All(ctx, &products)
+	if err != nil {
+		return nil, err
+	}
+	if products == nil {
+		products = []domain.Product{}
+	}
+	return products, nil
+}
+
+

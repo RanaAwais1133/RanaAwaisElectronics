@@ -147,6 +147,7 @@ func (h *InventoryHandler) AddStock(w http.ResponseWriter, r *http.Request) {
 		Quantity      int     `json:"quantity"`
 		PurchasePrice float64 `json:"purchase_price"`
 		SellingPrice  float64 `json:"selling_price"`
+		Note          string  `json:"note,omitempty"`
 		Color         string  `json:"color,omitempty"`
 		Model         string  `json:"model,omitempty"`
 		EngineNo      string  `json:"engineNo,omitempty"`
@@ -154,6 +155,7 @@ func (h *InventoryHandler) AddStock(w http.ResponseWriter, r *http.Request) {
 		IMEI          string  `json:"imei,omitempty"`
 		Company       string  `json:"company,omitempty"`
 	}
+
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		respondError(w, r, http.StatusBadRequest, "Invalid body", "غلط مواد")
 		return
@@ -193,6 +195,8 @@ func (h *InventoryHandler) AddStock(w http.ResponseWriter, r *http.Request) {
 			prod.PurchasePrice = payload.PurchasePrice
 		}
 		h.prodSvc.Update(r.Context(), payload.ProductID, prod)
+		// ✅ Broadcast real-time stock event
+		BroadcastStockEvent(payload.ProductID, payload.Quantity, prod)
 	}
 
 	audit.Log(r.Context(), "ADD_STOCK", "inventory", payload.ProductID, "", getUserID(r))

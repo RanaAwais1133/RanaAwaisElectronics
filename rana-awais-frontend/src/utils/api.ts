@@ -323,14 +323,45 @@ export const createCustomer = (data: any) =>
   api.post('/customers', data).then(res => res.data);
 
 // ═══════════════════════════════════════════════════════════════
-// 📦 PRODUCT FUNCTIONS
+// 📦 PRODUCT FUNCTIONS - FULL CRUD + SEARCH + BULK + STOCK
 // ═══════════════════════════════════════════════════════════════
 
-export const getProducts = () =>
-  api.get('/products').then(res => {
+export const getProducts = (params?: { skip?: number; limit?: number; category?: string }) =>
+  api.get('/products', { params }).then(res => {
     const d = res.data;
     return d?.data || d || [];
   });
+
+export const getProductById = (id: string) =>
+  api.get(`/products/${id}`).then(res => res.data);
+
+export const createProduct = (data: any) =>
+  api.post('/products', data).then(res => res.data);
+
+export const updateProduct = (id: string, data: any) =>
+  api.put(`/products/${id}`, data).then(res => res.data);
+
+export const deleteProduct = (id: string) =>
+  api.delete(`/products/${id}`).then(res => res.data);
+
+export const searchProducts = (query: string, params?: { skip?: number; limit?: number }) =>
+  api.get('/products/search', { params: { q: query, ...params } }).then(res => {
+    const d = res.data;
+    return d?.data || d || [];
+  });
+
+export const bulkDeleteProducts = (ids: string[]) =>
+  api.post('/products/bulk-delete', { ids }).then(res => res.data);
+
+export const getLowStockProducts = (threshold?: number) =>
+  api.get('/products/low-stock', { params: { threshold } }).then(res => {
+    const d = res.data;
+    return d?.data || d || [];
+  });
+
+export const addStock = (productId: string, quantity: number, note?: string) =>
+  api.post('/inventory/add-stock', { product_id: productId, quantity, note }).then(res => res.data);
+
 
 // ═══════════════════════════════════════════════════════════════
 // 💰 PAYMENT FUNCTIONS

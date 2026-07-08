@@ -17,6 +17,9 @@ type Product struct {
 	InStock       bool      `json:"in_stock"`
 	StockCount    int       `json:"stockCount"`
 	SKU           string    `json:"sku,omitempty"`
+	CreatedBy     string    `json:"created_by,omitempty"`
 	CreatedAt     time.Time `json:"createdAt"`
 	UpdatedAt     time.Time `json:"updatedAt"`
 }
+
+

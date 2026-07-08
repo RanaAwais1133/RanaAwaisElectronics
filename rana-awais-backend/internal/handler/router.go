@@ -79,6 +79,9 @@ func SetupRouter(
 	admin.HandleFunc("/settings", adminH.GetSettings).Methods("GET")
 	admin.HandleFunc("/settings", adminH.UpdateSettings).Methods("PUT")
 
+	// SSE real-time events endpoint
+	protected.Handle("/events", GlobalSSEHub).Methods("GET")
+
 	// Password change
 	protected.HandleFunc("/auth/change-password", userH.ChangePassword).Methods("POST", "PUT")
 
@@ -164,9 +167,13 @@ func SetupRouter(
 	// Products
 	protected.HandleFunc("/products", productH.List).Methods("GET")
 	protected.HandleFunc("/products", productH.Create).Methods("POST")
+	protected.HandleFunc("/products/search", productH.Search).Methods("GET")
+	protected.HandleFunc("/products/bulk-delete", productH.BulkDelete).Methods("POST")
+	protected.HandleFunc("/products/low-stock", productH.GetLowStock).Methods("GET")
 	protected.HandleFunc("/products/{id}", productH.GetByID).Methods("GET")
 	protected.HandleFunc("/products/{id}", productH.Update).Methods("PUT")
 	protected.HandleFunc("/products/{id}", productH.Delete).Methods("DELETE")
+
 
 	// Inventory
 	protected.HandleFunc("/inventory", inventoryH.List).Methods("GET")
