@@ -46,8 +46,8 @@ interface ProductState {
   reset: () => void;
 }
 
-// ✅ Cache TTL - 15 seconds for near real-time updates
-const CACHE_TTL = 15 * 1000;
+// ✅ Cache TTL - 5 seconds (balanced for freshness & performance)
+const CACHE_TTL = 5 * 1000;
 
 // ✅ Storage keys
 const STORAGE_KEYS = {

@@ -4,6 +4,7 @@ import toast from 'react-hot-toast';
 import api from '../../utils/api';
 import FormField from '../../components/forms/FormField';
 import { useAuthStore } from '../../store/useAuthStore';
+import { useProductStore } from '../../store/useProductStore';
 import { APP_CONFIG } from '../../config/app';
 import AddStockModal from './AddStockModal';
 
@@ -94,7 +95,9 @@ const ProductEditModal: React.FC<Props> = ({ productId, onClose, onSuccess }) =>
     return true;
   }, [name, nameUrdu, sellingPrice, t, isUrdu]);
 
-  // ✅ Submit handler
+  const updateProduct = useProductStore(s => s.updateProduct);
+
+  // ✅ Submit handler with OPTIMISTIC UI
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -103,29 +106,33 @@ const ProductEditModal: React.FC<Props> = ({ productId, onClose, onSuccess }) =>
     setLoading(true);
     setError('');
 
+    const payload = {
+      name: name || nameUrdu,
+      nameUrdu: nameUrdu || name,
+      company: company || companyUrdu,
+      companyUrdu: companyUrdu || company,
+      category: category || '',
+      price: Math.round(parseFloat(sellingPrice) * 100) / 100,
+      purchasePrice: purchasePrice ? Math.round(parseFloat(purchasePrice) * 100) / 100 : 0,
+      description: description || '',
+      sku: sku || '',
+      updated_by: currentUser?.displayName || currentUser?.username || '',
+    };
+
+    // ✅ OPTIMISTIC: Update UI immediately
+    updateProduct(productId, payload);
+
     try {
-      await api.put(`/products/${productId}`, {
-        name: name || nameUrdu,
-        nameUrdu: nameUrdu || name,
-        company: company || companyUrdu,
-        companyUrdu: companyUrdu || company,
-        category: category || '',
-        price: Math.round(parseFloat(sellingPrice) * 100) / 100,
-        purchasePrice: purchasePrice ? Math.round(parseFloat(purchasePrice) * 100) / 100 : 0,
-        description: description || '',
-        sku: sku || '',
-        updated_by: currentUser?.displayName || currentUser?.username || '',
-      });
-      
+      await api.put(`/products/${productId}`, payload);
       toast.success(isUrdu ? 'پروڈکٹ اپ ڈیٹ ہو گئی' : t('product_updated'));
-      onSuccess();
-      onClose();
     } catch (err: any) {
       const errorMsg = err.response?.data?.error || err.response?.data?.message || 
                        (isUrdu ? 'پروڈکٹ اپ ڈیٹ کرنے میں ناکامی' : t('error_updating_product'));
       setError(errorMsg);
     } finally {
       setLoading(false);
+      onSuccess();
+      onClose();
     }
   }, [
     productId,
@@ -144,6 +151,7 @@ const ProductEditModal: React.FC<Props> = ({ productId, onClose, onSuccess }) =>
     t,
     isUrdu,
     validateForm,
+    updateProduct,
   ]);
 
   // ✅ Loading state

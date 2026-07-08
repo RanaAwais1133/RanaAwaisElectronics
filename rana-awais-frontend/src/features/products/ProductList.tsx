@@ -97,7 +97,7 @@ const ProductList: React.FC = () => {
   const isUrdu = i18n.language === 'ur';
   const currentUser = useAuthStore((state) => state.user);
   
-  const { products, loading, fetchProducts } = useProductStore();
+  const { products, loading, fetchProducts, addProduct, updateProduct, removeProduct } = useProductStore();
   const [search, setSearch] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [editProductId, setEditProductId] = useState<string | null>(null);
@@ -151,20 +151,24 @@ const ProductList: React.FC = () => {
     return result;
   }, [products, search, categoryFilter]);
 
-  // ✅ Handle delete
+  // ✅ Handle delete - IMMEDIATE UI removal + background refresh
   const handleDelete = useCallback(async (id: string) => {
     setIsDeleting(true);
+    // ✅ IMMEDIATE: Remove from UI first
+    removeProduct(id);
+    setDeleteConfirm(null);
+    
     try {
       await api.delete(`/products/${id}`);
       toast.success(isUrdu ? 'پروڈکٹ ڈیلیٹ ہو گئی' : t('product_deleted'));
-      await fetchProducts(true);
     } catch (err) {
       toast.error(isUrdu ? 'پروڈکٹ ڈیلیٹ کرنے میں ناکامی' : t('error_deleting_product'));
     } finally {
       setIsDeleting(false);
-      setDeleteConfirm(null);
+      // ✅ Background refresh (don't await - UI already updated)
+      fetchProducts(true).catch(() => {});
     }
-  }, [fetchProducts, t, isUrdu]);
+  }, [fetchProducts, t, isUrdu, removeProduct]);
 
   // ✅ Loading state
   if (loading) {

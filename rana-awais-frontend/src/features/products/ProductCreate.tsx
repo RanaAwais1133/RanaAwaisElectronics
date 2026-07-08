@@ -4,6 +4,7 @@ import toast from 'react-hot-toast';
 import api from '../../utils/api';
 import FormField from '../../components/forms/FormField';
 import { useAuthStore } from '../../store/useAuthStore';
+import { useProductStore } from '../../store/useProductStore';
 import { APP_CONFIG } from '../../config/app';
 
 interface Props {
@@ -73,7 +74,10 @@ const ProductCreate: React.FC<Props> = ({ onClose, onSuccess, initialData }) => 
     return true;
   }, [name, nameUrdu, sellingPrice, quantity, t, isUrdu]);
 
-  // âœ… Submit handler
+  const addProduct = useProductStore(s => s.addProduct);
+  const updateProduct = useProductStore(s => s.updateProduct);
+
+  // âœ… Submit handler with OPTIMISTIC UI
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -93,27 +97,35 @@ const ProductCreate: React.FC<Props> = ({ onClose, onSuccess, initialData }) => 
       purchasePrice: purchasePrice ? Math.round(parseFloat(purchasePrice) * 100) / 100 : 0,
       description: description || '',
       sku: sku || '',
+      stockCount: Number(quantity) || 0,
+      in_stock: Number(quantity) > 0,
       created_by: currentUser?.displayName || currentUser?.username || '',
     };
 
     try {
-      let productId;
-      
       if (isEditMode) {
-        // âœ… Update existing product
+        // ✅ Edit mode - OPTIMISTIC UI update
+        updateProduct(initialData.id, productData);
+        
         await api.put(`/products/${initialData.id}`, productData);
         toast.success(isUrdu ? 'Ù¾Ø±ÙˆÚˆÚ©Ù¹ Ø§Ù¾ ÚˆÛŒÙ¹ ÛÙˆ Ú¯Ø¦ÛŒ' : 'Product updated successfully');
-        productId = initialData.id;
       } else {
-        // âœ… Create new product
+        // ✅ Create mode - OPTIMISTIC UI
+        const tempId = 'temp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+        const optimisticProduct = { ...productData, id: tempId };
+        addProduct(optimisticProduct as any);
+        
         const productRes = await api.post('/products', productData);
-        productId = productRes.data.id;
+        const realId = productRes.data.id;
+        
+        // ✅ Replace temp ID with real ID
+        updateProduct(tempId, { id: realId } as any);
         toast.success(isUrdu ? 'Ù¾Ø±ÙˆÚˆÚ©Ù¹ Ø¨Ù† Ú¯Ø¦ÛŒ' : t('product_created'));
         
-        // âœ… Add initial stock if quantity > 0
+        // ✅ Add initial stock if quantity > 0
         if (Number(quantity) > 0) {
           await api.post('/inventory/add-stock', {
-            product_id: productId,
+            product_id: realId,
             quantity: Number(quantity),
             purchase_price: Number(purchasePrice) || 0,
             selling_price: Number(sellingPrice) || 0,
@@ -150,6 +162,8 @@ const ProductCreate: React.FC<Props> = ({ onClose, onSuccess, initialData }) => 
     t,
     isUrdu,
     validateForm,
+    addProduct,
+    updateProduct,
   ]);
 
   return (

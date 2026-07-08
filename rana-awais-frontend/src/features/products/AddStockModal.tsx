@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 import api from '../../utils/api';
 import { useAuthStore } from '../../store/useAuthStore';
+import { useProductStore } from '../../store/useProductStore';
 import { APP_CONFIG } from '../../config/app';
 
 interface Props {
@@ -68,12 +69,28 @@ const AddStockModal: React.FC<Props> = ({
     return true;
   }, [quantity, purchasePrice, isUrdu]);
 
-  // ✅ Handle add stock
+  const updateProduct = useProductStore(s => s.updateProduct);
+  const currentStockCount = useProductStore(s => s.products.find(p => p.id === productId)?.stockCount || 0);
+
+  // ✅ Handle add stock with OPTIMISTIC UI
   const handleAdd = useCallback(async () => {
     if (!validateForm()) return;
     
     setLoading(true);
     setError('');
+
+    // ✅ OPTIMISTIC: Update stock count and prices immediately
+    const updateData: Record<string, any> = {
+      stockCount: currentStockCount + quantity,
+      in_stock: true,
+    };
+    if (Number(purchasePrice) > 0 && Number(purchasePrice) !== currentPurchasePrice) {
+      updateData.purchasePrice = Number(purchasePrice);
+    }
+    if (Number(sellingPrice) > 0 && Number(sellingPrice) !== currentPrice) {
+      updateData.price = Number(sellingPrice);
+    }
+    updateProduct(productId, updateData);
 
     try {
       // Add stock to inventory
@@ -86,13 +103,6 @@ const AddStockModal: React.FC<Props> = ({
       });
 
       // Update product prices if provided
-      const updateData: Record<string, any> = {};
-      if (Number(purchasePrice) > 0 && Number(purchasePrice) !== currentPurchasePrice) {
-        updateData.purchase_price = Number(purchasePrice);
-      }
-      if (Number(sellingPrice) > 0 && Number(sellingPrice) !== currentPrice) {
-        updateData.price = Number(sellingPrice);
-      }
       if (Object.keys(updateData).length > 0) {
         await api.put(`/products/${productId}`, updateData)
           .catch(() => {
@@ -128,6 +138,7 @@ const AddStockModal: React.FC<Props> = ({
     t,
     isUrdu,
     validateForm,
+    updateProduct,
   ]);
 
   return (

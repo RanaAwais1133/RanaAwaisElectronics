@@ -237,22 +237,25 @@ const CustomerList: React.FC = () => {
 
   const removeCustomer = useCustomerStore(s => s.removeCustomer);
 
-  // ✅ Handle delete
+  // ✅ Handle delete - IMMEDIATE UI removal + background refresh
   const handleDelete = useCallback(async (id: string) => {
     setIsDeleting(true);
+    // ✅ IMMEDIATE: Remove from UI first
+    removeCustomer(id);
+    setDeleteConfirm(null);
+    
     try {
       await api.delete(`/customers/${id}`);
       toast.success(isUrdu ? 'گاہک ڈیلیٹ ہو گیا' : t('customer_deleted'));
-      await fetchCustomers(true);
     } catch (e) {
       // OFFLINE FALLBACK: Delete locally and queue for sync
       console.log('📦 Offline: Caching customer delete locally');
       await offlineDeleteCustomer(id);
-      removeCustomer(id); // ✅ Immediate UI update
       toast.success(isUrdu ? 'گاہک آف لائن ڈیلیٹ ہو گیا' : 'Customer deleted offline');
     } finally {
       setIsDeleting(false);
-      setDeleteConfirm(null);
+      // ✅ Background refresh (don't await - UI already updated)
+      fetchCustomers(true).catch(() => {});
     }
   }, [t, fetchCustomers, isUrdu, removeCustomer]);
 
