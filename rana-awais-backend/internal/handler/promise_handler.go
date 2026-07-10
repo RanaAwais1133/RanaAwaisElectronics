@@ -260,7 +260,7 @@ func (h *PromiseHandler) GetTodayPromises(w http.ResponseWriter, r *http.Request
 			promise_date
 		FROM promises
 		WHERE promise_date >= ? AND promise_date < ? AND status = 'pending'
-		ORDER BY pr.promise_date ASC
+		ORDER BY promise_date ASC
 	`, start, end)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "Failed to list today promises", "آج کے وعدے نہیں آسکے")
