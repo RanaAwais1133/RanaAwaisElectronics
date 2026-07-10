@@ -30,9 +30,9 @@ const BASE_URL = (() => {
 
 console.log('🌐 API Base URL:', BASE_URL);
 
-// ✅ In-memory cache for instant responses (5s TTL - balanced for freshness & performance)
+// ✅ In-memory cache for instant responses (1s TTL - ultra fast UI updates)
 const memoryCache = new Map<string, { data: any; timestamp: number }>();
-const MEMORY_CACHE_TTL = 5000; // 5 seconds
+const MEMORY_CACHE_TTL = 1000; // 1 second - reduced for faster UI updates
 
 const api: AxiosInstance & {
   getTodayInstallments?: () => Promise<any>;
@@ -50,6 +50,23 @@ const api: AxiosInstance & {
 // 🔐 REQUEST INTERCEPTOR - Add auth token + cache check
 // ═══════════════════════════════════════════════════════════════
 
+// ✅ Clear memory cache for mutations so UI gets fresh data immediately
+const clearCacheForMutation = (url: string) => {
+  // Clear all cache entries related to this entity type
+  const entityPatterns = ['/customers', '/products', '/installments', '/inventory', '/payments', '/dashboard', '/guarantors', '/expenses'];
+  for (const pattern of entityPatterns) {
+    if (url.includes(pattern)) {
+      // Clear all cached entries that match this pattern
+      for (const key of memoryCache.keys()) {
+        if (key.includes(pattern)) {
+          memoryCache.delete(key);
+        }
+      }
+      break;
+    }
+  }
+};
+
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
@@ -57,7 +74,12 @@ api.interceptors.request.use(
       config.headers.Authorization = `Bearer ${token}`;
     }
     
-    // ✅ Add cache-buster for GET requests (but only every 30s)
+    // ✅ Clear cache on mutations so UI updates instantly
+    if (config.method && ['post', 'put', 'patch', 'delete'].includes(config.method.toLowerCase()) && config.url) {
+      clearCacheForMutation(config.url);
+    }
+    
+    // ✅ Add cache-buster for GET requests (but only every 1s)
     if (config.method?.toLowerCase() === 'get' && config.url) {
       const cacheKey = config.url;
       const cached = memoryCache.get(cacheKey);

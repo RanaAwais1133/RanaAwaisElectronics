@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { getCustomers } from '../utils/api';
 import { offlineDB } from '../db/indexeddb';
+import { realtime } from '../utils/realtime';
 import toast from 'react-hot-toast';
 
 // ✅ Types
@@ -52,8 +53,8 @@ interface CustomerState {
   reset: () => void;
 }
 
-// ✅ Cache TTL - 5 seconds (balanced for freshness & performance)
-const CACHE_TTL = 5 * 1000;
+// ✅ Cache TTL - 1 second (ultra fast UI updates)
+const CACHE_TTL = 1 * 1000;
 
 // ✅ Storage keys
 const STORAGE_KEYS = {
@@ -85,9 +86,50 @@ const saveCache = (customers: Customer[], lastFetched: number) => {
   }
 };
 
+// ✅ Setup real-time SSE listeners for instant cross-tab updates
+const setupRealtimeListeners = (set: any, get: any) => {
+  realtime.on('customer_created', (data: any) => {
+    const customerData = data.customer || data;
+    const customerId = data.id || customerData.id;
+    const state = get();
+    const exists = state.customers.find((c: any) => c.id === customerId);
+    if (!exists) {
+      set((state: any) => {
+        const customers = [customerData, ...state.customers];
+        saveCache(customers, Date.now());
+        return { customers, lastFetched: Date.now() };
+      });
+    }
+  });
+
+  realtime.on('customer_updated', (data: any) => {
+    const customerData = data.customer || data;
+    const customerId = data.id || customerData.id;
+    set((state: any) => {
+      const customers = state.customers.map((c: any) =>
+        c.id === customerId ? { ...c, ...customerData } : c
+      );
+      saveCache(customers, Date.now());
+      return { customers, lastFetched: Date.now() };
+    });
+  });
+
+  realtime.on('customer_deleted', (data: any) => {
+    const customerId = data.id;
+    set((state: any) => {
+      const customers = state.customers.filter((c: any) => c.id !== customerId);
+      saveCache(customers, Date.now());
+      return { customers, lastFetched: Date.now() };
+    });
+  });
+};
+
 // ✅ Create store WITHOUT persist middleware to avoid infinite re-render loops
 export const useCustomerStore = create<CustomerState>()((set, get) => {
   const cached = loadCachedCustomers();
+  
+  // Setup realtime listeners once
+  setupRealtimeListeners(set, get);
   
   return {
     customers: cached.customers,

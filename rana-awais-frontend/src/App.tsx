@@ -9,6 +9,7 @@ import NotFoundPage from './pages/NotFoundPage';
 import ErrorBoundary from './components/common/ErrorBoundary';
 import { APP_CONFIG } from './config/app';
 import { syncEngine } from './utils/sync';
+import { realtime } from './utils/realtime';
 
 // ✅ Loading Spinner Component
 const PageLoader = () => (
@@ -100,6 +101,9 @@ const AppContent: React.FC = () => {
     
     // ✅ Start sync engine
     syncEngine.start();
+    
+    // ✅ Start real-time SSE connection for instant UI updates
+    realtime.connect();
     
     // ✅ Register service worker for PWA
     if ('serviceWorker' in navigator) {

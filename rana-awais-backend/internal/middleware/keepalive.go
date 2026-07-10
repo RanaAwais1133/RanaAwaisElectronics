@@ -8,7 +8,7 @@ import (
 )
 
 // StartKeepAlive starts a goroutine that pings the server's own health endpoint
-// every 5 minutes during business hours (9 AM to 12 AM) to prevent Render's
+// every 3 minutes during business hours (8 AM to 12 AM) to prevent Render's
 // free tier from putting the server to sleep due to inactivity.
 //
 // Render free tier spins down after 15 minutes of inactivity.
@@ -22,21 +22,20 @@ func StartKeepAlive(port string) {
 		Timeout: 10 * time.Second,
 	}
 
-	log.Println("⏰ Keep-Alive: Starting scheduler (9AM-12AM, every 5 min)")
+	log.Println("⏰ Keep-Alive: Starting scheduler (8AM-12AM, every 3 min)")
 
 	// Run immediately on startup
 	pingServer(url, client)
 
-	ticker := time.NewTicker(5 * time.Minute)
+	ticker := time.NewTicker(3 * time.Minute)
 	defer ticker.Stop()
 
 	for range ticker.C {
 		now := time.Now()
 		hour := now.Hour()
 
-		// Business hours: 9 AM (9) to 12 AM (0) — i.e., 9 to 23, and 0
-		// Actually: 9 AM to 12 AM midnight = hours 9 through 23
-		if hour >= 9 && hour < 24 {
+		// Business hours: 8 AM (8) to 12 AM midnight (0) — i.e., hours 8 through 23
+		if hour >= 8 && hour < 24 {
 			pingServer(url, client)
 		} else {
 			log.Printf("⏰ Keep-Alive: Outside business hours (hour=%d), skipping ping", hour)

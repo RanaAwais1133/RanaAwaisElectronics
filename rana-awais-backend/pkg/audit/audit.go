@@ -10,12 +10,12 @@ import (
 )
 
 type LogEntry struct {
-	Action    string    `json:"action"`
-	Entity    string    `json:"entity"`
-	EntityID  string    `json:"entity_id,omitempty"`
-	UserID    string    `json:"user_id,omitempty"`
-	Timestamp time.Time `json:"timestamp"`
-	Details   string    `json:"details,omitempty"`
+	Action    string    `json:"action" bson:"action"`
+	Entity    string    `json:"entity" bson:"entity"`
+	EntityID  string    `json:"entity_id,omitempty" bson:"entity_id,omitempty"`
+	UserID    string    `json:"user_id,omitempty" bson:"user_id,omitempty"`
+	Timestamp time.Time `json:"timestamp" bson:"timestamp"`
+	Details   string    `json:"details,omitempty" bson:"details,omitempty"`
 }
 
 func Log(ctx context.Context, action, entity, entityID, details string, userID ...string) error {
@@ -43,12 +43,21 @@ func Log(ctx context.Context, action, entity, entityID, details string, userID .
 		}
 	}
 
-	// SQLite INSERT
+	// Try MongoDB first
+	if config.MongoDatabase != nil {
+		_, err := config.MongoDatabase.Collection("audit_logs").InsertOne(ctx, entry)
+		if err == nil {
+			return nil
+		}
+		log.Printf("[AUDIT MONGO ERROR] action=%s entity=%s entityID=%s err=%v", action, entity, entityID, err)
+	}
+
+	// Fallback to SQLite
 	_, err := config.DB.ExecContext(ctx,
 		`INSERT INTO audit_logs (action, entity, entity_id, user_id, timestamp, details) VALUES (?, ?, ?, ?, ?, ?)`,
 		entry.Action, entry.Entity, entry.EntityID, entry.UserID, entry.Timestamp, entry.Details)
 	if err != nil {
-		log.Printf("[AUDIT ERROR] action=%s entity=%s entityID=%s err=%v", action, entity, entityID, err)
+		log.Printf("[AUDIT SQLITE ERROR] action=%s entity=%s entityID=%s err=%v", action, entity, entityID, err)
 	}
 	return err
 }

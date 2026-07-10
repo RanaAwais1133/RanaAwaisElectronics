@@ -716,6 +716,8 @@ func SetupRouter(
 	protected.HandleFunc("/dashboard/low-stock", dashboardH.LowStockDetails).Methods("GET")
 	protected.HandleFunc("/dashboard/monthly-due", dashboardH.MonthlyDueDetails).Methods("GET")
 	protected.HandleFunc("/dashboard/today-installments", dashboardH.TodayInstallments).Methods("GET")
+	protected.HandleFunc("/dashboard/today-installment-stats", dashboardH.TodayInstallmentStats).Methods("GET")
+	protected.HandleFunc("/dashboard/monthly-report", dashboardH.MonthlyReport).Methods("GET")
 	protected.HandleFunc("/dashboard/overdue-installments", dashboardH.OverdueDetails).Methods("GET")
 	protected.HandleFunc("/dashboard/active-installments", dashboardH.ActiveInstallments).Methods("GET")
 	protected.HandleFunc("/dashboard/completed-installments", dashboardH.CompletedInstallments).Methods("GET")
