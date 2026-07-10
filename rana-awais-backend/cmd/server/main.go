@@ -116,6 +116,9 @@ func main() {
 	// Connect to MongoDB Atlas
 	config.ConnectMongoDB(cfg)
 
+	// Connect to SQLite for local queries (promises, etc.)
+	config.ConnectDB(cfg)
+
 	fmt.Println(strings.Repeat("═", 55))
 	fmt.Printf("🚀 %s Starting...\n", cfg.AppName)
 	fmt.Println(strings.Repeat("═", 55))
