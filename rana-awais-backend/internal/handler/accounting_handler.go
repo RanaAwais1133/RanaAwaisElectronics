@@ -5,8 +5,12 @@ import (
 	"time"
 
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/config"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/domain"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/service"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
 )
+
 
 type AccountingHandler struct {
 	svc *service.AccountingService
@@ -16,53 +20,121 @@ func NewAccountingHandler(svc *service.AccountingService) *AccountingHandler {
 	return &AccountingHandler{svc: svc}
 }
 
+// Helper to calculate profit for a single payment
+func calculatePaymentProfit(pay domain.Payment, db *mongo.Database) float64 {
+	var plan domain.InstallmentPlan
+	if err := db.Collection("installment_plans").FindOne(nil, bson.M{"_id": pay.InstallmentPlanID}).Decode(&plan); err != nil {
+		return pay.Amount // If no plan found, full amount is profit
+	}
+	if plan.TotalAmount <= 0 {
+		return pay.Amount
+	}
+	purchasePrice := 0.0
+	if plan.ProductID != "" {
+		var prod domain.Product
+		if err := db.Collection("products").FindOne(nil, bson.M{"_id": plan.ProductID}).Decode(&prod); err == nil {
+			purchasePrice = prod.PurchasePrice
+		}
+	}
+	if purchasePrice <= 0 {
+		return pay.Amount // No purchase price = full amount is profit
+	}
+	if plan.TotalAmount <= purchasePrice {
+		return 0 // No profit if selling price <= purchase price
+	}
+	profitRatio := (plan.TotalAmount - purchasePrice) / plan.TotalAmount
+	return pay.Amount * profitRatio
+}
+
+// Helper to get payment details with customer info for a date range
+func getPaymentDetailsWithProfit(db *mongo.Database, start, end time.Time) ([]map[string]interface{}, float64, float64) {
+	var details []map[string]interface{}
+	totalRevenue := 0.0
+	totalProfit := 0.0
+
+	cursor, err := db.Collection("payments").Find(nil, bson.M{
+		"transactiondate": bson.M{"$gte": start, "$lt": end},
+	})
+	if err != nil {
+		return details, totalRevenue, totalProfit
+	}
+	defer cursor.Close(nil)
+
+	for cursor.Next(nil) {
+		var pay domain.Payment
+		if cursor.Decode(&pay) != nil {
+			continue
+		}
+
+		totalRevenue += pay.Amount
+		profit := calculatePaymentProfit(pay, db)
+		totalProfit += profit
+
+		// Get customer and product info
+		custName := ""
+		custUrdu := ""
+		fatherName := ""
+		phone := ""
+		prodName := ""
+
+		var plan domain.InstallmentPlan
+		if err := db.Collection("installment_plans").FindOne(nil, bson.M{"_id": pay.InstallmentPlanID}).Decode(&plan); err == nil {
+			var cust domain.Customer
+			if err := db.Collection("customers").FindOne(nil, bson.M{"_id": plan.CustomerID}).Decode(&cust); err == nil {
+				custName = cust.Name
+				custUrdu = cust.NameUrdu
+				fatherName = cust.FatherName
+				phone = cust.Phone
+			}
+			if plan.ProductID != "" {
+				var prod domain.Product
+				if err := db.Collection("products").FindOne(nil, bson.M{"_id": plan.ProductID}).Decode(&prod); err == nil {
+					prodName = prod.Name
+				}
+			}
+		}
+
+		details = append(details, map[string]interface{}{
+			"customer_name":      custName,
+			"customer_name_urdu": custUrdu,
+			"father_name":        fatherName,
+			"phone":              phone,
+			"product_name":       prodName,
+			"amount":             pay.Amount,
+			"profit":             profit,
+			"date":               pay.TransactionDate.Format("2006-01-02"),
+			"method":             pay.Method,
+			"installment_no":     pay.InstallmentNo,
+			"collected_by":       pay.CollectedBy,
+		})
+	}
+
+	if details == nil {
+		details = []map[string]interface{}{}
+	}
+	return details, totalRevenue, totalProfit
+}
+
 func (h *AccountingHandler) TodaySummary(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	end := start.Add(24 * time.Hour)
-	revenue, profit, err := h.svc.GetRevenueAndProfit(r.Context(), start, end)
-	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "Failed to get today", "آج کا ڈیٹا نہیں آیا")
+
+	db := config.MongoDatabase
+	if db == nil {
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"revenue": 0, "profit": 0, "details": []interface{}{},
+		})
 		return
 	}
 
-	db := config.DB
-	var pendingTotal float64
-	err = db.QueryRowContext(r.Context(), `
-		SELECT COALESCE(SUM(COALESCE(d.amount, 0) + COALESCE(d.fine, 0) - COALESCE(d.partial_paid, 0)), 0)
-		FROM installment_details d
-		JOIN installment_plans p ON d.plan_id = p.id
-		WHERE d.paid = 0 AND p.status = 'active' AND d.due_date >= ? AND d.due_date < ?
-	`, start, end).Scan(&pendingTotal)
-	if err != nil {
-		pendingTotal = 0
-	}
-
-	var customerCount int
-	db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM customers").Scan(&customerCount)
-
-	var collectionCount int
-	db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM payments WHERE transaction_date >= ? AND transaction_date < ?", start, end).Scan(&collectionCount)
-
-	var activePlans int
-	db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM installment_plans WHERE status IN ('active','overdue')").Scan(&activePlans)
-
-	var totalOutstanding float64
-	db.QueryRowContext(r.Context(), `
-		SELECT COALESCE(SUM(COALESCE(d.amount,0)+COALESCE(d.fine,0)-COALESCE(d.partial_paid,0)), 0)
-		FROM installment_details d JOIN installment_plans p ON d.plan_id = p.id
-		WHERE d.paid = 0 AND p.status IN ('active','overdue')
-	`).Scan(&totalOutstanding)
+	details, revenue, profit := getPaymentDetailsWithProfit(db, start, end)
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"revenue":         revenue,
-		"profit":          profit,
-		"pending_total":   pendingTotal,
-		"customers":       customerCount,
-		"date":            now.Format("2006-01-02"),
-		"collection_count": collectionCount,
-		"active_plans":    activePlans,
-		"total_outstanding": totalOutstanding,
+		"revenue":  revenue,
+		"profit":   profit,
+		"details":  details,
+		"date":     now.Format("2006-01-02"),
 	})
 }
 
@@ -70,46 +142,22 @@ func (h *AccountingHandler) MonthSummary(w http.ResponseWriter, r *http.Request)
 	now := time.Now()
 	start := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
 	end := start.AddDate(0, 1, 0)
-	revenue, profit, err := h.svc.GetRevenueAndProfit(r.Context(), start, end)
-	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "Failed to get month", "مہینے کا ڈیٹا نہیں آیا")
+
+	db := config.MongoDatabase
+	if db == nil {
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"revenue": 0, "profit": 0, "details": []interface{}{},
+		})
 		return
 	}
 
-	db := config.DB
-	var pendingTotal float64
-	db.QueryRowContext(r.Context(), `
-		SELECT COALESCE(SUM(COALESCE(d.amount, 0) + COALESCE(d.fine, 0) - COALESCE(d.partial_paid, 0)), 0)
-		FROM installment_details d
-		JOIN installment_plans p ON d.plan_id = p.id
-		WHERE d.paid = 0 AND p.status = 'active' AND d.due_date >= ? AND d.due_date < ?
-	`, start, end).Scan(&pendingTotal)
-
-	var customerCount int
-	db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM customers").Scan(&customerCount)
-
-	var collectionCount int
-	db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM payments WHERE transaction_date >= ? AND transaction_date < ?", start, end).Scan(&collectionCount)
-
-	var activePlans int
-	db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM installment_plans WHERE status IN ('active','overdue')").Scan(&activePlans)
-
-	var totalOutstanding float64
-	db.QueryRowContext(r.Context(), `
-		SELECT COALESCE(SUM(COALESCE(d.amount,0)+COALESCE(d.fine,0)-COALESCE(d.partial_paid,0)), 0)
-		FROM installment_details d JOIN installment_plans p ON d.plan_id = p.id
-		WHERE d.paid = 0 AND p.status IN ('active','overdue')
-	`).Scan(&totalOutstanding)
+	details, revenue, profit := getPaymentDetailsWithProfit(db, start, end)
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"revenue":          revenue,
-		"profit":           profit,
-		"pending_total":    pendingTotal,
-		"customers":        customerCount,
-		"month":            now.Format("2006-01"),
-		"collection_count": collectionCount,
-		"active_plans":     activePlans,
-		"total_outstanding": totalOutstanding,
+		"revenue":  revenue,
+		"profit":   profit,
+		"details":  details,
+		"month":    now.Format("2006-01"),
 	})
 }
 

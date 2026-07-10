@@ -32,13 +32,30 @@ interface CustomerPending {
   earliest_due_date?: string;
 }
 
+interface PaymentDetail {
+  customer_name: string;
+  customer_name_urdu: string;
+  father_name: string;
+  phone: string;
+  product_name: string;
+  amount: number;
+  profit: number;
+  date: string;
+  method: string;
+  installment_no: number;
+  collected_by: string;
+}
+
+
 const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, type, onClose, isUrdu }) => {
   const currentUser = useAuthStore((state) => state.user);
   const clientInfo = useClientStore((s) => s.info);
   const [details, setDetails] = useState<DetailItem[]>([]);
   const [customers, setCustomers] = useState<CustomerPending[]>([]);
+  const [paymentDetails, setPaymentDetails] = useState<PaymentDetail[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
 
   useEffect(() => {
     let cancelled = false;
@@ -65,13 +82,8 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
 
         if (type === 'today' || type === 'month') {
           const prefix = type === 'today' ? (isUrdu ? 'آج' : 'Today') : (isUrdu ? 'ماہ' : 'Month');
-          // Try multiple possible field names - backend returns {revenue, profit}
-          const revenue = d.revenue ?? d.total_revenue ?? d.totalIncome ?? d.totalIncome ?? 0;
+          const revenue = d.revenue ?? d.total_revenue ?? d.totalIncome ?? 0;
           const profit = d.profit ?? d.total_profit ?? d.netProfit ?? 0;
-          const collected = d.total_collected ?? d.collection ?? 0;
-          const sales = d.total_sales ?? d.sales ?? 0;
-          const expenses = d.expenses ?? d.total_expenses ?? 0;
-          const transactionCount = d.transaction_count ?? d.count ?? 0;
 
           // Always show revenue and profit (even if 0) since backend always returns them
           items.push({
@@ -85,36 +97,13 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
             rawValue: profit,
             isNegative: profit < 0,
           });
-          if (collected > 0) {
-            items.push({
-              label: isUrdu ? `${prefix} کی وصولی` : `${prefix} Collection`,
-              value: `Rs. ${collected.toLocaleString()}`,
-              rawValue: collected,
-            });
-          }
-          if (sales > 0) {
-            items.push({
-              label: isUrdu ? `${prefix} کی فروخت` : `${prefix} Sales`,
-              value: `Rs. ${sales.toLocaleString()}`,
-              rawValue: sales,
-            });
-          }
-          if (expenses > 0) {
-            items.push({
-              label: isUrdu ? `${prefix} کے اخراجات` : `${prefix} Expenses`,
-              value: `Rs. ${expenses.toLocaleString()}`,
-              rawValue: expenses,
-              isNegative: true,
-            });
-          }
-          if (transactionCount > 0) {
-            items.push({
-              label: isUrdu ? 'لین دین کی تعداد' : 'Transactions',
-              value: `${transactionCount}`,
-              rawValue: transactionCount,
-            });
+
+          // Set payment details from backend response
+          if (d.details && Array.isArray(d.details)) {
+            setPaymentDetails(d.details);
           }
         } else {
+
           // Pending type - show total and customer-wise list
           const pendingTotal = d.pending_total ?? d.totalPending ?? 0;
           items.push({
@@ -403,8 +392,59 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
                 </span>
               </div>
 
+              {/* Payment Details Table for today/month */}
+              {(type === 'today' || type === 'month') && paymentDetails.length > 0 && (
+                <div className="mt-6">
+                  <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-3 uppercase tracking-wider">
+                    {isUrdu ? 'ادائیگیوں کی تفصیل' : 'Payment Details'}
+                  </h3>
+                  <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-gray-50 dark:bg-gray-700/50">
+                          <th className="px-2 py-2 text-start text-[10px] font-bold text-gray-500 uppercase">#</th>
+                          <th className="px-2 py-2 text-start text-[10px] font-bold text-gray-500 uppercase">{isUrdu ? 'نام' : 'Name'}</th>
+                          <th className="px-2 py-2 text-start text-[10px] font-bold text-gray-500 uppercase">{isUrdu ? 'فون' : 'Phone'}</th>
+                          <th className="px-2 py-2 text-start text-[10px] font-bold text-gray-500 uppercase">{isUrdu ? 'پروڈکٹ' : 'Product'}</th>
+                          <th className="px-2 py-2 text-end text-[10px] font-bold text-gray-500 uppercase">{isUrdu ? 'رقم' : 'Amount'}</th>
+                          <th className="px-2 py-2 text-end text-[10px] font-bold text-gray-500 uppercase">{isUrdu ? 'منافع' : 'Profit'}</th>
+                          <th className="px-2 py-2 text-center text-[10px] font-bold text-gray-500 uppercase">{isUrdu ? 'تاریخ' : 'Date'}</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
+                        {paymentDetails.map((p, idx) => (
+                          <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
+                            <td className="px-2 py-2 text-gray-400 font-mono text-xs text-center">{idx + 1}</td>
+                            <td className="px-2 py-2">
+                              <span className="font-semibold text-gray-800 dark:text-white text-xs">
+                                {isUrdu ? (p.customer_name_urdu || p.customer_name) : p.customer_name}
+                              </span>
+                              {p.father_name && (
+                                <span className="text-[10px] text-gray-400 block">{p.father_name}</span>
+                              )}
+                            </td>
+                            <td className="px-2 py-2 text-xs text-gray-600 dark:text-gray-300">{p.phone || '—'}</td>
+                            <td className="px-2 py-2 text-xs text-gray-600 dark:text-gray-300">{p.product_name || '—'}</td>
+                            <td className="px-2 py-2 text-end">
+                              <span className="font-bold text-emerald-600 dark:text-emerald-400 text-xs">Rs. {(p.amount || 0).toLocaleString()}</span>
+                            </td>
+                            <td className="px-2 py-2 text-end">
+                              <span className={`font-bold text-xs ${(p.profit || 0) >= 0 ? 'text-blue-600 dark:text-blue-400' : 'text-red-600 dark:text-red-400'}`}>
+                                Rs. {(p.profit || 0).toLocaleString()}
+                              </span>
+                            </td>
+                            <td className="px-2 py-2 text-center text-xs text-gray-500">{p.date || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
               {/* Customer-wise pending list for pending type */}
               {type === 'pending' && customers.length > 0 && (
+
                 <div className="mt-6">
                   <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-3 uppercase tracking-wider">
                     {isUrdu ? 'گاہک کے لحاظ سے بقایا جات' : 'Customer-wise Pending'}
