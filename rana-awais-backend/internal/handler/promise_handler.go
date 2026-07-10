@@ -106,12 +106,10 @@ func (h *PromiseHandler) ListAll(w http.ResponseWriter, r *http.Request) {
 			pr.status, COALESCE(pr.remarks, ''), COALESCE(pr.created_by, ''),
 			pr.created_at, pr.updated_at,
 			COALESCE(c.name, ''), COALESCE(c.phone, ''), COALESCE(c.name_urdu, ''),
-			COALESCE(prod.name, ''),
+			'',
 			pr.promise_date
 		FROM promises pr
 		LEFT JOIN customers c ON pr.customer_id = c.id
-		LEFT JOIN installment_plans p ON pr.plan_id = p.id
-		LEFT JOIN products prod ON p.product_id = prod.id
 		ORDER BY pr.promise_date DESC
 	`)
 	if err != nil {
@@ -148,12 +146,10 @@ func (h *PromiseHandler) ListPending(w http.ResponseWriter, r *http.Request) {
 			pr.status, COALESCE(pr.remarks, ''), COALESCE(pr.created_by, ''),
 			pr.created_at, pr.updated_at,
 			COALESCE(c.name, ''), COALESCE(c.phone, ''), COALESCE(c.name_urdu, ''),
-			COALESCE(prod.name, ''),
+			'',
 			pr.promise_date
 		FROM promises pr
 		LEFT JOIN customers c ON pr.customer_id = c.id
-		LEFT JOIN installment_plans p ON pr.plan_id = p.id
-		LEFT JOIN products prod ON p.product_id = prod.id
 		WHERE pr.status = 'pending'
 		ORDER BY pr.promise_date ASC
 	`)
@@ -262,12 +258,10 @@ func (h *PromiseHandler) GetTodayPromises(w http.ResponseWriter, r *http.Request
 			pr.status, COALESCE(pr.remarks, ''), COALESCE(pr.created_by, ''),
 			pr.created_at, pr.updated_at,
 			COALESCE(c.name, ''), COALESCE(c.phone, ''), COALESCE(c.name_urdu, ''),
-			COALESCE(prod.name, ''),
+			'',
 			pr.promise_date
 		FROM promises pr
 		LEFT JOIN customers c ON pr.customer_id = c.id
-		LEFT JOIN installment_plans p ON pr.plan_id = p.id
-		LEFT JOIN products prod ON p.product_id = prod.id
 		WHERE pr.promise_date >= ? AND pr.promise_date < ? AND pr.status = 'pending'
 		ORDER BY pr.promise_date ASC
 	`, start, end)
