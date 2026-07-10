@@ -35,8 +35,29 @@ func calculatePaymentProfit(pay domain.Payment, db *mongo.Database) float64 {
 	purchasePrice := 0.0
 	if plan.ProductID != "" {
 		var prod domain.Product
+		// Try both field name formats: purchaseprice (lowercase) and purchasePrice (camelCase)
 		if err := db.Collection("products").FindOne(nil, bson.M{"_id": plan.ProductID}).Decode(&prod); err == nil {
 			purchasePrice = prod.PurchasePrice
+		}
+		// If PurchasePrice is still 0, try to fetch it directly from MongoDB
+		// to handle field name mismatch (bson tag is "purchaseprice" but data may be stored as "purchasePrice")
+		if purchasePrice <= 0 {
+			var rawProd bson.M
+			if err := db.Collection("products").FindOne(nil, bson.M{"_id": plan.ProductID}).Decode(&rawProd); err == nil {
+				// Try camelCase first, then lowercase
+				if val, ok := rawProd["purchasePrice"]; ok {
+					if v, ok2 := val.(float64); ok2 && v > 0 {
+						purchasePrice = v
+					}
+				}
+				if purchasePrice <= 0 {
+					if val, ok := rawProd["purchaseprice"]; ok {
+						if v, ok2 := val.(float64); ok2 && v > 0 {
+							purchasePrice = v
+						}
+					}
+				}
+			}
 		}
 	}
 	// If purchase price is 0 or not found, cannot determine profit
@@ -56,9 +77,16 @@ func getPaymentDetailsWithProfit(db *mongo.Database, start, end time.Time) ([]ma
 	totalRevenue := 0.0
 	totalProfit := 0.0
 
+	// Try both field name formats: transactiondate (lowercase) and transactionDate (camelCase)
 	cursor, err := db.Collection("payments").Find(nil, bson.M{
 		"transactiondate": bson.M{"$gte": start, "$lt": end},
 	})
+	if err != nil {
+		// Retry with camelCase field name
+		cursor, err = db.Collection("payments").Find(nil, bson.M{
+			"transactionDate": bson.M{"$gte": start, "$lt": end},
+		})
+	}
 	if err != nil {
 		return details, totalRevenue, totalProfit
 	}

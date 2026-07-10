@@ -132,6 +132,7 @@ func (r *AccountingRepository) GetRevenueAndProfit(ctx context.Context, start, e
 	// Profit calculation using aggregation pipeline
 	// Profit = Payment * (1 - PurchasePrice / TotalAmount)
 	// IMPORTANT: If purchaseprice is null or 0, profit is 0 (not full amount)
+	// First normalize purchasePrice - check both camelCase and lowercase field names
 	pipeline := mongo.Pipeline{
 		{{Key: "$match", Value: bson.M{
 			"transactiondate": bson.M{"$gte": start, "$lt": end},
@@ -153,6 +154,17 @@ func (r *AccountingRepository) GetRevenueAndProfit(ctx context.Context, start, e
 			{Key: "path", Value: "$product"},
 			{Key: "preserveNullAndEmptyArrays", Value: true},
 		}}},
+		// Normalize purchasePrice - check both camelCase and lowercase field names
+		{{Key: "$addFields", Value: bson.M{
+			"normalizedPurchasePrice": bson.M{"$cond": []interface{}{
+				bson.M{"$gt": []interface{}{
+					bson.M{"$ifNull": []interface{}{"$product.purchasePrice", 0}},
+					0,
+				}},
+				bson.M{"$ifNull": []interface{}{"$product.purchasePrice", 0}},
+				bson.M{"$ifNull": []interface{}{"$product.purchaseprice", 0}},
+			}},
+		}}},
 		{{Key: "$group", Value: bson.M{
 			"_id": nil,
 			"totalProfit": bson.M{
@@ -165,12 +177,12 @@ func (r *AccountingRepository) GetRevenueAndProfit(ctx context.Context, start, e
 								bson.M{"$and": []interface{}{
 									bson.M{"$gt": []interface{}{"$plan.totalamount", 0}},
 									bson.M{"$gt": []interface{}{
-										bson.M{"$ifNull": []interface{}{"$product.purchaseprice", 0}},
+										"$normalizedPurchasePrice",
 										0,
 									}},
 								}},
 								bson.M{"$divide": []interface{}{
-									bson.M{"$ifNull": []interface{}{"$product.purchaseprice", 0}},
+									"$normalizedPurchasePrice",
 									"$plan.totalamount",
 								}},
 								0,
