@@ -48,6 +48,7 @@ func SetupRouter(
 	adminH := NewAdminHandler(userSvc, settingsRepo)
 	dashboardH := NewDashboardHandler()
 	expenseH := NewExpenseHandler()
+	promiseH := NewPromiseHandler()
 
 	api := r.PathPrefix("/api").Subrouter()
 
@@ -725,6 +726,14 @@ func SetupRouter(
 	protected.HandleFunc("/dashboard/today-due-full", dashboardH.TodayInstallments).Methods("GET")
 	protected.HandleFunc("/dashboard/overdue-full", dashboardH.OverdueDetails).Methods("GET")
 
+	// Reports
+	reportH := NewReportHandler()
+	protected.HandleFunc("/reports/daily", reportH.DailyReport).Methods("GET")
+	protected.HandleFunc("/reports/weekly", reportH.WeeklyReport).Methods("GET")
+	protected.HandleFunc("/reports/monthly", reportH.MonthlyReport).Methods("GET")
+	protected.HandleFunc("/reports/date-range", reportH.DateRangeReport).Methods("GET")
+	protected.HandleFunc("/reports/customers", reportH.CustomerReport).Methods("GET")
+
 	// Sync endpoint
 	protected.HandleFunc("/sync", func(w http.ResponseWriter, r *http.Request) {
 		respondJSON(w, http.StatusOK, map[string]interface{}{
@@ -744,6 +753,14 @@ func SetupRouter(
 
 	// Payments list
 	protected.HandleFunc("/payments/list", paymentH.ListAll).Methods("GET")
+
+	// ========== PROMISES ==========
+	protected.HandleFunc("/promises", promiseH.Create).Methods("POST")
+	protected.HandleFunc("/promises", promiseH.ListAll).Methods("GET")
+	protected.HandleFunc("/promises/pending", promiseH.ListPending).Methods("GET")
+	protected.HandleFunc("/promises/today", promiseH.GetTodayPromises).Methods("GET")
+	protected.HandleFunc("/promises/customer", promiseH.ListByCustomer).Methods("GET")
+	protected.HandleFunc("/promises/status", promiseH.UpdateStatus).Methods("PUT")
 
 	return r
 }
