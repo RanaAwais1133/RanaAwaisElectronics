@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import api from '../../utils/api';
 import toast from 'react-hot-toast';
@@ -22,6 +22,17 @@ interface PromiseItem {
   due_date: string;
 }
 
+interface CustomerInfo {
+  name: string;
+  nameUrdu: string;
+  phone: string;
+}
+
+interface PlanInfo {
+  productName: string;
+  dueDate: string;
+}
+
 interface PromisesModalProps {
   isUrdu: boolean;
   onClose: () => void;
@@ -35,6 +46,43 @@ const PromisesModal: React.FC<PromisesModalProps> = ({ isUrdu, onClose, onSucces
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [customerCache, setCustomerCache] = useState<Record<string, CustomerInfo>>({});
+  const [planCache, setPlanCache] = useState<Record<string, PlanInfo>>({});
+
+  // Fetch customer details from API
+  const fetchCustomerDetails = useCallback(async (customerId: string) => {
+    if (customerCache[customerId]) return customerCache[customerId];
+    try {
+      const res = await api.get(`/customers/${customerId}`);
+      const c = res.data?.data || res.data;
+      const info: CustomerInfo = {
+        name: c.name || '',
+        nameUrdu: c.nameUrdu || c.name_urdu || '',
+        phone: c.phone || '',
+      };
+      setCustomerCache(prev => ({ ...prev, [customerId]: info }));
+      return info;
+    } catch {
+      return { name: '', nameUrdu: '', phone: '' };
+    }
+  }, [customerCache]);
+
+  // Fetch plan details from API
+  const fetchPlanDetails = useCallback(async (planId: string) => {
+    if (planCache[planId]) return planCache[planId];
+    try {
+      const res = await api.get(`/installments/${planId}`);
+      const p = res.data?.data || res.data;
+      const info: PlanInfo = {
+        productName: p.product_name || p.productName || '',
+        dueDate: p.due_date || p.dueDate || '',
+      };
+      setPlanCache(prev => ({ ...prev, [planId]: info }));
+      return info;
+    } catch {
+      return { productName: '', dueDate: '' };
+    }
+  }, [planCache]);
 
   const fetchPromises = async () => {
     setLoading(true);
@@ -45,7 +93,23 @@ const PromisesModal: React.FC<PromisesModalProps> = ({ isUrdu, onClose, onSucces
 
       const res = await api.get(endpoint);
       const data = res.data?.promises || res.data?.data || [];
-      setPromises(Array.isArray(data) ? data : Array.isArray(res.data) ? res.data : []);
+      const promisesList = Array.isArray(data) ? data : Array.isArray(res.data) ? res.data : [];
+      
+      // Enrich promises with customer and plan details
+      const enriched = await Promise.all(promisesList.map(async (p: PromiseItem) => {
+        const cust = await fetchCustomerDetails(p.customer_id);
+        const plan = await fetchPlanDetails(p.plan_id);
+        return {
+          ...p,
+          customer_name: p.customer_name || cust.name,
+          customer_name_ur: p.customer_name_ur || cust.nameUrdu,
+          customer_phone: p.customer_phone || cust.phone,
+          product_name: p.product_name || plan.productName,
+          due_date: p.due_date || plan.dueDate,
+        };
+      }));
+      
+      setPromises(enriched);
     } catch (err) {
       setPromises([]);
     } finally {
