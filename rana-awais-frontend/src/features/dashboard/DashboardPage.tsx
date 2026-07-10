@@ -665,6 +665,8 @@ const MonthlyReportModal: React.FC<MonthlyReportModalProps> = ({ onClose, isUrdu
   const [report, setReport] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [activeTab, setActiveTab] = useState<'all' | 'collected' | 'remaining'>('all');
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -694,6 +696,32 @@ const MonthlyReportModal: React.FC<MonthlyReportModalProps> = ({ onClose, isUrdu
     const [year, month] = selectedMonth.split('-');
     const monthName = months[parseInt(month) - 1];
 
+    const collectedRows = (report.collected_customers || []).map((c: any, i: number) => `
+      <tr>
+        <td style="border:1px solid #e5e7eb;padding:6px 4px;text-align:center;">${i + 1}</td>
+        <td style="border:1px solid #e5e7eb;padding:6px 4px;">${isUrdu ? (c.customer_name_urdu || c.customer_name) : c.customer_name}</td>
+        <td style="border:1px solid #e5e7eb;padding:6px 4px;">${c.father_name || '—'}</td>
+        <td style="border:1px solid #e5e7eb;padding:6px 4px;">${c.phone || '—'}</td>
+        <td style="border:1px solid #e5e7eb;padding:6px 4px;">${c.product_name || '—'}</td>
+        <td style="border:1px solid #e5e7eb;padding:6px 4px;text-align:right;">Rs. ${(c.due_amount || 0).toLocaleString()}</td>
+        <td style="border:1px solid #e5e7eb;padding:6px 4px;text-align:right;color:#059669;">Rs. ${(c.collected_amount || 0).toLocaleString()}</td>
+        <td style="border:1px solid #e5e7eb;padding:6px 4px;text-align:center;">${c.due_date || '—'}</td>
+      </tr>
+    `).join('');
+
+    const remainingRows = (report.remaining_customers || []).map((c: any, i: number) => `
+      <tr>
+        <td style="border:1px solid #e5e7eb;padding:6px 4px;text-align:center;">${i + 1}</td>
+        <td style="border:1px solid #e5e7eb;padding:6px 4px;">${isUrdu ? (c.customer_name_urdu || c.customer_name) : c.customer_name}</td>
+        <td style="border:1px solid #e5e7eb;padding:6px 4px;">${c.father_name || '—'}</td>
+        <td style="border:1px solid #e5e7eb;padding:6px 4px;">${c.phone || '—'}</td>
+        <td style="border:1px solid #e5e7eb;padding:6px 4px;">${c.product_name || '—'}</td>
+        <td style="border:1px solid #e5e7eb;padding:6px 4px;text-align:right;">Rs. ${(c.due_amount || 0).toLocaleString()}</td>
+        <td style="border:1px solid #e5e7eb;padding:6px 4px;text-align:right;color:#dc2626;">Rs. ${(c.remaining_amount || 0).toLocaleString()}</td>
+        <td style="border:1px solid #e5e7eb;padding:6px 4px;text-align:center;">${c.due_date || '—'}</td>
+      </tr>
+    `).join('');
+
     printWindow.document.write(`
       <html>
       <head><title>${isUrdu ? 'ماہانہ رپورٹ' : 'Monthly Report'} - ${monthName} ${year}</title>
@@ -709,6 +737,9 @@ const MonthlyReportModal: React.FC<MonthlyReportModalProps> = ({ onClose, isUrdu
         table { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 20px; }
         th { background: #1f2937; color: white; border:1px solid #374151; padding: 8px 6px; font-weight: 600; font-size: 10px; text-align: center; }
         td { border:1px solid #e5e7eb; padding: 6px 4px; }
+        .section-title { font-size: 14px; font-weight: 700; margin: 15px 0 8px 0; padding: 6px 12px; border-radius: 6px; }
+        .collected-title { background: #d1fae5; color: #065f46; }
+        .remaining-title { background: #fee2e2; color: #991b1b; }
         .footer { text-align: center; margin-top: 15px; font-size: 10px; color: #9ca3af; }
       </style>
       </head>
@@ -720,7 +751,12 @@ const MonthlyReportModal: React.FC<MonthlyReportModalProps> = ({ onClose, isUrdu
           <div class="stat-box"><div class="num">${report.total_customers || 0}</div><div class="lbl">${isUrdu ? 'کل گاہک' : 'Total Customers'}</div></div>
           <div class="stat-box"><div class="num">${report.new_customers || 0}</div><div class="lbl">${isUrdu ? 'نئے گاہک' : 'New Customers'}</div></div>
           <div class="stat-box"><div class="num">Rs. ${(report.total_profit || 0).toLocaleString()}</div><div class="lbl">${isUrdu ? 'کل منافع' : 'Total Profit'}</div></div>
+          <div class="stat-box"><div class="num">Rs. ${(report.total_due_amount || 0).toLocaleString()}</div><div class="lbl">${isUrdu ? 'کل واجب الادا' : 'Total Due'}</div></div>
+          <div class="stat-box"><div class="num" style="color:#059669;">Rs. ${(report.total_collected_amount || 0).toLocaleString()}</div><div class="lbl">${isUrdu ? 'وصول شدہ' : 'Collected'}</div></div>
+          <div class="stat-box"><div class="num" style="color:#dc2626;">Rs. ${(report.total_remaining_amount || 0).toLocaleString()}</div><div class="lbl">${isUrdu ? 'باقی' : 'Remaining'}</div></div>
         </div>
+        ${collectedRows ? `<div class="section-title collected-title">${isUrdu ? '✅ وصول شدہ اقساط' : '✅ Collected Installments'} (${report.collected_count || 0})</div><table><thead><tr><th>#</th><th>${isUrdu ? 'نام' : 'Name'}</th><th>${isUrdu ? 'والد' : 'Father'}</th><th>${isUrdu ? 'فون' : 'Phone'}</th><th>${isUrdu ? 'پروڈکٹ' : 'Product'}</th><th>${isUrdu ? 'رقم' : 'Amount'}</th><th>${isUrdu ? 'وصول شدہ' : 'Collected'}</th><th>${isUrdu ? 'تاریخ' : 'Date'}</th></tr></thead><tbody>${collectedRows}</tbody></table>` : ''}
+        ${remainingRows ? `<div class="section-title remaining-title">${isUrdu ? '⏳ باقی اقساط' : '⏳ Remaining Installments'} (${report.remaining_count || 0})</div><table><thead><tr><th>#</th><th>${isUrdu ? 'نام' : 'Name'}</th><th>${isUrdu ? 'والد' : 'Father'}</th><th>${isUrdu ? 'فون' : 'Phone'}</th><th>${isUrdu ? 'پروڈکٹ' : 'Product'}</th><th>${isUrdu ? 'رقم' : 'Amount'}</th><th>${isUrdu ? 'باقی' : 'Remaining'}</th><th>${isUrdu ? 'تاریخ' : 'Date'}</th></tr></thead><tbody>${remainingRows}</tbody></table>` : ''}
         <div class="footer">Generated on ${new Date().toLocaleDateString()}</div>
         <script>window.onload=function(){setTimeout(function(){window.print();window.close()},300)}</script>
       </body></html>
@@ -728,9 +764,25 @@ const MonthlyReportModal: React.FC<MonthlyReportModalProps> = ({ onClose, isUrdu
     printWindow.document.close();
   };
 
+  // Filter customers based on search
+  const filterCustomers = (customers: any[]) => {
+    if (!searchQuery.trim()) return customers;
+    const q = searchQuery.toLowerCase();
+    return customers.filter((c: any) =>
+      (c.customer_name || '').toLowerCase().includes(q) ||
+      (c.customer_name_urdu || '').toLowerCase().includes(q) ||
+      (c.father_name || '').toLowerCase().includes(q) ||
+      (c.phone || '').includes(q) ||
+      (c.product_name || '').toLowerCase().includes(q)
+    );
+  };
+
+  const collectedCustomers = filterCustomers(report?.collected_customers || []);
+  const remainingCustomers = filterCustomers(report?.remaining_customers || []);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] flex flex-col border border-gray-200 dark:border-gray-700" onClick={e => e.stopPropagation()}>
+      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-6xl w-full max-h-[90vh] flex flex-col border border-gray-200 dark:border-gray-700" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-indigo-50 dark:bg-indigo-900/30 rounded-lg">
@@ -756,13 +808,25 @@ const MonthlyReportModal: React.FC<MonthlyReportModalProps> = ({ onClose, isUrdu
           </div>
         </div>
 
-        <div className="px-6 py-3 border-b border-gray-100 dark:border-gray-700">
+        <div className="px-6 py-3 border-b border-gray-100 dark:border-gray-700 flex flex-col sm:flex-row gap-3">
           <input
             type="month"
             value={selectedMonth}
             onChange={(e) => setSelectedMonth(e.target.value)}
-            className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="w-full sm:w-auto px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />
+          <div className="relative flex-1 max-w-xs">
+            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={isUrdu ? 'تلاش کریں...' : 'Search...'}
+              className="w-full pl-9 pr-3 py-2 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-xs text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+            />
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-6">
@@ -780,48 +844,162 @@ const MonthlyReportModal: React.FC<MonthlyReportModalProps> = ({ onClose, isUrdu
             </div>
           ) : (
             <div className="space-y-6">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div className="bg-indigo-50 dark:bg-indigo-900/20 rounded-xl p-4 text-center border border-indigo-100 dark:border-indigo-800">
-                  <p className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">Rs. {(report.total_collection || 0).toLocaleString()}</p>
-                  <p className="text-xs text-indigo-600 dark:text-indigo-400 mt-1">{isUrdu ? 'کل وصولی' : 'Total Collection'}</p>
+              {/* Summary Stats */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
+                <div className="bg-indigo-50 dark:bg-indigo-900/20 rounded-xl p-3 text-center border border-indigo-100 dark:border-indigo-800">
+                  <p className="text-lg font-bold text-indigo-600 dark:text-indigo-400">Rs. {(report.total_collection || 0).toLocaleString()}</p>
+                  <p className="text-[10px] text-indigo-600 dark:text-indigo-400 mt-0.5">{isUrdu ? 'کل وصولی' : 'Total Collection'}</p>
                 </div>
-                <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4 text-center border border-blue-100 dark:border-blue-800">
-                  <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{report.total_customers || 0}</p>
-                  <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">{isUrdu ? 'کل گاہک' : 'Total Customers'}</p>
+                <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-3 text-center border border-blue-100 dark:border-blue-800">
+                  <p className="text-lg font-bold text-blue-600 dark:text-blue-400">{report.total_customers || 0}</p>
+                  <p className="text-[10px] text-blue-600 dark:text-blue-400 mt-0.5">{isUrdu ? 'کل گاہک' : 'Total Customers'}</p>
                 </div>
-                <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-xl p-4 text-center border border-emerald-100 dark:border-emerald-800">
-                  <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{report.new_customers || 0}</p>
-                  <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-1">{isUrdu ? 'نئے گاہک' : 'New Customers'}</p>
+                <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-xl p-3 text-center border border-emerald-100 dark:border-emerald-800">
+                  <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400">{report.new_customers || 0}</p>
+                  <p className="text-[10px] text-emerald-600 dark:text-emerald-400 mt-0.5">{isUrdu ? 'نئے گاہک' : 'New Customers'}</p>
                 </div>
-                <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-4 text-center border border-amber-100 dark:border-amber-800">
-                  <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">Rs. {(report.total_profit || 0).toLocaleString()}</p>
-                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">{isUrdu ? 'کل منافع' : 'Total Profit'}</p>
+                <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-3 text-center border border-amber-100 dark:border-amber-800">
+                  <p className="text-lg font-bold text-amber-600 dark:text-amber-400">Rs. {(report.total_profit || 0).toLocaleString()}</p>
+                  <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5">{isUrdu ? 'کل منافع' : 'Total Profit'}</p>
+                </div>
+                <div className="bg-purple-50 dark:bg-purple-900/20 rounded-xl p-3 text-center border border-purple-100 dark:border-purple-800">
+                  <p className="text-lg font-bold text-purple-600 dark:text-purple-400">Rs. {(report.total_due_amount || 0).toLocaleString()}</p>
+                  <p className="text-[10px] text-purple-600 dark:text-purple-400 mt-0.5">{isUrdu ? 'کل واجب الادا' : 'Total Due'}</p>
+                </div>
+                <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-xl p-3 text-center border border-emerald-100 dark:border-emerald-800">
+                  <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400">Rs. {(report.total_collected_amount || 0).toLocaleString()}</p>
+                  <p className="text-[10px] text-emerald-600 dark:text-emerald-400 mt-0.5">{isUrdu ? 'وصول شدہ' : 'Collected'}</p>
+                </div>
+                <div className="bg-red-50 dark:bg-red-900/20 rounded-xl p-3 text-center border border-red-100 dark:border-red-800">
+                  <p className="text-lg font-bold text-red-600 dark:text-red-400">Rs. {(report.total_remaining_amount || 0).toLocaleString()}</p>
+                  <p className="text-[10px] text-red-600 dark:text-red-400 mt-0.5">{isUrdu ? 'باقی' : 'Remaining'}</p>
                 </div>
               </div>
 
-              {report.daily_breakdown && report.daily_breakdown.length > 0 && (
+              {/* Tabs */}
+              <div className="flex gap-2 border-b border-gray-200 dark:border-gray-700 pb-3">
+                {[
+                  { key: 'all', label: isUrdu ? 'تمام' : 'All' },
+                  { key: 'collected', label: isUrdu ? 'وصول شدہ' : 'Collected' },
+                  { key: 'remaining', label: isUrdu ? 'باقی' : 'Remaining' },
+                ].map(tab => (
+                  <button
+                    key={tab.key}
+                    onClick={() => setActiveTab(tab.key as any)}
+                    className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
+                      activeTab === tab.key
+                        ? 'bg-gray-900 dark:bg-white text-white dark:text-gray-900'
+                        : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Collected Customers */}
+              {(activeTab === 'all' || activeTab === 'collected') && collectedCustomers.length > 0 && (
                 <div>
-                  <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-3">{isUrdu ? 'یومیہ تفصیل' : 'Daily Breakdown'}</h3>
-                  <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700 max-h-64 overflow-y-auto">
+                  <h3 className="text-sm font-bold text-emerald-600 dark:text-emerald-400 mb-3 flex items-center gap-2">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    {isUrdu ? 'وصول شدہ اقساط' : 'Collected Installments'} ({collectedCustomers.length})
+                  </h3>
+                  <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700 max-h-80 overflow-y-auto">
                     <table className="w-full text-sm">
                       <thead className="sticky top-0">
-                        <tr className="bg-gray-50 dark:bg-gray-700/50">
-                          <th className="px-3 py-2 text-start text-[10px] font-bold text-gray-500 uppercase tracking-wider">{isUrdu ? 'تاریخ' : 'Date'}</th>
-                          <th className="px-3 py-2 text-end text-[10px] font-bold text-gray-500 uppercase tracking-wider">{isUrdu ? 'وصولی' : 'Collection'}</th>
-                          <th className="px-3 py-2 text-end text-[10px] font-bold text-gray-500 uppercase tracking-wider">{isUrdu ? 'گنتی' : 'Count'}</th>
+                        <tr className="bg-emerald-50 dark:bg-emerald-900/20">
+                          <th className="px-3 py-2 text-start text-[10px] font-bold text-gray-500 uppercase tracking-wider">#</th>
+                          <th className="px-3 py-2 text-start text-[10px] font-bold text-gray-500 uppercase tracking-wider">{isUrdu ? 'نام' : 'Name'}</th>
+                          <th className="px-3 py-2 text-start text-[10px] font-bold text-gray-500 uppercase tracking-wider">{isUrdu ? 'والد' : 'Father'}</th>
+                          <th className="px-3 py-2 text-start text-[10px] font-bold text-gray-500 uppercase tracking-wider">{isUrdu ? 'فون' : 'Phone'}</th>
+                          <th className="px-3 py-2 text-start text-[10px] font-bold text-gray-500 uppercase tracking-wider">{isUrdu ? 'پروڈکٹ' : 'Product'}</th>
+                          <th className="px-3 py-2 text-end text-[10px] font-bold text-gray-500 uppercase tracking-wider">{isUrdu ? 'رقم' : 'Amount'}</th>
+                          <th className="px-3 py-2 text-end text-[10px] font-bold text-gray-500 uppercase tracking-wider">{isUrdu ? 'وصول شدہ' : 'Collected'}</th>
+                          <th className="px-3 py-2 text-center text-[10px] font-bold text-gray-500 uppercase tracking-wider">{isUrdu ? 'تاریخ' : 'Date'}</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
-                        {report.daily_breakdown.map((day: any, i: number) => (
+                        {collectedCustomers.map((c: any, i: number) => (
                           <tr key={i} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
-                            <td className="px-3 py-2 text-xs text-gray-800 dark:text-white font-medium">{day.date}</td>
-                            <td className="px-3 py-2 text-end text-xs font-bold text-emerald-600 dark:text-emerald-400">Rs. {(day.total || 0).toLocaleString()}</td>
-                            <td className="px-3 py-2 text-end text-xs text-gray-600 dark:text-gray-300">{day.count || 0}</td>
+                            <td className="px-3 py-2.5 text-gray-400 font-mono text-xs text-center">{i + 1}</td>
+                            <td className="px-3 py-2.5">
+                              <span className="font-semibold text-gray-800 dark:text-white text-xs">
+                                {isUrdu ? (c.customer_name_urdu || c.customer_name) : c.customer_name}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2.5 text-xs text-gray-600 dark:text-gray-300">{c.father_name || '—'}</td>
+                            <td className="px-3 py-2.5 text-xs text-gray-600 dark:text-gray-300">{c.phone || '—'}</td>
+                            <td className="px-3 py-2.5 text-xs text-gray-600 dark:text-gray-300">{c.product_name || '—'}</td>
+                            <td className="px-3 py-2.5 text-end">
+                              <span className="font-bold text-gray-800 dark:text-white text-xs">Rs. {(c.due_amount || 0).toLocaleString()}</span>
+                            </td>
+                            <td className="px-3 py-2.5 text-end">
+                              <span className="font-bold text-emerald-600 dark:text-emerald-400 text-xs">Rs. {(c.collected_amount || 0).toLocaleString()}</span>
+                            </td>
+                            <td className="px-3 py-2.5 text-center text-xs text-gray-500">{c.due_date || '—'}</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
+                </div>
+              )}
+
+              {/* Remaining Customers */}
+              {(activeTab === 'all' || activeTab === 'remaining') && remainingCustomers.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-bold text-red-600 dark:text-red-400 mb-3 flex items-center gap-2">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    {isUrdu ? 'باقی اقساط' : 'Remaining Installments'} ({remainingCustomers.length})
+                  </h3>
+                  <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700 max-h-80 overflow-y-auto">
+                    <table className="w-full text-sm">
+                      <thead className="sticky top-0">
+                        <tr className="bg-red-50 dark:bg-red-900/20">
+                          <th className="px-3 py-2 text-start text-[10px] font-bold text-gray-500 uppercase tracking-wider">#</th>
+                          <th className="px-3 py-2 text-start text-[10px] font-bold text-gray-500 uppercase tracking-wider">{isUrdu ? 'نام' : 'Name'}</th>
+                          <th className="px-3 py-2 text-start text-[10px] font-bold text-gray-500 uppercase tracking-wider">{isUrdu ? 'والد' : 'Father'}</th>
+                          <th className="px-3 py-2 text-start text-[10px] font-bold text-gray-500 uppercase tracking-wider">{isUrdu ? 'فون' : 'Phone'}</th>
+                          <th className="px-3 py-2 text-start text-[10px] font-bold text-gray-500 uppercase tracking-wider">{isUrdu ? 'پروڈکٹ' : 'Product'}</th>
+                          <th className="px-3 py-2 text-end text-[10px] font-bold text-gray-500 uppercase tracking-wider">{isUrdu ? 'رقم' : 'Amount'}</th>
+                          <th className="px-3 py-2 text-end text-[10px] font-bold text-gray-500 uppercase tracking-wider">{isUrdu ? 'باقی' : 'Remaining'}</th>
+                          <th className="px-3 py-2 text-center text-[10px] font-bold text-gray-500 uppercase tracking-wider">{isUrdu ? 'آخری تاریخ' : 'Due Date'}</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
+                        {remainingCustomers.map((c: any, i: number) => (
+                          <tr key={i} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
+                            <td className="px-3 py-2.5 text-gray-400 font-mono text-xs text-center">{i + 1}</td>
+                            <td className="px-3 py-2.5">
+                              <span className="font-semibold text-gray-800 dark:text-white text-xs">
+                                {isUrdu ? (c.customer_name_urdu || c.customer_name) : c.customer_name}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2.5 text-xs text-gray-600 dark:text-gray-300">{c.father_name || '—'}</td>
+                            <td className="px-3 py-2.5 text-xs text-gray-600 dark:text-gray-300">{c.phone || '—'}</td>
+                            <td className="px-3 py-2.5 text-xs text-gray-600 dark:text-gray-300">{c.product_name || '—'}</td>
+                            <td className="px-3 py-2.5 text-end">
+                              <span className="font-bold text-gray-800 dark:text-white text-xs">Rs. {(c.due_amount || 0).toLocaleString()}</span>
+                            </td>
+                            <td className="px-3 py-2.5 text-end">
+                              <span className="font-bold text-red-600 dark:text-red-400 text-xs">Rs. {(c.remaining_amount || 0).toLocaleString()}</span>
+                            </td>
+                            <td className="px-3 py-2.5 text-center text-xs text-gray-500">{c.due_date || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* No results */}
+              {collectedCustomers.length === 0 && remainingCustomers.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-10 gap-3">
+                  <div className="p-3 bg-gray-100 dark:bg-gray-700 rounded-full">
+                    <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                  </div>
+                  <p className="text-gray-400 font-medium">{isUrdu ? 'کوئی ڈیٹا نہیں' : 'No data available'}</p>
                 </div>
               )}
             </div>
@@ -1173,6 +1351,9 @@ const DashboardPage: React.FC = () => {
       )}
       {showPromisesList && (
         <PromisesModal onClose={() => setShowPromisesList(false)} isUrdu={isUrdu} onSuccess={handleRefresh} />
+      )}
+      {showMonthlyReport && (
+        <MonthlyReportModal onClose={() => setShowMonthlyReport(false)} isUrdu={isUrdu} />
       )}
     </div>
   );

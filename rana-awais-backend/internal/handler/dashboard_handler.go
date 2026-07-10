@@ -685,6 +685,9 @@ func (h *DashboardHandler) MonthlyReport(w http.ResponseWriter, r *http.Request)
 			"total_collection": 0, "total_customers": 0, "new_customers": 0,
 			"total_profit": 0, "daily_breakdown": []interface{}{},
 			"daybook_details": []interface{}{},
+			"total_due_amount": 0, "total_collected_amount": 0, "total_remaining_amount": 0,
+			"collected_count": 0, "remaining_count": 0,
+			"collected_customers": []interface{}{}, "remaining_customers": []interface{}{},
 		})
 		return
 	}
@@ -708,7 +711,7 @@ func (h *DashboardHandler) MonthlyReport(w http.ResponseWriter, r *http.Request)
 	monthStart := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.Now().Location())
 	monthEnd := monthStart.AddDate(0, 1, 0)
 
-	// Total Collection
+	// ========== 1. Total Collection (payments this month) ==========
 	totalCollection := 0.0
 	payCursor, err := db.Collection("payments").Find(nil, bson.M{
 		"transactiondate": bson.M{"$gte": monthStart, "$lt": monthEnd},
@@ -723,7 +726,7 @@ func (h *DashboardHandler) MonthlyReport(w http.ResponseWriter, r *http.Request)
 		payCursor.Close(nil)
 	}
 
-	// Total Customers (with active plans)
+	// ========== 2. Total Customers (with active plans) ==========
 	custSet := make(map[string]bool)
 	planCursor, err := db.Collection("installment_plans").Find(nil, bson.M{
 		"status": bson.M{"$in": []string{"active", "Active", "Open"}},
@@ -739,7 +742,7 @@ func (h *DashboardHandler) MonthlyReport(w http.ResponseWriter, r *http.Request)
 	}
 	totalCustomers := int64(len(custSet))
 
-	// New Customers this month
+	// ========== 3. New Customers this month ==========
 	newCustomers := int64(0)
 	if count, err := db.Collection("customers").CountDocuments(nil, bson.M{
 		"createdat": bson.M{"$gte": monthStart, "$lt": monthEnd},
@@ -747,7 +750,7 @@ func (h *DashboardHandler) MonthlyReport(w http.ResponseWriter, r *http.Request)
 		newCustomers = count
 	}
 
-	// Total Profit
+	// ========== 4. Total Profit ==========
 	totalProfit := 0.0
 	payCursor2, err := db.Collection("payments").Find(nil, bson.M{
 		"transactiondate": bson.M{"$gte": monthStart, "$lt": monthEnd},
@@ -779,7 +782,7 @@ func (h *DashboardHandler) MonthlyReport(w http.ResponseWriter, r *http.Request)
 		payCursor2.Close(nil)
 	}
 
-	// Daily Breakdown
+	// ========== 5. Daily Breakdown ==========
 	type dayEntry struct {
 		Date  string  `json:"date"`
 		Total float64 `json:"total"`
@@ -816,7 +819,7 @@ func (h *DashboardHandler) MonthlyReport(w http.ResponseWriter, r *http.Request)
 		dailyBreakdown = []dayEntry{}
 	}
 
-	// Daybook Details
+	// ========== 6. Daybook Details ==========
 	type daybookDetail struct {
 		Date         string  `json:"date"`
 		CustomerName string  `json:"customer_name"`
@@ -864,13 +867,213 @@ func (h *DashboardHandler) MonthlyReport(w http.ResponseWriter, r *http.Request)
 		daybookDetails = []daybookDetail{}
 	}
 
+	// ========== 7. Customer-wise Monthly Due/Collected/Remaining ==========
+	type customerMonthlyEntry struct {
+		CustomerID      string  `json:"customer_id"`
+		CustomerName    string  `json:"customer_name"`
+		CustomerUrdu    string  `json:"customer_name_urdu"`
+		FatherName      string  `json:"father_name"`
+		Phone           string  `json:"phone"`
+		ProductName     string  `json:"product_name"`
+		PlanID          string  `json:"plan_id"`
+		InstallmentNo   int     `json:"installment_no"`
+		DueDate         string  `json:"due_date"`
+		DueAmount       float64 `json:"due_amount"`
+		CollectedAmount float64 `json:"collected_amount"`
+		RemainingAmount float64 `json:"remaining_amount"`
+		Status          string  `json:"status"` // "collected" or "remaining"
+		// Payment details (for collected entries)
+		CollectedDate   string  `json:"collected_date,omitempty"`
+		CollectedBy     string  `json:"collected_by,omitempty"`
+		CollectedById   string  `json:"collected_by_id,omitempty"`
+		PaymentMethod   string  `json:"payment_method,omitempty"`
+		ReceiptNumber   string  `json:"receipt_number,omitempty"`
+	}
+
+	// Build a map of payments by (plan_id + installment_no) for this month
+	// Key format: "planID:installmentNo"
+	// Store full payment details instead of just amount
+	type paymentDetail struct {
+		Amount          float64
+		TransactionDate time.Time
+		CollectedBy     string
+		CollectedById   string
+		Method          string
+		ReceiptNumber   string
+	}
+	paymentsByPlanInst := make(map[string]*paymentDetail)
+	payCursor5, err := db.Collection("payments").Find(nil, bson.M{
+		"transactiondate": bson.M{"$gte": monthStart, "$lt": monthEnd},
+	})
+	if err == nil {
+		for payCursor5.Next(nil) {
+			var pay domain.Payment
+			if payCursor5.Decode(&pay) == nil {
+				key := pay.InstallmentPlanID + ":" + strconv.Itoa(pay.InstallmentNo)
+				if existing, ok := paymentsByPlanInst[key]; ok {
+					existing.Amount += pay.Amount
+				} else {
+					paymentsByPlanInst[key] = &paymentDetail{
+						Amount:          pay.Amount,
+						TransactionDate: pay.TransactionDate,
+						CollectedBy:     pay.CollectedBy,
+						CollectedById:   pay.CollectedById,
+						Method:          pay.Method,
+						ReceiptNumber:   pay.ReceiptNumber,
+					}
+				}
+			}
+		}
+		payCursor5.Close(nil)
+	}
+
+	// Get all active installment plans
+	var allEntries []customerMonthlyEntry
+	planCursor2, err := db.Collection("installment_plans").Find(nil, bson.M{
+		"status": bson.M{"$in": []string{"active", "Active", "Open"}},
+	})
+	if err == nil {
+		for planCursor2.Next(nil) {
+			var plan domain.InstallmentPlan
+			if planCursor2.Decode(&plan) == nil {
+				// Check if this plan has any installment due this month
+				for _, inst := range plan.Installments {
+					instDueDate := inst.DueDate
+					if instDueDate.IsZero() {
+						continue
+					}
+					// Check if installment due date falls in this month
+					if instDueDate.Year() == year && instDueDate.Month() == time.Month(month) {
+						dueAmt := inst.Amount
+						collectedAmt := 0.0
+						collectedDate := ""
+						collectedBy := ""
+						collectedById := ""
+						paymentMethod := ""
+						receiptNumber := ""
+
+						// Check if this specific installment was paid (by Paid flag)
+						if inst.Paid {
+							collectedAmt = dueAmt
+						} else {
+							// Check if there's a payment for this specific installment_no this month
+							key := plan.ID + ":" + strconv.Itoa(inst.InstallmentNo)
+							if pd, ok := paymentsByPlanInst[key]; ok && pd.Amount > 0 {
+								collectedAmt = pd.Amount
+								collectedDate = pd.TransactionDate.Format("2006-01-02")
+								collectedBy = pd.CollectedBy
+								collectedById = pd.CollectedById
+								paymentMethod = pd.Method
+								receiptNumber = pd.ReceiptNumber
+							}
+						}
+						remainingAmt := dueAmt - collectedAmt
+						if remainingAmt < 0 {
+							remainingAmt = 0
+						}
+
+						// Get customer details
+						cust := getCustomer(db, plan.CustomerID)
+						custName := ""
+						custUrdu := ""
+						fatherName := ""
+						phone := ""
+						if cust != nil {
+							custName = cust.Name
+							custUrdu = cust.NameUrdu
+							fatherName = cust.FatherName
+							phone = cust.Phone
+						}
+
+						// Get product name
+						prodName := ""
+						if plan.ProductID != "" {
+							prod := getProduct(db, plan.ProductID)
+							if prod != nil {
+								prodName = prod.Name
+							}
+						}
+
+						status := "remaining"
+						if collectedAmt >= dueAmt {
+							status = "collected"
+						}
+
+						allEntries = append(allEntries, customerMonthlyEntry{
+							CustomerID:      plan.CustomerID,
+							CustomerName:    custName,
+							CustomerUrdu:    custUrdu,
+							FatherName:      fatherName,
+							Phone:           phone,
+							ProductName:     prodName,
+							PlanID:          plan.ID,
+							InstallmentNo:   inst.InstallmentNo,
+							DueDate:         instDueDate.Format("2006-01-02"),
+							DueAmount:       dueAmt,
+							CollectedAmount: collectedAmt,
+							RemainingAmount: remainingAmt,
+							Status:          status,
+							CollectedDate:   collectedDate,
+							CollectedBy:     collectedBy,
+							CollectedById:   collectedById,
+							PaymentMethod:   paymentMethod,
+							ReceiptNumber:   receiptNumber,
+						})
+						// NOTE: break hata diya - ab ek plan ki saari installments is month ki include hongi
+					}
+				}
+			}
+		}
+		planCursor2.Close(nil)
+	}
+
+	// Separate into collected and remaining
+	var collectedCustomers []customerMonthlyEntry
+	var remainingCustomers []customerMonthlyEntry
+	totalDueAmount := 0.0
+	totalCollectedAmount := 0.0
+	totalRemainingAmount := 0.0
+
+	for _, entry := range allEntries {
+		totalDueAmount += entry.DueAmount
+		totalCollectedAmount += entry.CollectedAmount
+		totalRemainingAmount += entry.RemainingAmount
+		if entry.Status == "collected" {
+			collectedCustomers = append(collectedCustomers, entry)
+		} else {
+			remainingCustomers = append(remainingCustomers, entry)
+		}
+	}
+
+	// Sort by customer name
+	sort.Slice(collectedCustomers, func(i, j int) bool {
+		return collectedCustomers[i].CustomerName < collectedCustomers[j].CustomerName
+	})
+	sort.Slice(remainingCustomers, func(i, j int) bool {
+		return remainingCustomers[i].CustomerName < remainingCustomers[j].CustomerName
+	})
+
+	if collectedCustomers == nil {
+		collectedCustomers = []customerMonthlyEntry{}
+	}
+	if remainingCustomers == nil {
+		remainingCustomers = []customerMonthlyEntry{}
+	}
+
 	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"total_collection": totalCollection,
-		"total_customers":  totalCustomers,
-		"new_customers":    newCustomers,
-		"total_profit":     totalProfit,
-		"daily_breakdown":  dailyBreakdown,
-		"daybook_details":  daybookDetails,
+		"total_collection":       totalCollection,
+		"total_customers":        totalCustomers,
+		"new_customers":          newCustomers,
+		"total_profit":           totalProfit,
+		"daily_breakdown":        dailyBreakdown,
+		"daybook_details":        daybookDetails,
+		"total_due_amount":       totalDueAmount,
+		"total_collected_amount": totalCollectedAmount,
+		"total_remaining_amount": totalRemainingAmount,
+		"collected_count":        len(collectedCustomers),
+		"remaining_count":        len(remainingCustomers),
+		"collected_customers":    collectedCustomers,
+		"remaining_customers":    remainingCustomers,
 	})
 }
 
