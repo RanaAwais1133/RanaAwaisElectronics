@@ -107,7 +107,7 @@ func (h *PromiseHandler) ListAll(w http.ResponseWriter, r *http.Request) {
 			pr.created_at, pr.updated_at,
 			COALESCE(c.name, ''), COALESCE(c.phone, ''), COALESCE(c.name_urdu, ''),
 			COALESCE(prod.name, ''),
-			COALESCE((SELECT due_date FROM installment_details WHERE plan_id = pr.plan_id AND installment_no = pr.installment_no), pr.promise_date)
+			pr.promise_date
 		FROM promises pr
 		LEFT JOIN customers c ON pr.customer_id = c.id
 		LEFT JOIN installment_plans p ON pr.plan_id = p.id
@@ -149,7 +149,7 @@ func (h *PromiseHandler) ListPending(w http.ResponseWriter, r *http.Request) {
 			pr.created_at, pr.updated_at,
 			COALESCE(c.name, ''), COALESCE(c.phone, ''), COALESCE(c.name_urdu, ''),
 			COALESCE(prod.name, ''),
-			COALESCE((SELECT due_date FROM installment_details WHERE plan_id = pr.plan_id AND installment_no = pr.installment_no), pr.promise_date)
+			pr.promise_date
 		FROM promises pr
 		LEFT JOIN customers c ON pr.customer_id = c.id
 		LEFT JOIN installment_plans p ON pr.plan_id = p.id
@@ -263,7 +263,7 @@ func (h *PromiseHandler) GetTodayPromises(w http.ResponseWriter, r *http.Request
 			pr.created_at, pr.updated_at,
 			COALESCE(c.name, ''), COALESCE(c.phone, ''), COALESCE(c.name_urdu, ''),
 			COALESCE(prod.name, ''),
-			COALESCE((SELECT due_date FROM installment_details WHERE plan_id = pr.plan_id AND installment_no = pr.installment_no), pr.promise_date)
+			pr.promise_date
 		FROM promises pr
 		LEFT JOIN customers c ON pr.customer_id = c.id
 		LEFT JOIN installment_plans p ON pr.plan_id = p.id
