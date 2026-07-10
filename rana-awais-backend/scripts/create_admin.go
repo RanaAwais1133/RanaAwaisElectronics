@@ -90,7 +90,7 @@ func main() {
 	})
 
 	resp, err := http.Post(
-		"https://farooqautos.onrender.com/api/auth/login",
+		"http://localhost:8080/api/auth/login",
 		"application/json",
 		bytes.NewReader(loginBody),
 	)

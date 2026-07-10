@@ -94,6 +94,15 @@ func getPaymentDetailsWithProfit(db *mongo.Database, start, end time.Time) ([]ma
 			}
 		}
 
+		// Determine payment type
+		paymentType := "installment"
+		if pay.InstallmentNo == 0 {
+			paymentType = "down_payment"
+		}
+		if pay.IsFullPayment {
+			paymentType = "full_payment"
+		}
+
 		details = append(details, map[string]interface{}{
 			"customer_name":      custName,
 			"customer_name_urdu": custUrdu,
@@ -106,6 +115,7 @@ func getPaymentDetailsWithProfit(db *mongo.Database, start, end time.Time) ([]ma
 			"method":             pay.Method,
 			"installment_no":     pay.InstallmentNo,
 			"collected_by":       pay.CollectedBy,
+			"payment_type":       paymentType,
 		})
 	}
 

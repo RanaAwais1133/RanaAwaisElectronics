@@ -94,7 +94,7 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 		payCursor.Close(nil)
 	}
 
-	// TODAY'S PROFIT
+	// TODAY'S PROFIT (using shared helper)
 	todayProfit := 0.0
 	payCursor2, err := db.Collection("payments").Find(nil, bson.M{
 		"transactiondate": bson.M{"$gte": todayStart, "$lt": todayEnd},
@@ -103,27 +103,7 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 		for payCursor2.Next(nil) {
 			var pay domain.Payment
 			if payCursor2.Decode(&pay) == nil {
-				var plan domain.InstallmentPlan
-				if err := db.Collection("installment_plans").FindOne(nil, bson.M{"_id": pay.InstallmentPlanID}).Decode(&plan); err == nil {
-					if plan.TotalAmount > 0 {
-						purchasePrice := 0.0
-						if plan.ProductID != "" {
-							prod := getProduct(db, plan.ProductID)
-							if prod != nil {
-								purchasePrice = prod.PurchasePrice
-							}
-						}
-						// Calculate profit ratio: if purchasePrice is 0, profit = full amount
-						// Otherwise profit = (sellingPrice - purchasePrice) / sellingPrice * paymentAmount
-						if purchasePrice > 0 && plan.TotalAmount > purchasePrice {
-							profitRatio := (plan.TotalAmount - purchasePrice) / plan.TotalAmount
-							todayProfit += pay.Amount * profitRatio
-						} else if purchasePrice <= 0 {
-							// No purchase price means full amount is profit
-							todayProfit += pay.Amount
-						}
-					}
-				}
+				todayProfit += calculatePaymentProfit(pay, db)
 			}
 		}
 		payCursor2.Close(nil)
@@ -148,7 +128,7 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 		payCursor3.Close(nil)
 	}
 
-	// MONTHLY PROFIT
+	// MONTHLY PROFIT (using shared helper)
 	monthProfit := 0.0
 	payCursor4, err := db.Collection("payments").Find(nil, bson.M{
 		"transactiondate": bson.M{"$gte": monthStart, "$lt": monthEnd},
@@ -157,25 +137,7 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 		for payCursor4.Next(nil) {
 			var pay domain.Payment
 			if payCursor4.Decode(&pay) == nil {
-				var plan domain.InstallmentPlan
-				if err := db.Collection("installment_plans").FindOne(nil, bson.M{"_id": pay.InstallmentPlanID}).Decode(&plan); err == nil {
-					if plan.TotalAmount > 0 {
-						purchasePrice := 0.0
-						if plan.ProductID != "" {
-							prod := getProduct(db, plan.ProductID)
-							if prod != nil {
-								purchasePrice = prod.PurchasePrice
-							}
-						}
-						if purchasePrice > 0 && plan.TotalAmount > purchasePrice {
-							profitRatio := (plan.TotalAmount - purchasePrice) / plan.TotalAmount
-							monthProfit += pay.Amount * profitRatio
-						} else if purchasePrice <= 0 {
-							// No purchase price means full amount is profit
-							monthProfit += pay.Amount
-						}
-					}
-				}
+				monthProfit += calculatePaymentProfit(pay, db)
 			}
 		}
 		payCursor4.Close(nil)
@@ -750,7 +712,7 @@ func (h *DashboardHandler) MonthlyReport(w http.ResponseWriter, r *http.Request)
 		newCustomers = count
 	}
 
-	// ========== 4. Total Profit ==========
+	// ========== 4. Total Profit (using shared helper) ==========
 	totalProfit := 0.0
 	payCursor2, err := db.Collection("payments").Find(nil, bson.M{
 		"transactiondate": bson.M{"$gte": monthStart, "$lt": monthEnd},
@@ -759,24 +721,7 @@ func (h *DashboardHandler) MonthlyReport(w http.ResponseWriter, r *http.Request)
 		for payCursor2.Next(nil) {
 			var pay domain.Payment
 			if payCursor2.Decode(&pay) == nil {
-				var plan domain.InstallmentPlan
-				if err := db.Collection("installment_plans").FindOne(nil, bson.M{"_id": pay.InstallmentPlanID}).Decode(&plan); err == nil {
-					if plan.TotalAmount > 0 {
-						purchasePrice := 0.0
-						if plan.ProductID != "" {
-							prod := getProduct(db, plan.ProductID)
-							if prod != nil {
-								purchasePrice = prod.PurchasePrice
-							}
-						}
-						if purchasePrice > 0 && plan.TotalAmount > purchasePrice {
-							profitRatio := (plan.TotalAmount - purchasePrice) / plan.TotalAmount
-							totalProfit += pay.Amount * profitRatio
-						} else if purchasePrice <= 0 {
-							totalProfit += pay.Amount
-						}
-					}
-				}
+				totalProfit += calculatePaymentProfit(pay, db)
 			}
 		}
 		payCursor2.Close(nil)
@@ -1023,6 +968,61 @@ func (h *DashboardHandler) MonthlyReport(w http.ResponseWriter, r *http.Request)
 			}
 		}
 		planCursor2.Close(nil)
+	}
+
+	// ========== 8. Include Down Payments / Advance Payments (InstallmentNo=0) ==========
+	// These are payments that don't correspond to any specific installment due date
+	// but were made this month (e.g., down payments, advance payments)
+	for key, pd := range paymentsByPlanInst {
+		parts := strings.Split(key, ":")
+		if len(parts) == 2 {
+			instNo, _ := strconv.Atoi(parts[1])
+			if instNo == 0 {
+				// This is a down payment or advance payment
+				var plan domain.InstallmentPlan
+				if err := db.Collection("installment_plans").FindOne(nil, bson.M{"_id": parts[0]}).Decode(&plan); err == nil {
+					cust := getCustomer(db, plan.CustomerID)
+					custName := ""
+					custUrdu := ""
+					fatherName := ""
+					phone := ""
+					if cust != nil {
+						custName = cust.Name
+						custUrdu = cust.NameUrdu
+						fatherName = cust.FatherName
+						phone = cust.Phone
+					}
+					prodName := ""
+					if plan.ProductID != "" {
+						prod := getProduct(db, plan.ProductID)
+						if prod != nil {
+							prodName = prod.Name
+						}
+					}
+
+					allEntries = append(allEntries, customerMonthlyEntry{
+						CustomerID:      plan.CustomerID,
+						CustomerName:    custName,
+						CustomerUrdu:    custUrdu,
+						FatherName:      fatherName,
+						Phone:           phone,
+						ProductName:     prodName,
+						PlanID:          plan.ID,
+						InstallmentNo:   0,
+						DueDate:         pd.TransactionDate.Format("2006-01-02"),
+						DueAmount:       pd.Amount,
+						CollectedAmount: pd.Amount,
+						RemainingAmount: 0,
+						Status:          "collected",
+						CollectedDate:   pd.TransactionDate.Format("2006-01-02"),
+						CollectedBy:     pd.CollectedBy,
+						CollectedById:   pd.CollectedById,
+						PaymentMethod:   pd.Method,
+						ReceiptNumber:   pd.ReceiptNumber,
+					})
+				}
+			}
+		}
 	}
 
 	// Separate into collected and remaining

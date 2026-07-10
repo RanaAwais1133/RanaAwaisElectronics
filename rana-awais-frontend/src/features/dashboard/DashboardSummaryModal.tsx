@@ -44,6 +44,7 @@ interface PaymentDetail {
   method: string;
   installment_no: number;
   collected_by: string;
+  payment_type?: string;
 }
 
 
@@ -212,6 +213,25 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
       return sum + (item.rawValue || 0);
     }, 0);
 
+    // Build payment details table rows for print
+    const paymentRows = paymentDetails.map((p, idx) => {
+      let typeLabel = 'Installment';
+      if (p.payment_type === 'down_payment') typeLabel = 'Down Payment';
+      else if (p.payment_type === 'full_payment') typeLabel = 'Full Payment';
+      else if (p.installment_no === 0 && !p.payment_type) typeLabel = 'Down Payment';
+      return `
+      <tr>
+        <td style="border:1px solid #e5e7eb;padding:8px 10px;text-align:center;font-size:12px;">${idx + 1}</td>
+        <td style="border:1px solid #e5e7eb;padding:8px 10px;font-size:12px;font-weight:600;">${p.customer_name || ''}</td>
+        <td style="border:1px solid #e5e7eb;padding:8px 10px;font-size:12px;">${p.phone || '—'}</td>
+        <td style="border:1px solid #e5e7eb;padding:8px 10px;font-size:12px;">${p.product_name || '—'}</td>
+        <td style="border:1px solid #e5e7eb;padding:8px 10px;font-size:12px;text-align:center;"><span style="background:#f3f4f6;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;">${typeLabel}</span></td>
+        <td style="border:1px solid #e5e7eb;padding:8px 10px;font-size:12px;text-align:right;font-weight:700;color:#059669;">Rs. ${(p.amount || 0).toLocaleString()}</td>
+        <td style="border:1px solid #e5e7eb;padding:8px 10px;font-size:12px;text-align:right;font-weight:700;color:#2563eb;">Rs. ${(p.profit || 0).toLocaleString()}</td>
+        <td style="border:1px solid #e5e7eb;padding:8px 10px;font-size:12px;text-align:center;color:#6b7280;">${p.date || '—'}</td>
+      </tr>`;
+    }).join('');
+
     printWindow.document.write(`
       <html>
       <head><title>${title}</title>
@@ -251,6 +271,24 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
             </tr>
           </tbody>
         </table>
+        ${paymentDetails.length > 0 ? `
+        <h3 style="margin-top:30px;font-size:14px;font-weight:700;color:#374151;">${isUrdu ? 'ادائیگیوں کی تفصیل' : 'Payment Details'}</h3>
+        <table>
+          <thead><tr>
+            <th>#</th>
+            <th style="text-align:start;">${isUrdu ? 'نام' : 'Name'}</th>
+            <th style="text-align:start;">${isUrdu ? 'فون' : 'Phone'}</th>
+            <th style="text-align:start;">${isUrdu ? 'پروڈکٹ' : 'Product'}</th>
+            <th style="text-align:center;">${isUrdu ? 'قسم' : 'Type'}</th>
+            <th style="text-align:end;">${isUrdu ? 'رقم' : 'Amount'}</th>
+            <th style="text-align:end;">${isUrdu ? 'منافع' : 'Profit'}</th>
+            <th style="text-align:center;">${isUrdu ? 'تاریخ' : 'Date'}</th>
+          </tr></thead>
+          <tbody>
+            ${paymentRows}
+          </tbody>
+        </table>
+        ` : ''}
         <div class="footer">
           ${isUrdu ? 'یہ رپورٹ خودکار طور پر تیار کی گئی ہے' : 'This report is auto-generated'} | ${clientInfo?.name || ''}
         </div>
@@ -258,7 +296,7 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
       </body></html>
     `);
     printWindow.document.close();
-  }, [details, title, isUrdu, currentUser]);
+  }, [details, title, isUrdu, currentUser, paymentDetails]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
@@ -410,13 +448,30 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
                           <th className="px-2 py-2 text-start text-[10px] font-bold text-gray-500 uppercase">{isUrdu ? 'نام' : 'Name'}</th>
                           <th className="px-2 py-2 text-start text-[10px] font-bold text-gray-500 uppercase">{isUrdu ? 'فون' : 'Phone'}</th>
                           <th className="px-2 py-2 text-start text-[10px] font-bold text-gray-500 uppercase">{isUrdu ? 'پروڈکٹ' : 'Product'}</th>
+                          <th className="px-2 py-2 text-center text-[10px] font-bold text-gray-500 uppercase">{isUrdu ? 'قسم' : 'Type'}</th>
                           <th className="px-2 py-2 text-end text-[10px] font-bold text-gray-500 uppercase">{isUrdu ? 'رقم' : 'Amount'}</th>
                           <th className="px-2 py-2 text-end text-[10px] font-bold text-gray-500 uppercase">{isUrdu ? 'منافع' : 'Profit'}</th>
                           <th className="px-2 py-2 text-center text-[10px] font-bold text-gray-500 uppercase">{isUrdu ? 'تاریخ' : 'Date'}</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
-                        {paymentDetails.map((p, idx) => (
+                        {paymentDetails.map((p, idx) => {
+                          // Determine payment type label
+                          let typeLabel = isUrdu ? 'قسط' : 'Installment';
+                          if (p.payment_type === 'down_payment') {
+                            typeLabel = isUrdu ? 'ایڈوانس' : 'Down Payment';
+                          } else if (p.payment_type === 'full_payment') {
+                            typeLabel = isUrdu ? 'مکمل ادائیگی' : 'Full Payment';
+                          } else if (p.installment_no === 0 && !p.payment_type) {
+                            typeLabel = isUrdu ? 'ایڈوانس' : 'Down Payment';
+                          }
+                          let typeColor = 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300';
+                          if (p.payment_type === 'down_payment' || p.installment_no === 0) {
+                            typeColor = 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300';
+                          } else if (p.payment_type === 'full_payment') {
+                            typeColor = 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300';
+                          }
+                          return (
                           <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
                             <td className="px-2 py-2 text-gray-400 font-mono text-xs text-center">{idx + 1}</td>
                             <td className="px-2 py-2">
@@ -429,6 +484,11 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
                             </td>
                             <td className="px-2 py-2 text-xs text-gray-600 dark:text-gray-300">{p.phone || '—'}</td>
                             <td className="px-2 py-2 text-xs text-gray-600 dark:text-gray-300">{p.product_name || '—'}</td>
+                            <td className="px-2 py-2 text-center">
+                              <span className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-bold ${typeColor}`}>
+                                {typeLabel}
+                              </span>
+                            </td>
                             <td className="px-2 py-2 text-end">
                               <span className="font-bold text-emerald-600 dark:text-emerald-400 text-xs">Rs. {(p.amount || 0).toLocaleString()}</span>
                             </td>
@@ -439,7 +499,8 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
                             </td>
                             <td className="px-2 py-2 text-center text-xs text-gray-500">{p.date || '—'}</td>
                           </tr>
-                        ))}
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>

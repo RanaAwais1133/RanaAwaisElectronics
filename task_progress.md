@@ -1,13 +1,10 @@
-# Task Progress - All Fixes
+# Task Progress - DownPayment Profit Fix & Payment Type Column
 
-## Completed:
-- [x] Rewrite `report_handler.go` to use MongoDB instead of SQLite
-- [x] Register report routes in `router.go` (daily, weekly, monthly, date-range, customers)
-- [x] Build succeeds
-
-## Remaining:
-- [ ] Check frontend API calls for reports - ensure they match backend routes
-- [ ] Fix SSE CORS if needed
-- [ ] Fix audit logging if needed
-- [ ] Fix inventory value calculation
-- [ ] Test and verify
+## Todo List
+- [x] Analyze codebase and identify all issues
+- [x] Fix 1: `accounting_handler.go` - Add `payment_type` field in `getPaymentDetailsWithProfit` response
+- [x] Fix 2: `dashboard_handler.go` - Fix Summary function profit calculation (todayProfit, monthProfit)
+- [x] Fix 3: `dashboard_handler.go` - Fix MonthlyReport function to include Advance/Down payments in collected/remaining
+- [x] Fix 4: `DashboardSummaryModal.tsx` - Add "Type" column in payment details table and print view
+- [x] Build and test the backend
+- [x] Verify all fixes work correctly
