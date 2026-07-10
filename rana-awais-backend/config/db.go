@@ -174,6 +174,52 @@ func connectSyncSQLite(cfg *Config) {
 	if err != nil {
 		log.Printf("⚠️  Failed to create sync_logs table: %v", err)
 	}
+
+	// Create promises table if not exists (for promise handler queries)
+	_, err = DB.Exec(`
+		CREATE TABLE IF NOT EXISTS promises (
+			id TEXT PRIMARY KEY,
+			customer_id TEXT NOT NULL,
+			plan_id TEXT NOT NULL,
+			installment_no INTEGER DEFAULT 0,
+			promise_date DATETIME NOT NULL,
+			amount REAL DEFAULT 0,
+			status TEXT DEFAULT 'pending',
+			remarks TEXT DEFAULT '',
+			created_by TEXT DEFAULT '',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)
+	`)
+	if err != nil {
+		log.Printf("⚠️  Failed to create promises table: %v", err)
+	}
+
+	// Create installment_details table if not exists (for promise handler subquery)
+	_, err = DB.Exec(`
+		CREATE TABLE IF NOT EXISTS installment_details (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			plan_id TEXT NOT NULL,
+			installment_no INTEGER NOT NULL,
+			due_date DATETIME,
+			amount REAL DEFAULT 0,
+			paid INTEGER DEFAULT 0,
+			paid_date DATETIME,
+			fine REAL DEFAULT 0,
+			fine_per_day REAL DEFAULT 0,
+			days_late INTEGER DEFAULT 0,
+			fine_applied REAL DEFAULT 0,
+			total_payable REAL DEFAULT 0,
+			partial_paid REAL DEFAULT 0,
+			remaining REAL DEFAULT 0,
+			collected_by TEXT DEFAULT '',
+			collected_by_id TEXT DEFAULT '',
+			remarks TEXT DEFAULT ''
+		)
+	`)
+	if err != nil {
+		log.Printf("⚠️  Failed to create installment_details table: %v", err)
+	}
 }
 
 
