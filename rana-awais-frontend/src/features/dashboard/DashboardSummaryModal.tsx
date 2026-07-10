@@ -85,22 +85,26 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
           const revenue = d.revenue ?? d.total_revenue ?? d.totalIncome ?? 0;
           const profit = d.profit ?? d.total_profit ?? d.netProfit ?? 0;
 
-          // Always show revenue and profit (even if 0) since backend always returns them
+          // Only show Revenue - profit is derived from revenue, don't show separately in list
           items.push({
             label: isUrdu ? `${prefix} کی کل آمدنی` : `${prefix} Total Revenue`,
             value: `Rs. ${revenue.toLocaleString()}`,
             rawValue: revenue,
           });
-          items.push({
-            label: isUrdu ? `${prefix} کا کل منافع` : `${prefix} Total Profit`,
-            value: `Rs. ${profit.toLocaleString()}`,
-            rawValue: profit,
-            isNegative: profit < 0,
-          });
 
           // Set payment details from backend response
           if (d.details && Array.isArray(d.details)) {
             setPaymentDetails(d.details);
+          }
+          // Also show profit as a separate item (not included in total)
+          // but only if profit > 0
+          if (profit > 0) {
+            items.push({
+              label: isUrdu ? `${prefix} کا کل منافع` : `${prefix} Total Profit`,
+              value: `Rs. ${profit.toLocaleString()}`,
+              rawValue: 0, // rawValue 0 so it doesn't affect total
+              isNegative: profit < 0,
+            });
           }
         } else {
 

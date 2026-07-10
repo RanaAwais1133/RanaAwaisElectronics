@@ -927,11 +927,9 @@ func (h *DashboardHandler) MonthlyReport(w http.ResponseWriter, r *http.Request)
 		payCursor5.Close(nil)
 	}
 
-	// Get all active installment plans
+	// Get all installment plans (including completed) to show all payments this month
 	var allEntries []customerMonthlyEntry
-	planCursor2, err := db.Collection("installment_plans").Find(nil, bson.M{
-		"status": bson.M{"$in": []string{"active", "Active", "Open"}},
-	})
+	planCursor2, err := db.Collection("installment_plans").Find(nil, bson.M{})
 	if err == nil {
 		for planCursor2.Next(nil) {
 			var plan domain.InstallmentPlan
