@@ -102,15 +102,14 @@ func (h *PromiseHandler) Create(w http.ResponseWriter, r *http.Request) {
 func (h *PromiseHandler) ListAll(w http.ResponseWriter, r *http.Request) {
 	db := config.DB
 	rows, err := db.QueryContext(r.Context(), `
-		SELECT pr.id, pr.customer_id, pr.plan_id, pr.installment_no, pr.promise_date, pr.amount,
-			pr.status, COALESCE(pr.remarks, ''), COALESCE(pr.created_by, ''),
-			pr.created_at, pr.updated_at,
-			COALESCE(c.name, ''), COALESCE(c.phone, ''), COALESCE(c.name_urdu, ''),
+		SELECT id, customer_id, plan_id, installment_no, promise_date, amount,
+			status, COALESCE(remarks, ''), COALESCE(created_by, ''),
+			created_at, updated_at,
+			'', '', '',
 			'',
-			pr.promise_date
-		FROM promises pr
-		LEFT JOIN customers c ON pr.customer_id = c.id
-		ORDER BY pr.promise_date DESC
+			promise_date
+		FROM promises
+		ORDER BY promise_date DESC
 	`)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "Failed to list promises", "وعدے نہیں آسکے")
@@ -142,16 +141,15 @@ func (h *PromiseHandler) ListAll(w http.ResponseWriter, r *http.Request) {
 func (h *PromiseHandler) ListPending(w http.ResponseWriter, r *http.Request) {
 	db := config.DB
 	rows, err := db.QueryContext(r.Context(), `
-		SELECT pr.id, pr.customer_id, pr.plan_id, pr.installment_no, pr.promise_date, pr.amount,
-			pr.status, COALESCE(pr.remarks, ''), COALESCE(pr.created_by, ''),
-			pr.created_at, pr.updated_at,
-			COALESCE(c.name, ''), COALESCE(c.phone, ''), COALESCE(c.name_urdu, ''),
+		SELECT id, customer_id, plan_id, installment_no, promise_date, amount,
+			status, COALESCE(remarks, ''), COALESCE(created_by, ''),
+			created_at, updated_at,
+			'', '', '',
 			'',
-			pr.promise_date
-		FROM promises pr
-		LEFT JOIN customers c ON pr.customer_id = c.id
-		WHERE pr.status = 'pending'
-		ORDER BY pr.promise_date ASC
+			promise_date
+		FROM promises
+		WHERE status = 'pending'
+		ORDER BY promise_date ASC
 	`)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "Failed to list promises", "وعدے نہیں آسکے")
@@ -254,15 +252,14 @@ func (h *PromiseHandler) GetTodayPromises(w http.ResponseWriter, r *http.Request
 
 	db := config.DB
 	rows, err := db.QueryContext(r.Context(), `
-		SELECT pr.id, pr.customer_id, pr.plan_id, pr.installment_no, pr.promise_date, pr.amount,
-			pr.status, COALESCE(pr.remarks, ''), COALESCE(pr.created_by, ''),
-			pr.created_at, pr.updated_at,
-			COALESCE(c.name, ''), COALESCE(c.phone, ''), COALESCE(c.name_urdu, ''),
+		SELECT id, customer_id, plan_id, installment_no, promise_date, amount,
+			status, COALESCE(remarks, ''), COALESCE(created_by, ''),
+			created_at, updated_at,
+			'', '', '',
 			'',
-			pr.promise_date
-		FROM promises pr
-		LEFT JOIN customers c ON pr.customer_id = c.id
-		WHERE pr.promise_date >= ? AND pr.promise_date < ? AND pr.status = 'pending'
+			promise_date
+		FROM promises
+		WHERE promise_date >= ? AND promise_date < ? AND status = 'pending'
 		ORDER BY pr.promise_date ASC
 	`, start, end)
 	if err != nil {
