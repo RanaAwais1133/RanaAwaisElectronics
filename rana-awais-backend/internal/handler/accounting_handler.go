@@ -21,13 +21,16 @@ func NewAccountingHandler(svc *service.AccountingService) *AccountingHandler {
 }
 
 // Helper to calculate profit for a single payment
+// Formula: Profit = PaymentAmount * (1 - PurchasePrice / TotalAmount)
+// Example: 80,000 purchase, 100,000 sale, 50,000 advance
+//   Profit = 50,000 * (1 - 80,000/100,000) = 50,000 * 0.2 = 10,000
 func calculatePaymentProfit(pay domain.Payment, db *mongo.Database) float64 {
 	var plan domain.InstallmentPlan
 	if err := db.Collection("installment_plans").FindOne(nil, bson.M{"_id": pay.InstallmentPlanID}).Decode(&plan); err != nil {
-		return pay.Amount // If no plan found, full amount is profit
+		return 0 // If no plan found, cannot determine profit
 	}
 	if plan.TotalAmount <= 0 {
-		return pay.Amount
+		return 0 // Cannot determine profit without total amount
 	}
 	purchasePrice := 0.0
 	if plan.ProductID != "" {
@@ -36,8 +39,9 @@ func calculatePaymentProfit(pay domain.Payment, db *mongo.Database) float64 {
 			purchasePrice = prod.PurchasePrice
 		}
 	}
+	// If purchase price is 0 or not found, cannot determine profit
 	if purchasePrice <= 0 {
-		return pay.Amount // No purchase price = full amount is profit
+		return 0 // Cannot determine profit without purchase price
 	}
 	if plan.TotalAmount <= purchasePrice {
 		return 0 // No profit if selling price <= purchase price

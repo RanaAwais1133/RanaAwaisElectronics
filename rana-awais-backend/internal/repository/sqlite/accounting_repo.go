@@ -89,19 +89,24 @@ func (r *AccountingRepository) GetSoldItems(ctx context.Context, start, end time
 }
 
 func (r *AccountingRepository) GetRevenueAndProfit(ctx context.Context, start, end time.Time) (revenue float64, profit float64, err error) {
-	// Revenue from payments (installments + advance payments)
+	// ============================================================
+	// REVENUE CALCULATION
+	// ============================================================
+	// Revenue from payments table ONLY.
+	// Down payments are already stored as payment records (installment_no = 0)
+	// when a plan is created (see InstallmentService.CreatePlan).
+	// Advance payments are also stored as payment records (installment_no = 0).
+	// So querying the payments table gives us ALL revenue including:
+	//   - Down payments
+	//   - Installment payments
+	//   - Advance payments
+	//   - Full payments
+	// ============================================================
 	err = r.db.QueryRowContext(ctx, `
 		SELECT COALESCE(SUM(amount), 0) FROM payments WHERE transaction_date >= ? AND transaction_date < ?`, start, end).Scan(&revenue)
 	if err != nil {
 		return 0, 0, err
 	}
-
-	// Also include down payments from installment_plans created in this period
-	var downPaymentRevenue float64
-	r.db.QueryRowContext(ctx, `
-		SELECT COALESCE(SUM(down_payment), 0) FROM installment_plans 
-		WHERE created_at >= ? AND created_at < ?`, start, end).Scan(&downPaymentRevenue)
-	revenue += downPaymentRevenue
 
 	// ============================================================
 	// PROFIT CALCULATION - PROFIT PERCENTAGE BASED
@@ -110,34 +115,33 @@ func (r *AccountingRepository) GetRevenueAndProfit(ctx context.Context, start, e
 	//   Profit% = (SellingPrice - PurchasePrice) / PurchasePrice * 100
 	//   Example: 80,000 ki le kr 100,000 ki bechi => Profit% = 25%
 	//
-	// Jab bhi payment aati hai (advance/installment), uska profit
+	// Jab bhi payment aati hai (advance/installment/down payment), uska profit
 	// percentage ke hisaab se calculate hota hai:
 	//   Profit = Payment × (Profit% / (1 + Profit%))
 	//   Example: 20,000 advance aaya => Profit = 20,000 × (25/125) = 4,000
 	//
 	// Simple formula: Profit = Payment × (1 - PurchasePrice/SellingPrice)
 	// ============================================================
-
-	// Get profit from payments using profit percentage per plan
+	// Profit from ALL payments (down payments, installments, advances, full payments)
+	// using profit percentage per plan. This single query covers everything since
+	// down payments and advance payments are stored in the payments table.
+	// ============================================================
 	var profitFromPayments float64
 	r.db.QueryRowContext(ctx, `
-		SELECT COALESCE(SUM(pay.amount * (1.0 - COALESCE(prod.purchase_price, 0) / NULLIF(p.total_amount, 0))), 0)
+		SELECT COALESCE(SUM(
+			CASE 
+				WHEN COALESCE(prod.purchase_price, 0) > 0 AND p.total_amount > 0 
+				THEN pay.amount * (1.0 - prod.purchase_price / p.total_amount)
+				ELSE 0 
+			END
+		), 0)
 		FROM payments pay
 		JOIN installment_plans p ON pay.installment_plan_id = p.id
 		LEFT JOIN products prod ON p.product_id = prod.id
 		WHERE pay.transaction_date >= ? AND pay.transaction_date < ?
 	`, start, end).Scan(&profitFromPayments)
 
-	// Get profit from down payments using profit percentage per plan
-	var profitFromDownPayments float64
-	r.db.QueryRowContext(ctx, `
-		SELECT COALESCE(SUM(ip.down_payment * (1.0 - COALESCE(prod.purchase_price, 0) / NULLIF(ip.total_amount, 0))), 0)
-		FROM installment_plans ip
-		LEFT JOIN products prod ON ip.product_id = prod.id
-		WHERE ip.created_at >= ? AND ip.created_at < ? AND ip.down_payment > 0
-	`, start, end).Scan(&profitFromDownPayments)
-
-	profit = profitFromPayments + profitFromDownPayments
+	profit = profitFromPayments
 
 	// Subtract expenses (pure expenses like rent, electricity, etc.)
 	var expenseFromEntries float64

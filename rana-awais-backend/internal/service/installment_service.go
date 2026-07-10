@@ -9,6 +9,7 @@ import (
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/domain"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/repository"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/pkg/mathutil"
+	"github.com/google/uuid"
 )
 
 type BulkPaymentItem struct {
@@ -157,6 +158,12 @@ func (s *InstallmentService) CreatePlan(ctx context.Context, plan *domain.Instal
 	}
 
 	now := time.Now()
+
+	// ✅ FIX: Generate plan ID BEFORE creating down payment records
+	// so the payment has a valid InstallmentPlanID
+	if plan.ID == "" {
+		plan.ID = uuid.New().String()
+	}
 	planID := plan.ID
 
 	// Record downpayment as income AND as a payment record

@@ -131,6 +131,7 @@ func (r *AccountingRepository) GetRevenueAndProfit(ctx context.Context, start, e
 
 	// Profit calculation using aggregation pipeline
 	// Profit = Payment * (1 - PurchasePrice / TotalAmount)
+	// IMPORTANT: If purchaseprice is null or 0, profit is 0 (not full amount)
 	pipeline := mongo.Pipeline{
 		{{Key: "$match", Value: bson.M{
 			"transactiondate": bson.M{"$gte": start, "$lt": end},
@@ -161,7 +162,13 @@ func (r *AccountingRepository) GetRevenueAndProfit(ctx context.Context, start, e
 						bson.M{"$subtract": []interface{}{
 							1,
 							bson.M{"$cond": []interface{}{
-								bson.M{"$gt": []interface{}{"$plan.totalamount", 0}},
+								bson.M{"$and": []interface{}{
+									bson.M{"$gt": []interface{}{"$plan.totalamount", 0}},
+									bson.M{"$gt": []interface{}{
+										bson.M{"$ifNull": []interface{}{"$product.purchaseprice", 0}},
+										0,
+									}},
+								}},
 								bson.M{"$divide": []interface{}{
 									bson.M{"$ifNull": []interface{}{"$product.purchaseprice", 0}},
 									"$plan.totalamount",
