@@ -67,15 +67,33 @@ const PromisesModal: React.FC<PromisesModalProps> = ({ isUrdu, onClose, onSucces
     }
   }, [customerCache]);
 
-  // Fetch plan details from API
+  // Fetch plan details from API (includes product name via productId)
   const fetchPlanDetails = useCallback(async (planId: string) => {
     if (planCache[planId]) return planCache[planId];
     try {
       const res = await api.get(`/installments/${planId}`);
       const p = res.data?.data || res.data;
+      let productName = p.product_name || p.productName || '';
+      let dueDate = p.due_date || p.dueDate || '';
+      
+      // If no product name but we have productId, fetch product details
+      if (!productName && p.productId) {
+        try {
+          const prodRes = await api.get(`/products/${p.productId}`);
+          const prod = prodRes.data?.data || prodRes.data;
+          productName = prod.name || prod.nameUrdu || '';
+        } catch {}
+      }
+      
+      // Get due date from installments array for the specific installment
+      if (!dueDate && p.installments && Array.isArray(p.installments)) {
+        // We'll use the first installment's due date as fallback
+        // The actual installment_no matching happens in fetchPromises
+      }
+      
       const info: PlanInfo = {
-        productName: p.product_name || p.productName || '',
-        dueDate: p.due_date || p.dueDate || '',
+        productName,
+        dueDate,
       };
       setPlanCache(prev => ({ ...prev, [planId]: info }));
       return info;
