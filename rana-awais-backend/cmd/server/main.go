@@ -199,14 +199,15 @@ func main() {
 			break
 		}
 	}
+	// Apply CORS to the API router regardless of frontend
+	originalHandler := r
+	r = mux.NewRouter()
+	r.PathPrefix("/api/").Handler(corsMiddleware(originalHandler))
+
 	if frontendDir != "" {
 		log.Printf("🌐 Serving frontend from: %s", frontendDir)
 		fs := http.FileServer(http.Dir(frontendDir))
 		r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir(filepath.Join(frontendDir, "static")))))
-		originalHandler := r
-		r = mux.NewRouter()
-		// Apply CORS to both API and frontend routes
-		r.PathPrefix("/api/").Handler(corsMiddleware(originalHandler))
 		r.PathPrefix("/").Handler(corsMiddleware(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			path := filepath.Join(frontendDir, req.URL.Path)
 			if _, err := os.Stat(path); os.IsNotExist(err) {
@@ -217,6 +218,11 @@ func main() {
 		})))
 	} else {
 		log.Println("⚠️  Frontend build not found, API only mode")
+		// In API-only mode, still wrap with CORS for non-API routes
+		r.PathPrefix("/").Handler(corsMiddleware(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte(`{"error":"Not found"}`))
+		})))
 	}
 
 	// Request body size limit

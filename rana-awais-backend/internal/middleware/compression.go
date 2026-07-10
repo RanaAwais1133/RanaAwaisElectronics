@@ -64,3 +64,10 @@ type gzipResponseWriter struct {
 func (g *gzipResponseWriter) Write(data []byte) (int, error) {
 	return g.Writer.Write(data)
 }
+
+// Flush implements http.Flusher for SSE support
+func (g *gzipResponseWriter) Flush() {
+	if f, ok := g.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}

@@ -19,24 +19,68 @@ func NewPromiseHandler() *PromiseHandler {
 
 // CreatePromise creates a new payment promise
 func (h *PromiseHandler) Create(w http.ResponseWriter, r *http.Request) {
-	var p domain.Promise
-	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+	// Decode into raw map first to handle custom date formats
+	var raw map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
 		respondError(w, r, http.StatusBadRequest, "Invalid request body", "غلط درخواست")
 		return
 	}
 
-	if p.CustomerID == "" || p.PlanID == "" {
+	customerID, _ := raw["customer_id"].(string)
+	planID, _ := raw["plan_id"].(string)
+
+	if customerID == "" || planID == "" {
 		respondError(w, r, http.StatusBadRequest, "Customer and Plan are required", "گاہک اور پلان ضروری ہیں")
 		return
 	}
 
-	p.ID = uuid.New().String()
-	p.Status = "pending"
-	p.CreatedAt = time.Now()
-	p.UpdatedAt = time.Now()
+	// Parse promise_date from various formats
+	var promiseDate time.Time
+	if pd, ok := raw["promise_date"].(string); ok && pd != "" {
+		// Try common date formats
+		formats := []string{
+			"2006-01-02T15:04:05Z07:00",
+			"2006-01-02T15:04:05",
+			"2006-01-02",
+			"02-01-2006",
+			"2006/01/02",
+		}
+		for _, f := range formats {
+			if t, err := time.Parse(f, pd); err == nil {
+				promiseDate = t
+				break
+			}
+		}
+	}
+	if promiseDate.IsZero() {
+		promiseDate = time.Now().AddDate(0, 0, 7) // Default 7 days
+	}
 
-	if p.PromiseDate.IsZero() {
-		p.PromiseDate = time.Now().AddDate(0, 0, 7) // Default 7 days
+	installmentNo := 0
+	if in, ok := raw["installment_no"].(float64); ok {
+		installmentNo = int(in)
+	}
+
+	amount := 0.0
+	if a, ok := raw["amount"].(float64); ok {
+		amount = a
+	}
+
+	remarks, _ := raw["remarks"].(string)
+	createdBy, _ := raw["created_by"].(string)
+
+	p := domain.Promise{
+		ID:            uuid.New().String(),
+		CustomerID:    customerID,
+		PlanID:        planID,
+		InstallmentNo: installmentNo,
+		PromiseDate:   promiseDate,
+		Amount:        amount,
+		Status:        "pending",
+		Remarks:       remarks,
+		CreatedBy:     createdBy,
+		CreatedAt:     time.Now(),
+		UpdatedAt:     time.Now(),
 	}
 
 	db := config.DB
