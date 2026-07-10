@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import api from '../../utils/api';
 import toast from 'react-hot-toast';
@@ -34,6 +34,7 @@ const PromisesModal: React.FC<PromisesModalProps> = ({ isUrdu, onClose, onSucces
   const [promises, setPromises] = useState<PromiseItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const fetchPromises = async () => {
     setLoading(true);
@@ -74,6 +75,19 @@ const PromisesModal: React.FC<PromisesModalProps> = ({ isUrdu, onClose, onSucces
     }
   };
 
+  // Filter promises based on search
+  const filteredPromises = useMemo(() => {
+    if (!searchQuery.trim()) return promises;
+    const q = searchQuery.toLowerCase();
+    return promises.filter(p => 
+      (p.customer_name || '').toLowerCase().includes(q) ||
+      (p.customer_name_ur || '').toLowerCase().includes(q) ||
+      (p.customer_phone || '').includes(q) ||
+      (p.product_name || '').toLowerCase().includes(q) ||
+      (p.remarks || '').toLowerCase().includes(q)
+    );
+  }, [promises, searchQuery]);
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'pending':
@@ -112,6 +126,20 @@ const PromisesModal: React.FC<PromisesModalProps> = ({ isUrdu, onClose, onSucces
     }
   };
 
+  const formatDateFull = (dateStr: string) => {
+    if (!dateStr) return '—';
+    try {
+      const d = new Date(dateStr);
+      return d.toLocaleDateString(isUrdu ? 'ur-PK' : 'en-GB', {
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric'
+      });
+    } catch {
+      return dateStr.split('T')[0] || dateStr;
+    }
+  };
+
   const isOverdue = (dateStr: string) => {
     if (!dateStr) return false;
     try {
@@ -122,6 +150,35 @@ const PromisesModal: React.FC<PromisesModalProps> = ({ isUrdu, onClose, onSucces
     } catch {
       return false;
     }
+  };
+
+  const getDaysRemaining = (dateStr: string): number | null => {
+    if (!dateStr) return null;
+    try {
+      const d = new Date(dateStr);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      d.setHours(0, 0, 0, 0);
+      const diffTime = d.getTime() - today.getTime();
+      return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    } catch {
+      return null;
+    }
+  };
+
+  const getDaysLabel = (days: number | null): string => {
+    if (days === null) return '';
+    if (days < 0) {
+      const abs = Math.abs(days);
+      return isUrdu ? `${abs} دن پہلے` : `${abs} day${abs > 1 ? 's' : ''} ago`;
+    }
+    if (days === 0) return isUrdu ? 'آج' : 'Today';
+    return isUrdu ? `${days} دن باقی` : `${days} day${days > 1 ? 's' : ''} left`;
+  };
+
+  const getInitials = (name: string) => {
+    if (!name) return '?';
+    return name.charAt(0).toUpperCase();
   };
 
   return (
@@ -154,25 +211,39 @@ const PromisesModal: React.FC<PromisesModalProps> = ({ isUrdu, onClose, onSucces
           </button>
         </div>
 
-        {/* Tabs */}
-        <div className="flex gap-2 px-6 py-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
-          {[
-            { key: 'today', label: isUrdu ? 'آج کے وعدے' : "Today's Promises" },
-            { key: 'pending', label: isUrdu ? 'زیر التوا' : 'Pending' },
-            { key: 'all', label: isUrdu ? 'تمام' : 'All' },
-          ].map(tab => (
-            <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key as any)}
-              className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
-                activeTab === tab.key
-                  ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/25'
-                  : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-amber-50 dark:hover:bg-amber-900/20 border border-gray-200 dark:border-gray-600'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+        {/* Tabs + Search */}
+        <div className="flex flex-col sm:flex-row gap-3 px-6 py-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
+          <div className="flex gap-2 flex-wrap">
+            {[
+              { key: 'today', label: isUrdu ? 'آج کے وعدے' : "Today's Promises" },
+              { key: 'pending', label: isUrdu ? 'زیر التوا' : 'Pending' },
+              { key: 'all', label: isUrdu ? 'تمام' : 'All' },
+            ].map(tab => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key as any)}
+                className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
+                  activeTab === tab.key
+                    ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/25'
+                    : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-amber-50 dark:hover:bg-amber-900/20 border border-gray-200 dark:border-gray-600'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          <div className="relative flex-1 max-w-xs ml-auto">
+            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={isUrdu ? 'تلاش کریں...' : 'Search...'}
+              className="w-full pl-9 pr-3 py-2 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-xs text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+            />
+          </div>
         </div>
 
         {/* Content */}
@@ -182,7 +253,7 @@ const PromisesModal: React.FC<PromisesModalProps> = ({ isUrdu, onClose, onSucces
               <div className="w-10 h-10 border-4 border-amber-500 border-t-transparent rounded-full animate-spin" />
               <p className="text-sm text-gray-400">{isUrdu ? 'لوڈ ہو رہا ہے...' : 'Loading...'}</p>
             </div>
-          ) : promises.length === 0 ? (
+          ) : filteredPromises.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 gap-3">
               <div className="p-4 bg-gray-100 dark:bg-gray-700 rounded-full">
                 <svg className="w-10 h-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -190,118 +261,192 @@ const PromisesModal: React.FC<PromisesModalProps> = ({ isUrdu, onClose, onSucces
                 </svg>
               </div>
               <p className="text-gray-400 font-medium">
-                {activeTab === 'today'
+                {searchQuery
+                  ? (isUrdu ? 'کچھ نہیں ملا' : 'No results found')
+                  : activeTab === 'today'
                   ? (isUrdu ? 'آج کوئی وعدے نہیں ہیں' : 'No promises due today')
                   : (isUrdu ? 'کوئی وعدے نہیں ہیں' : 'No promises found')}
               </p>
             </div>
           ) : (
             <div className="space-y-3">
-              {promises.map((promise) => (
-                <div
-                  key={promise.id}
-                  className={`bg-white dark:bg-gray-700/50 rounded-xl border-2 p-4 transition-all ${
-                    promise.status === 'fulfilled'
-                      ? 'border-emerald-200 dark:border-emerald-800 opacity-70'
-                      : promise.status === 'broken'
-                      ? 'border-red-200 dark:border-red-800 opacity-70'
-                      : isOverdue(promise.promise_date)
-                      ? 'border-red-300 dark:border-red-700'
-                      : 'border-amber-200 dark:border-amber-800'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="font-bold text-sm text-gray-900 dark:text-white truncate">
-                          {isUrdu
-                            ? (promise.customer_name_ur || promise.customer_name || '—')
-                            : (promise.customer_name || promise.customer_name_ur || '—')}
-                        </span>
-                        {getStatusBadge(promise.status)}
+              {filteredPromises.map((promise) => {
+                const daysRemaining = getDaysRemaining(promise.promise_date);
+                const overdue = isOverdue(promise.promise_date) && promise.status === 'pending';
+                const displayName = isUrdu
+                  ? (promise.customer_name_ur || promise.customer_name || '—')
+                  : (promise.customer_name || promise.customer_name_ur || '—');
+
+                return (
+                  <div
+                    key={promise.id}
+                    className={`bg-white dark:bg-gray-700/50 rounded-xl border-2 p-4 transition-all hover:shadow-md ${
+                      promise.status === 'fulfilled'
+                        ? 'border-emerald-200 dark:border-emerald-800 opacity-70'
+                        : promise.status === 'broken'
+                        ? 'border-red-200 dark:border-red-800 opacity-70'
+                        : overdue
+                        ? 'border-red-300 dark:border-red-700'
+                        : 'border-amber-200 dark:border-amber-800'
+                    }`}
+                  >
+                    {/* Top Row: Avatar + Name + Status + Amount */}
+                    <div className="flex items-start gap-3 mb-3">
+                      {/* Avatar */}
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 ${
+                        promise.status === 'fulfilled'
+                          ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400'
+                          : promise.status === 'broken'
+                          ? 'bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400'
+                          : overdue
+                          ? 'bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400'
+                          : 'bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400'
+                      }`}>
+                        {getInitials(displayName)}
                       </div>
-                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500 dark:text-gray-400">
-                        {promise.customer_phone && (
-                          <span className="flex items-center gap-1">
-                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-                            </svg>
-                            {promise.customer_phone}
+
+                      {/* Info */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-sm text-gray-900 dark:text-white truncate">
+                            {displayName}
                           </span>
-                        )}
-                        {promise.product_name && (
-                          <span className="flex items-center gap-1">
-                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                            </svg>
-                            {promise.product_name}
-                          </span>
-                        )}
-                        <span className="flex items-center gap-1">
-                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                          </svg>
+                          {getStatusBadge(promise.status)}
+                        </div>
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                          {promise.customer_phone && (
+                            <span className="flex items-center gap-1">
+                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                              </svg>
+                              {promise.customer_phone}
+                            </span>
+                          )}
+                          {promise.product_name && (
+                            <span className="flex items-center gap-1">
+                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                              </svg>
+                              {promise.product_name}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Amount */}
+                      <div className="text-right flex-shrink-0">
+                        <div className="text-base font-bold text-gray-900 dark:text-white">
+                          Rs. {(promise.amount || 0).toLocaleString()}
+                        </div>
+                        <div className="text-[10px] text-gray-400 dark:text-gray-500">
                           {isUrdu ? 'قسط' : 'Inst'} #{promise.installment_no}
-                        </span>
+                        </div>
                       </div>
-                      {promise.remarks && (
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 italic">
+                    </div>
+
+                    {/* Details Grid */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+                      {/* Promise Date */}
+                      <div className="bg-gray-50 dark:bg-gray-800/50 rounded-lg p-2.5">
+                        <div className="text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">
+                          {isUrdu ? 'وعدے کی تاریخ' : 'Promise Date'}
+                        </div>
+                        <div className="text-xs font-semibold text-gray-900 dark:text-white">
+                          {formatDateFull(promise.promise_date)}
+                        </div>
+                      </div>
+
+                      {/* Due Date */}
+                      <div className="bg-gray-50 dark:bg-gray-800/50 rounded-lg p-2.5">
+                        <div className="text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">
+                          {isUrdu ? 'واجب الادا تاریخ' : 'Due Date'}
+                        </div>
+                        <div className="text-xs font-semibold text-gray-900 dark:text-white">
+                          {formatDateFull(promise.due_date || promise.promise_date)}
+                        </div>
+                      </div>
+
+                      {/* Days Remaining */}
+                      <div className={`rounded-lg p-2.5 ${
+                        overdue
+                          ? 'bg-red-50 dark:bg-red-900/20'
+                          : daysRemaining !== null && daysRemaining <= 3
+                          ? 'bg-amber-50 dark:bg-amber-900/20'
+                          : 'bg-gray-50 dark:bg-gray-800/50'
+                      }`}>
+                        <div className="text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">
+                          {isUrdu ? 'باقی دن' : 'Days'}
+                        </div>
+                        <div className={`text-xs font-bold ${
+                          overdue
+                            ? 'text-red-600 dark:text-red-400'
+                            : daysRemaining !== null && daysRemaining <= 3
+                            ? 'text-amber-600 dark:text-amber-400'
+                            : 'text-gray-900 dark:text-white'
+                        }`}>
+                          {getDaysLabel(daysRemaining)}
+                        </div>
+                      </div>
+
+                      {/* Created At */}
+                      <div className="bg-gray-50 dark:bg-gray-800/50 rounded-lg p-2.5">
+                        <div className="text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">
+                          {isUrdu ? 'بنایا گیا' : 'Created'}
+                        </div>
+                        <div className="text-xs font-semibold text-gray-900 dark:text-white">
+                          {formatDate(promise.created_at)}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Remarks */}
+                    {promise.remarks && (
+                      <div className="mb-3 px-3 py-2 bg-gray-50 dark:bg-gray-800/50 rounded-lg border-l-2 border-amber-400">
+                        <div className="text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">
+                          {isUrdu ? 'ریمارکس' : 'Remarks'}
+                        </div>
+                        <p className="text-xs text-gray-700 dark:text-gray-300 italic">
                           "{promise.remarks}"
                         </p>
-                      )}
-                    </div>
-                    <div className="text-right flex-shrink-0">
-                      <div className="text-sm font-bold text-gray-900 dark:text-white">
-                        Rs. {(promise.amount || 0).toLocaleString()}
                       </div>
-                      <div className={`text-xs mt-0.5 ${
-                        isOverdue(promise.promise_date) && promise.status === 'pending'
-                          ? 'text-red-500 font-semibold'
-                          : 'text-gray-500 dark:text-gray-400'
-                      }`}>
-                        {formatDate(promise.promise_date)}
-                        {isOverdue(promise.promise_date) && promise.status === 'pending' && (
-                          <span className="ml-1">({isUrdu ? 'تاخیر' : 'Overdue'})</span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
+                    )}
 
-                  {/* Action Buttons - Only for pending promises */}
-                  {promise.status === 'pending' && (
-                    <div className="flex items-center justify-end gap-2 mt-3 pt-3 border-t border-gray-100 dark:border-gray-600">
-                      <button
-                        onClick={() => handleUpdateStatus(promise.id, 'fulfilled')}
-                        disabled={updatingId === promise.id}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-lg text-[10px] font-semibold hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-all border border-emerald-200 dark:border-emerald-800 disabled:opacity-50"
-                      >
-                        {updatingId === promise.id ? (
-                          <div className="w-3 h-3 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-                        ) : (
-                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                          </svg>
-                        )}
-                        {isUrdu ? 'پورا ہوا' : 'Fulfilled'}
-                      </button>
-                      <button
-                        onClick={() => handleUpdateStatus(promise.id, 'broken')}
-                        disabled={updatingId === promise.id}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-lg text-[10px] font-semibold hover:bg-red-100 dark:hover:bg-red-900/50 transition-all border border-red-200 dark:border-red-800 disabled:opacity-50"
-                      >
-                        {updatingId === promise.id ? (
-                          <div className="w-3 h-3 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
-                        ) : (
-                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                        )}
-                        {isUrdu ? 'ٹوٹ گیا' : 'Broken'}
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ))}
+                    {/* Action Buttons - Only for pending promises */}
+                    {promise.status === 'pending' && (
+                      <div className="flex items-center justify-end gap-2 pt-3 border-t border-gray-100 dark:border-gray-600">
+                        <button
+                          onClick={() => handleUpdateStatus(promise.id, 'fulfilled')}
+                          disabled={updatingId === promise.id}
+                          className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-lg text-xs font-semibold hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-all border border-emerald-200 dark:border-emerald-800 disabled:opacity-50"
+                        >
+                          {updatingId === promise.id ? (
+                            <div className="w-3.5 h-3.5 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+                          ) : (
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                            </svg>
+                          )}
+                          {isUrdu ? 'پورا ہوا' : 'Fulfilled'}
+                        </button>
+                        <button
+                          onClick={() => handleUpdateStatus(promise.id, 'broken')}
+                          disabled={updatingId === promise.id}
+                          className="inline-flex items-center gap-1.5 px-4 py-2 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-lg text-xs font-semibold hover:bg-red-100 dark:hover:bg-red-900/50 transition-all border border-red-200 dark:border-red-800 disabled:opacity-50"
+                        >
+                          {updatingId === promise.id ? (
+                            <div className="w-3.5 h-3.5 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
+                          ) : (
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          )}
+                          {isUrdu ? 'ٹوٹ گیا' : 'Broken'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
