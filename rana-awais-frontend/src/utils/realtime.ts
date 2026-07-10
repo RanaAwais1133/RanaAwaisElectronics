@@ -30,7 +30,7 @@ class RealtimeService {
       if (storedUrl) baseUrl = storedUrl;
       if (!baseUrl) {
         if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-          baseUrl = 'https://ranaawaiselectronics.onrender.com';
+          baseUrl = 'https://farooqautos.onrender.com';
         } else {
           baseUrl = 'http://localhost:8080';
         }

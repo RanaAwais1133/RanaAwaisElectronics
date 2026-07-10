@@ -10,6 +10,7 @@ import (
 // AllowedOrigins lists the origins that are allowed to access the API.
 // This includes production Vercel domains and local development origins.
 var AllowedOrigins = []string{
+	"https://farooq-autos-two.vercel.app",
 	"https://rana-awais-electronics-orcin.vercel.app",
 	"https://rana-awais-electronics.vercel.app",
 	"http://localhost:3000",
