@@ -459,13 +459,17 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 	if count, err := db.Collection("products").CountDocuments(ctx(), bson.M{"stockcount": bson.M{"$lte": 5}}); err == nil {
 		lowStock = count
 	}
-	// Calculate total inventory value (stock_count × purchase_price)
+	// Calculate total inventory value (stock_count × selling price)
 	prodCursor, prodErr := db.Collection("products").Find(ctx(), bson.M{})
 	if prodErr == nil {
 		for prodCursor.Next(ctx()) {
 			var p domain.Product
 			if prodCursor.Decode(&p) == nil && p.StockCount > 0 {
-				inventoryValue += float64(p.StockCount) * p.PurchasePrice
+				price := p.Price
+				if price <= 0 {
+					price = p.PurchasePrice * 1.2 // fallback: estimate selling price
+				}
+				inventoryValue += float64(p.StockCount) * price
 			}
 		}
 		prodCursor.Close(ctx())
@@ -983,78 +987,139 @@ func (h *DashboardHandler) TodayInstallmentStats(w http.ResponseWriter, r *http.
 	db := getDB()
 	if db == nil {
 		respondJSON(w, http.StatusOK, map[string]interface{}{
-			"total": 0, "collected": 0, "pending": 0, "overdue": 0,
+			"total_due_count": 0, "collected_count": 0, "remaining_count": 0,
+			"total_due_amount": 0, "collected_amount": 0, "remaining_amount": 0,
+			"collected_customers": []interface{}{}, "remaining_customers": []interface{}{},
 		})
 		return
 	}
 
 	todayStart, todayEnd := todayRange()
 
-	// Total installments due today
-	totalDue := int64(0)
-	totalDuePipe := mongo.Pipeline{
-		{{Key: "$match", Value: bson.D{{Key: "status", Value: bson.M{"$in": []string{"active", "Active", "Open"}}}}}},
-		{{Key: "$unwind", Value: "$installments"}},
-		{{Key: "$match", Value: bson.D{{Key: "installments.due_date", Value: bson.D{{Key: "$gte", Value: todayStart}, {Key: "$lt", Value: todayEnd}}}}}},
-		{{Key: "$count", Value: "count"}},
-	}
-	totalCur, err := db.Collection("installment_plans").Aggregate(ctx(), totalDuePipe)
+	var collectedEntries []map[string]interface{}
+	var remainingEntries []map[string]interface{}
+	totalCollectedAmt := 0.0
+	totalRemainingAmt := 0.0
+
+	// ── COLLECTED TODAY: Payments made today (regardless of when installment was due) ──
+	paymentsCursor, err := db.Collection("payments").Find(ctx(), bson.M{
+		"$or": []interface{}{
+			bson.M{"transactiondate": bson.M{"$gte": todayStart, "$lt": todayEnd}},
+			bson.M{"transactionDate": bson.M{"$gte": todayStart, "$lt": todayEnd}},
+		},
+	})
 	if err == nil {
-		if totalCur.Next(ctx()) {
-			var res struct{ Count int64 `bson:"count"` }
-			if totalCur.Decode(&res) == nil {
-				totalDue = res.Count
+		for paymentsCursor.Next(ctx()) {
+			var pay domain.Payment
+			if paymentsCursor.Decode(&pay) != nil {
+				continue
 			}
+			if pay.InstallmentNo == 0 {
+				continue
+			}
+			// Get plan+customer+product
+			var plan domain.InstallmentPlan
+			if db.Collection("installment_plans").FindOne(ctx(), bson.M{"_id": pay.InstallmentPlanID}).Decode(&plan) != nil {
+				continue
+			}
+			var cust domain.Customer
+			if db.Collection("customers").FindOne(ctx(), bson.M{"_id": plan.CustomerID}).Decode(&cust) != nil {
+				continue
+			}
+			var prodName string
+			if plan.ProductID != "" {
+				var prod domain.Product
+				if db.Collection("products").FindOne(ctx(), bson.M{"_id": plan.ProductID}).Decode(&prod) == nil {
+					prodName = prod.Name
+				}
+			}
+			dueDate := pay.TransactionDate.Format("2006-01-02")
+			for _, d := range plan.Installments {
+				if d.InstallmentNo == pay.InstallmentNo {
+					dueDate = d.DueDate.Format("2006-01-02")
+					break
+				}
+			}
+			totalCollectedAmt += pay.Amount
+			collectedEntries = append(collectedEntries, map[string]interface{}{
+				"plan_id": pay.InstallmentPlanID, "customer_id": cust.ID,
+				"customer_name": cust.Name, "customer_urdu": cust.NameUrdu,
+				"father_name": cust.FatherName, "phone": cust.Phone,
+				"product_name": prodName, "installment_no": pay.InstallmentNo,
+				"total_installments": plan.NumberOfInstallments,
+				"due_date": dueDate, "amount": pay.Amount,
+				"date": pay.TransactionDate.Format("2006-01-02"),
+				"status": "collected",
+			})
 		}
-		totalCur.Close(ctx())
+		paymentsCursor.Close(ctx())
+	}
+	if collectedEntries == nil {
+		collectedEntries = []map[string]interface{}{}
 	}
 
-	// Collected today
-	collectedToday := int64(0)
-	collectedPipe := mongo.Pipeline{
-		{{Key: "$match", Value: bson.D{{Key: "transactiondate", Value: bson.D{{Key: "$gte", Value: todayStart}, {Key: "$lt", Value: todayEnd}}}}}},
-		{{Key: "$count", Value: "count"}},
-	}
-	collectedCur, err := db.Collection("payments").Aggregate(ctx(), collectedPipe)
+	// ── REMAINING: Unpaid installments due today or earlier ──
+	plansCursor, err := db.Collection("installment_plans").Find(ctx(), bson.M{
+		"status": bson.M{"$in": []string{"active", "Active", "Open"}},
+	})
 	if err == nil {
-		if collectedCur.Next(ctx()) {
-			var res struct{ Count int64 `bson:"count"` }
-			if collectedCur.Decode(&res) == nil {
-				collectedToday = res.Count
+		for plansCursor.Next(ctx()) {
+			var plan domain.InstallmentPlan
+			if plansCursor.Decode(&plan) != nil {
+				continue
+			}
+			var cust domain.Customer
+			if db.Collection("customers").FindOne(ctx(), bson.M{"_id": plan.CustomerID}).Decode(&cust) != nil {
+				continue
+			}
+			var prodName string
+			if plan.ProductID != "" {
+				var prod domain.Product
+				if db.Collection("products").FindOne(ctx(), bson.M{"_id": plan.ProductID}).Decode(&prod) == nil {
+					prodName = prod.Name
+				}
+			}
+			for _, d := range plan.Installments {
+				if d.Paid {
+					continue
+				}
+				if !d.DueDate.Before(todayEnd) {
+					continue
+				}
+				isOverdue := d.DueDate.Before(todayStart)
+				status := "pending"
+				if isOverdue {
+					status = "overdue"
+				}
+				totalRemainingAmt += d.Amount
+				remainingEntries = append(remainingEntries, map[string]interface{}{
+					"plan_id": plan.ID, "customer_id": cust.ID,
+					"customer_name": cust.Name, "customer_urdu": cust.NameUrdu,
+					"father_name": cust.FatherName, "phone": cust.Phone,
+					"product_name": prodName, "installment_no": d.InstallmentNo,
+					"total_installments": plan.NumberOfInstallments,
+					"due_date": d.DueDate.Format("2006-01-02"),
+					"amount": d.Amount, "fine": d.Fine,
+					"date": d.DueDate.Format("2006-01-02"),
+					"status": status,
+				})
 			}
 		}
-		collectedCur.Close(ctx())
+		plansCursor.Close(ctx())
 	}
-
-	pending := totalDue - collectedToday
-	if pending < 0 {
-		pending = 0
-	}
-
-	// Overdue (past due, unpaid)
-	overdue := int64(0)
-	overduePipe := mongo.Pipeline{
-		{{Key: "$match", Value: bson.D{{Key: "status", Value: bson.M{"$in": []string{"active", "Active", "Open"}}}}}},
-		{{Key: "$unwind", Value: "$installments"}},
-		{{Key: "$match", Value: bson.D{{Key: "installments.paid", Value: false}, {Key: "installments.due_date", Value: bson.D{{Key: "$lt", Value: todayStart}}}}}},
-		{{Key: "$count", Value: "count"}},
-	}
-	overdueCur, err := db.Collection("installment_plans").Aggregate(ctx(), overduePipe)
-	if err == nil {
-		if overdueCur.Next(ctx()) {
-			var res struct{ Count int64 `bson:"count"` }
-			if overdueCur.Decode(&res) == nil {
-				overdue = res.Count
-			}
-		}
-		overdueCur.Close(ctx())
+	if remainingEntries == nil {
+		remainingEntries = []map[string]interface{}{}
 	}
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"total":     totalDue,
-		"collected": collectedToday,
-		"pending":   pending,
-		"overdue":   overdue,
+		"total_due_count":    len(collectedEntries) + len(remainingEntries),
+		"collected_count":    len(collectedEntries),
+		"remaining_count":    len(remainingEntries),
+		"total_due_amount":   totalCollectedAmt + totalRemainingAmt,
+		"collected_amount":   totalCollectedAmt,
+		"remaining_amount":   totalRemainingAmt,
+		"collected_customers": collectedEntries,
+		"remaining_customers": remainingEntries,
 	})
 }
 
