@@ -1,9 +1,6 @@
-import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import api from '../../utils/api';
-import toast from 'react-hot-toast';
-import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
 import { useClientStore } from '../../store/useClientStore';
 import { useAuthStore } from '../../store/useAuthStore';
 
@@ -28,8 +25,8 @@ const PendingReport: React.FC = () => {
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [pendingTotal, setPendingTotal] = useState<number>(0);
-  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
-  const reportRef = useRef<HTMLDivElement>(null);
+  const [page, setPage] = useState(1);
+  const PER_PAGE = 25;
 
   useEffect(() => {
     document.title = `${isUrdu ? 'زیر التواء رپورٹ' : 'Pending Report'} | ${clientInfo.name}`;
@@ -76,43 +73,6 @@ const PendingReport: React.FC = () => {
     return filteredItems.reduce((sum, item) => sum + (item.pending_amount || 0), 0);
   }, [filteredItems]);
 
-  const downloadPDF = useCallback(async () => {
-    if (!reportRef.current) return;
-    setIsGeneratingPDF(true);
-    const loadingToast = toast.loading(isUrdu ? 'پی ڈی ایف بنا رہے ہیں...' : 'Generating PDF...');
-    try {
-      const canvas = await html2canvas(reportRef.current, {
-        scale: 2,
-        useCORS: true,
-        logging: false,
-        backgroundColor: '#ffffff',
-        allowTaint: true,
-      });
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF('p', 'mm', 'a4');
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
-      let heightLeft = pdfHeight;
-      let position = 0;
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, pdfHeight);
-      heightLeft -= pageHeight;
-      while (heightLeft > 0) {
-        position = heightLeft - pdfHeight;
-        pdf.addPage();
-        pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, pdfHeight);
-        heightLeft -= pageHeight;
-      }
-      pdf.save(`Pending_Report_${new Date().toISOString().split('T')[0]}.pdf`);
-      toast.dismiss(loadingToast);
-      toast.success(isUrdu ? 'پی ڈی ایف ڈاؤن لوڈ ہو گئی' : 'PDF downloaded successfully');
-    } catch (err) {
-      toast.dismiss(loadingToast);
-      toast.error(isUrdu ? 'پی ڈی ایف بنانے میں ناکامی' : 'PDF generation failed');
-    } finally {
-      setIsGeneratingPDF(false);
-    }
-  }, [reportRef, isUrdu]);
 
   const handlePrint = () => {
     const printWindow = window.open('', '_blank');
@@ -194,25 +154,6 @@ const PendingReport: React.FC = () => {
             </svg>
             {isUrdu ? 'پرنٹ کریں' : 'Print'}
           </button>
-          <button
-            onClick={downloadPDF}
-            disabled={isGeneratingPDF || filteredItems.length === 0}
-            className="px-4 py-2.5 bg-red-600 text-white rounded-xl text-sm font-semibold hover:bg-red-700 transition-all disabled:opacity-50 flex items-center gap-2"
-          >
-            {isGeneratingPDF ? (
-              <span className="flex items-center gap-2">
-                <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                {isUrdu ? 'بن رہا ہے...' : 'Generating...'}
-              </span>
-            ) : (
-              <>
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                {isUrdu ? 'پی ڈی ایف' : 'PDF'}
-              </>
-            )}
-          </button>
         </div>
       </div>
 
@@ -254,7 +195,7 @@ const PendingReport: React.FC = () => {
       </div>
 
       {/* Report Content */}
-      <div ref={reportRef} className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
         <div className="hidden print:block text-center p-6 border-b border-gray-200">
           <h2 className="text-xl font-bold text-gray-900">{clientInfo.name}</h2>
           <p className="text-sm text-gray-500">{isUrdu ? 'زیر التواء رپورٹ' : 'Pending Report'}</p>

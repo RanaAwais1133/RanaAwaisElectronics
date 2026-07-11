@@ -1,48 +1,29 @@
 import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import api from '../../utils/api';
-import toast from 'react-hot-toast';
-import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useClientStore } from '../../store/useClientStore';
-
-// ✅ Product-wise inventory grouping
-interface ProductStock {
-  productId: string;
-  product_name: string;
-  product_name_urdu: string;
-  company: string;
-  model: string;
-  totalItems: number;
-  inStock: number;
-  sold: number;
-  returned: number;
-  totalValue: number;
-  sellingPrice: number;
-}
 
 const InventoryReport: React.FC = () => {
   const { i18n } = useTranslation();
   const isUrdu = i18n.language === 'ur';
-  const currentUser = useAuthStore((state) => state.user);
-
+  const currentUser = useAuthStore(s => s.user);
+  const clientInfo = useClientStore(s => s.info);
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [page, setPage] = useState(1);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const reportRef = useRef<HTMLDivElement>(null);
-
-  const clientInfo = useClientStore((s) => s.info);
+  const PER_PAGE = 25;
   useEffect(() => {
     document.title = `${isUrdu ? 'انوینٹری رپورٹ' : 'Inventory Report'} | ${clientInfo.name}`;
   }, [isUrdu, clientInfo.name]);
 
-  useEffect(() => {
-    fetchInventory();
-  }, []);
+  useEffect(() => { fetchInventory(); }, []);
+  // eslint-disable-next-line
 
   const fetchInventory = async () => {
     setLoading(true);
@@ -66,7 +47,7 @@ const InventoryReport: React.FC = () => {
 
   // ✅ Group items by product
   const productGroups = useMemo(() => {
-    const groups: Record<string, ProductStock> = {};
+    const groups: Record<string, any> = {};
     
     items.forEach(item => {
       const pid = item.productId || 'unknown';
