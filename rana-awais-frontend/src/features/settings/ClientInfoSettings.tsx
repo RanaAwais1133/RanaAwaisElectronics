@@ -63,7 +63,7 @@ const ClientInfoSettings: React.FC = () => {
   const isUrdu = i18n.language === 'ur';
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const updateClientStore = useClientStore((s) => s.update);
+  const saveToBackend = useClientStore((s) => s.saveToBackend);
   const [info, setInfo] = useState<ClientInfo>({
     name: APP_CONFIG.companyName,
     nameUr: APP_CONFIG.companyNameUr,
@@ -98,14 +98,14 @@ const ClientInfoSettings: React.FC = () => {
     }
   }, []);
 
-  // ✅ Save to localStorage and update APP_CONFIG
-  const handleSave = () => {
+  // ✅ Save to Backend API + localStorage (sync across all users)
+  const handleSave = async () => {
     setIsSaving(true);
     try {
-      // Save to localStorage
-      localStorage.setItem('clientInfo', JSON.stringify(info));
-      
-      // Update APP_CONFIG dynamically
+      // ✅ Save to Backend API (MongoDB) - sab users k liye same ho jayega
+      await saveToBackend(info);
+
+      // ✅ Update APP_CONFIG dynamically for local fallback
       (APP_CONFIG as any).companyName = info.name;
       (APP_CONFIG as any).companyNameUr = info.nameUr;
       (APP_CONFIG as any).branchName = info.branch;
@@ -121,16 +121,13 @@ const ClientInfoSettings: React.FC = () => {
       (APP_CONFIG as any).serviceNote = info.serviceNote;
       (APP_CONFIG as any).serviceNoteUr = info.serviceNoteUr;
 
-      // ✅ Update global client store - sab components instantly update ho jayenge
-      updateClientStore(info);
-
-      // Update document title
+      // ✅ Update document title
       document.title = `${info.name} - ERP System`;
 
-      toast.success(isUrdu ? '✅ کلائنٹ کی معلومات محفوظ ہو گئیں' : '✅ Client information saved successfully');
+      toast.success(isUrdu ? '✅ کلائنٹ کی معلومات آن لائن محفوظ ہو گئیں' : '✅ Client information saved online');
       setIsEditing(false);
     } catch (err) {
-      toast.error(isUrdu ? '❌ محفوظ کرنے میں ناکامی' : '❌ Failed to save');
+      toast.error(isUrdu ? '❌ آن لائن محفوظ کرنے میں ناکامی، لوکل طور پر محفوظ ہو گئی' : '❌ Failed to save online, saved locally');
     } finally {
       setIsSaving(false);
     }

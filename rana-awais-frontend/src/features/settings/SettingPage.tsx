@@ -12,6 +12,7 @@ const SettingsPage: React.FC = () => {
   const isUrdu = i18n.language === 'ur';
   const currentUser = useAuthStore((state) => state.user);
   const clientInfo = useClientStore((s) => s.info);
+  const loadFromBackend = useClientStore((s) => s.loadFromBackend);
   
   const [showUserManagement, setShowUserManagement] = useState(false);
   const [isBackingUp, setIsBackingUp] = useState(false);
@@ -31,6 +32,11 @@ const SettingsPage: React.FC = () => {
   useEffect(() => {
     document.title = `${isUrdu ? 'ترتیبات' : 'Settings'} | ${clientInfo.name}`;
   }, [isUrdu]);
+
+  // ✅ Load client info from backend (MongoDB) on mount
+  useEffect(() => {
+    loadFromBackend();
+  }, [loadFromBackend]);
 
   // ✅ Theme detection
   useEffect(() => {
