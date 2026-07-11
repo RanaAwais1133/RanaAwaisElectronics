@@ -83,10 +83,10 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
 
         if (type === 'today' || type === 'month') {
           const prefix = type === 'today' ? (isUrdu ? 'آج' : 'Today') : (isUrdu ? 'ماہ' : 'Month');
-          const revenue = d.revenue ?? d.total_revenue ?? d.totalIncome ?? 0;
+          const revenue = d.revenue ?? d.todayRevenue ?? d.total_revenue ?? d.totalIncome ?? 0;
           const profit = d.profit ?? d.total_profit ?? d.netProfit ?? 0;
 
-          // Only show Revenue - profit is derived from revenue, don't show separately in list
+          // Show Revenue
           items.push({
             label: isUrdu ? `${prefix} کی کل آمدنی` : `${prefix} Total Revenue`,
             value: `Rs. ${revenue.toLocaleString()}`,
@@ -97,8 +97,7 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
           if (d.details && Array.isArray(d.details)) {
             setPaymentDetails(d.details);
           }
-          // Also show profit as a separate item (not included in total)
-          // but only if profit > 0
+          // Show profit as a separate item (not included in total)
           if (profit > 0) {
             items.push({
               label: isUrdu ? `${prefix} کا کل منافع` : `${prefix} Total Profit`,
@@ -147,13 +146,7 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
                     rawValue: cached.todayProfit || 0,
                     isNegative: (cached.todayProfit || 0) < 0,
                   });
-                  if (cached.todayCollection?.total) {
-                    items.push({
-                      label: isUrdu ? 'آج کی وصولی' : "Today's Collection",
-                      value: `Rs. ${(cached.todayCollection.total || 0).toLocaleString()}`,
-                      rawValue: cached.todayCollection.total || 0,
-                    });
-                  }
+                  // Today's Collection is not shown separately - revenue already covers it
                 } else if (type === 'month') {
                   items.push({
                     label: isUrdu ? 'ماہ کی کل آمدنی' : "Month's Total Revenue",

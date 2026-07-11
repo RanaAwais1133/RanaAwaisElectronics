@@ -100,6 +100,7 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 				{{Key: "transactiondate", Value: bson.D{{Key: "$gte", Value: todayStart}, {Key: "$lt", Value: todayEnd}}}},
 				{{Key: "transactionDate", Value: bson.D{{Key: "$gte", Value: todayStart}, {Key: "$lt", Value: todayEnd}}}},
 				{{Key: "paymentdate", Value: bson.D{{Key: "$gte", Value: todayStart}, {Key: "$lt", Value: todayEnd}}}},
+				{{Key: "paymentDate", Value: bson.D{{Key: "$gte", Value: todayStart}, {Key: "$lt", Value: todayEnd}}}},
 			}},
 		}}},
 		{{Key: "$group", Value: bson.D{{Key: "_id", Value: nil}, {Key: "total", Value: bson.D{{Key: "$sum", Value: "$amount"}}}, {Key: "count", Value: bson.D{{Key: "$sum", Value: 1}}}}}},
@@ -481,6 +482,7 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 			"total": todayCollectionTotal,
 			"count": todayCollectionCount,
 		},
+		"todayRevenue":      todayCollectionTotal,
 		"todayProfit":       todayProfit,
 		"totalPending":      pendingTotal,
 		"pendingCustomers":  pendingCustomersCount,
@@ -506,7 +508,12 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 func calculateTodayProfitFromPayments(db *mongo.Database, start, end time.Time) float64 {
 	totalProfit := 0.0
 	cursor, err := db.Collection("payments").Find(ctx(), bson.M{
-		"transactiondate": bson.M{"$gte": start, "$lt": end},
+		"$or": []interface{}{
+			bson.M{"transactiondate": bson.M{"$gte": start, "$lt": end}},
+			bson.M{"transactionDate": bson.M{"$gte": start, "$lt": end}},
+			bson.M{"paymentdate": bson.M{"$gte": start, "$lt": end}},
+			bson.M{"paymentDate": bson.M{"$gte": start, "$lt": end}},
+		},
 	})
 	if err != nil {
 		return 0

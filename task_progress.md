@@ -1,10 +1,25 @@
-# Task Progress - DownPayment Profit Fix & Payment Type Column
+# Task Progress
 
-## Todo List
-- [x] Analyze codebase and identify all issues
-- [x] Fix 1: `accounting_handler.go` - Add `payment_type` field in `getPaymentDetailsWithProfit` response
-- [x] Fix 2: `dashboard_handler.go` - Fix Summary function profit calculation (todayProfit, monthProfit)
-- [x] Fix 3: `dashboard_handler.go` - Fix MonthlyReport function to include Advance/Down payments in collected/remaining
-- [x] Fix 4: `DashboardSummaryModal.tsx` - Add "Type" column in payment details table and print view
-- [x] Build and test the backend
-- [x] Verify all fixes work correctly
+## Issues to Fix
+
+### Issue 1: Pending Report - Wrong Amount (60k instead of 40k)
+- [x] Analyze the pending calculation logic
+- [ ] Fix backend `/accounting/pending-total` endpoint to properly calculate pending amounts
+- [ ] Fix pending calculation to account for down payments already made
+- [ ] Fix pending calculation to check all status variants (active, Active, Open)
+
+### Issue 2: Today's Collection - Revenue Shows Rs. 0
+- [x] Analyze the today summary endpoint
+- [ ] Fix `/accounting/today` endpoint to properly find payments
+- [ ] Fix the date field query to handle all possible field name variants
+
+### Issue 3: Today's Collection Modal - Remove "Today's Collection" line item
+- [x] Analyze DashboardSummaryModal.tsx
+- [ ] Fix DashboardSummaryModal to not show "Today's Collection" as a separate line item
+- [ ] Only show Revenue and Profit
+
+### Issue 4: Loading Speed Optimization
+- [x] Analyze current query patterns
+- [ ] Add MongoDB indexes for faster queries
+- [ ] Optimize the dashboard summary endpoint to run queries in parallel
+- [ ] Add caching for frequently accessed data

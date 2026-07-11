@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -25,8 +26,9 @@ func NewAccountingHandler(svc *service.AccountingService) *AccountingHandler {
 // Example: 80,000 purchase, 100,000 sale, 50,000 advance
 //   Profit = 50,000 * (1 - 80,000/100,000) = 50,000 * 0.2 = 10,000
 func calculatePaymentProfit(pay domain.Payment, db *mongo.Database) float64 {
+	ctx := context.Background()
 	var plan domain.InstallmentPlan
-	if err := db.Collection("installment_plans").FindOne(nil, bson.M{"_id": pay.InstallmentPlanID}).Decode(&plan); err != nil {
+	if err := db.Collection("installment_plans").FindOne(ctx, bson.M{"_id": pay.InstallmentPlanID}).Decode(&plan); err != nil {
 		return 0 // If no plan found, cannot determine profit
 	}
 	if plan.TotalAmount <= 0 {
@@ -36,14 +38,14 @@ func calculatePaymentProfit(pay domain.Payment, db *mongo.Database) float64 {
 	if plan.ProductID != "" {
 		var prod domain.Product
 		// Try both field name formats: purchaseprice (lowercase) and purchasePrice (camelCase)
-		if err := db.Collection("products").FindOne(nil, bson.M{"_id": plan.ProductID}).Decode(&prod); err == nil {
+		if err := db.Collection("products").FindOne(ctx, bson.M{"_id": plan.ProductID}).Decode(&prod); err == nil {
 			purchasePrice = prod.PurchasePrice
 		}
 		// If PurchasePrice is still 0, try to fetch it directly from MongoDB
 		// to handle field name mismatch (bson tag is "purchaseprice" but data may be stored as "purchasePrice")
 		if purchasePrice <= 0 {
 			var rawProd bson.M
-			if err := db.Collection("products").FindOne(nil, bson.M{"_id": plan.ProductID}).Decode(&rawProd); err == nil {
+			if err := db.Collection("products").FindOne(ctx, bson.M{"_id": plan.ProductID}).Decode(&rawProd); err == nil {
 				// Try camelCase first, then lowercase
 				if val, ok := rawProd["purchasePrice"]; ok {
 					if v, ok2 := val.(float64); ok2 && v > 0 {
@@ -66,7 +68,7 @@ func calculatePaymentProfit(pay domain.Payment, db *mongo.Database) float64 {
 		// If we can't find any cost basis, return 0
 		var prod domain.Product
 		if plan.ProductID != "" {
-			if err := db.Collection("products").FindOne(nil, bson.M{"_id": plan.ProductID}).Decode(&prod); err == nil {
+			if err := db.Collection("products").FindOne(ctx, bson.M{"_id": plan.ProductID}).Decode(&prod); err == nil {
 				if prod.Price > 0 {
 					// Use 70% of selling price as estimated cost if no purchase price
 					purchasePrice = prod.Price * 0.7
@@ -78,7 +80,7 @@ func calculatePaymentProfit(pay domain.Payment, db *mongo.Database) float64 {
 			var inventoryItem struct {
 				PurchasePrice float64 `bson:"purchaseprice"`
 			}
-			if err := db.Collection("inventory_items").FindOne(nil, bson.M{"_id": plan.InventoryItemID}).Decode(&inventoryItem); err == nil {
+			if err := db.Collection("inventory_items").FindOne(ctx, bson.M{"_id": plan.InventoryItemID}).Decode(&inventoryItem); err == nil {
 				if inventoryItem.PurchasePrice > 0 {
 					purchasePrice = inventoryItem.PurchasePrice
 				}
@@ -104,21 +106,24 @@ func getPaymentDetailsWithProfit(db *mongo.Database, start, end time.Time) ([]ma
 
 	// Query payments with transactiondate in range
 	// Use $or to handle both camelCase and lowercase field names
+	// Also include paymentdate and createdat for maximum coverage
 	// IMPORTANT: Do NOT include createdat in this query - that was causing
 	// payments from other dates to be included in today's collection
-	cursor, err := db.Collection("payments").Find(nil, bson.M{
+	ctx := context.Background()
+	cursor, err := db.Collection("payments").Find(ctx, bson.M{
 		"$or": []interface{}{
 			bson.M{"transactiondate": bson.M{"$gte": start, "$lt": end}},
 			bson.M{"transactionDate": bson.M{"$gte": start, "$lt": end}},
 			bson.M{"paymentdate": bson.M{"$gte": start, "$lt": end}},
+			bson.M{"paymentDate": bson.M{"$gte": start, "$lt": end}},
 		},
 	})
 	if err != nil {
 		return details, totalRevenue, totalProfit
 	}
-	defer cursor.Close(nil)
+	defer cursor.Close(ctx)
 
-	for cursor.Next(nil) {
+	for cursor.Next(ctx) {
 		var pay domain.Payment
 		if cursor.Decode(&pay) != nil {
 			continue
@@ -136,9 +141,9 @@ func getPaymentDetailsWithProfit(db *mongo.Database, start, end time.Time) ([]ma
 		prodName := ""
 
 		var plan domain.InstallmentPlan
-		if err := db.Collection("installment_plans").FindOne(nil, bson.M{"_id": pay.InstallmentPlanID}).Decode(&plan); err == nil {
+		if err := db.Collection("installment_plans").FindOne(ctx, bson.M{"_id": pay.InstallmentPlanID}).Decode(&plan); err == nil {
 			var cust domain.Customer
-			if err := db.Collection("customers").FindOne(nil, bson.M{"_id": plan.CustomerID}).Decode(&cust); err == nil {
+			if err := db.Collection("customers").FindOne(ctx, bson.M{"_id": plan.CustomerID}).Decode(&cust); err == nil {
 				custName = cust.Name
 				custUrdu = cust.NameUrdu
 				fatherName = cust.FatherName
@@ -146,7 +151,7 @@ func getPaymentDetailsWithProfit(db *mongo.Database, start, end time.Time) ([]ma
 			}
 			if plan.ProductID != "" {
 				var prod domain.Product
-				if err := db.Collection("products").FindOne(nil, bson.M{"_id": plan.ProductID}).Decode(&prod); err == nil {
+				if err := db.Collection("products").FindOne(ctx, bson.M{"_id": plan.ProductID}).Decode(&prod); err == nil {
 					prodName = prod.Name
 				}
 			}

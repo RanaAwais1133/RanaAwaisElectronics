@@ -479,7 +479,8 @@ func SetupRouter(
 			return
 		}
 
-		cursor, err := db.Collection("installment_plans").Find(r.Context(), bson.M{"status": "active"})
+		// Get all active plans - check all possible status values
+		cursor, err := db.Collection("installment_plans").Find(r.Context(), bson.M{"status": bson.M{"$in": []string{"active", "Active", "Open"}}})
 		if err != nil {
 			respondJSON(w, http.StatusOK, map[string]interface{}{"pending_total": 0, "customers": []interface{}{}})
 			return
@@ -495,32 +496,75 @@ func SetupRouter(
 				continue
 			}
 
+			// Calculate total paid on this plan (including down payment)
+			totalPaidOnPlan := plan.DownPayment
+			// Also fetch payments from payments collection to get accurate total
+			// Use $or to handle both camelCase and lowercase field names
+			payCur, err := db.Collection("payments").Find(r.Context(), bson.M{
+				"$or": []interface{}{
+					bson.M{"installmentplanid": plan.ID},
+					bson.M{"installmentPlanId": plan.ID},
+				},
+			})
+			if err == nil {
+				for payCur.Next(r.Context()) {
+					var pay domain.Payment
+					if payCur.Decode(&pay) == nil {
+						totalPaidOnPlan += pay.Amount
+					}
+				}
+				payCur.Close(r.Context())
+			}
+
+			// Calculate total amount that should be paid (all installments + down payment)
+			totalInstallmentAmount := 0.0
 			for _, d := range plan.Installments {
-				if d.Paid {
+				totalInstallmentAmount += d.Amount
+			}
+			totalPlanAmount := plan.DownPayment + totalInstallmentAmount
+
+			// Remaining = total plan amount - total paid
+			planRemaining := totalPlanAmount - totalPaidOnPlan
+			if planRemaining < 0 {
+				planRemaining = 0
+			}
+
+			if planRemaining <= 0 {
+				continue
+			}
+
+			pendingTotal += planRemaining
+
+			if _, ok := customerMap[plan.CustomerID]; !ok {
+				var cust domain.Customer
+				if err := db.Collection("customers").FindOne(r.Context(), bson.M{"_id": plan.CustomerID}).Decode(&cust); err != nil {
 					continue
 				}
-				due := d.Amount + d.Fine - d.PartialPaid
-				pendingTotal += due
-
-				if _, ok := customerMap[plan.CustomerID]; !ok {
-					var cust domain.Customer
-					if err := db.Collection("customers").FindOne(r.Context(), bson.M{"_id": plan.CustomerID}).Decode(&cust); err != nil {
-						continue
-					}
-					customerMap[plan.CustomerID] = map[string]interface{}{
-						"customerid": plan.CustomerID, "customer_name": cust.Name,
-						"customer_name_urdu": cust.NameUrdu, "father_name": cust.FatherName,
-						"phone": cust.Phone, "cnic": cust.CNIC, "address": cust.Address,
-						"address_urdu": cust.AddressUrdu, "pending_amount": 0.0,
-						"installment_count": 0, "earliest_due_date": "",
+				customerMap[plan.CustomerID] = map[string]interface{}{
+					"customerid": plan.CustomerID, "customer_name": cust.Name,
+					"customer_name_urdu": cust.NameUrdu, "father_name": cust.FatherName,
+					"phone": cust.Phone, "cnic": cust.CNIC, "address": cust.Address,
+					"address_urdu": cust.AddressUrdu, "pending_amount": 0.0,
+					"installment_count": 0, "earliest_due_date": "",
+				}
+			}
+			if entry, ok := customerMap[plan.CustomerID]; ok {
+				entry["pending_amount"] = entry["pending_amount"].(float64) + planRemaining
+				// Count unpaid installments
+				unpaidCount := 0
+				for _, d := range plan.Installments {
+					if !d.Paid {
+						unpaidCount++
 					}
 				}
-				if entry, ok := customerMap[plan.CustomerID]; ok {
-					entry["pending_amount"] = entry["pending_amount"].(float64) + due
-					entry["installment_count"] = entry["installment_count"].(int) + 1
-					earliest := entry["earliest_due_date"].(string)
-					if earliest == "" || d.DueDate.Format("2006-01-02") < earliest {
-						entry["earliest_due_date"] = d.DueDate.Format("2006-01-02")
+				entry["installment_count"] = entry["installment_count"].(int) + unpaidCount
+				// Find earliest unpaid due date
+				for _, d := range plan.Installments {
+					if !d.Paid {
+						earliest := entry["earliest_due_date"].(string)
+						if earliest == "" || d.DueDate.Format("2006-01-02") < earliest {
+							entry["earliest_due_date"] = d.DueDate.Format("2006-01-02")
+						}
 					}
 				}
 			}
