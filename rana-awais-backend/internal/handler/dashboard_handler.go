@@ -463,8 +463,11 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"total_collection": todayCollectionTotal,
 		"total_customers":  totalCustomers,
+		"totalCustomers":   totalCustomers,
 		"new_customers":    newCustomers,
+		"newCustomers":     newCustomers,
 		"total_profit":     totalProfit,
+		"totalProfit":      totalProfit,
 		"daily_breakdown":  dailyBreakdown,
 		"daybook_details":  daybookDetails,
 
@@ -587,7 +590,8 @@ func (h *DashboardHandler) OverdueDetails(w http.ResponseWriter, r *http.Request
 		for _, pay := range plan.Payments {
 			totalPaidOnPlan += pay.Amount
 		}
-		planRemaining := plan.TotalAmount - plan.DownPayment - totalPaidOnPlan
+		// NOTE: Payments collection already includes down payment, so don't subtract plan.DownPayment again
+		planRemaining := plan.TotalAmount - totalPaidOnPlan
 		if planRemaining < 0 {
 			planRemaining = 0
 		}
@@ -677,7 +681,8 @@ func (h *DashboardHandler) TodayDueDetails(w http.ResponseWriter, r *http.Reques
 		for _, pay := range plan.Payments {
 			totalPaidOnPlan += pay.Amount
 		}
-		planRemaining := plan.TotalAmount - plan.DownPayment - totalPaidOnPlan
+		// NOTE: Payments collection already includes down payment, so don't subtract plan.DownPayment again
+		planRemaining := plan.TotalAmount - totalPaidOnPlan
 		if planRemaining < 0 {
 			planRemaining = 0
 		}
@@ -800,7 +805,8 @@ func (h *DashboardHandler) MonthlyDueDetails(w http.ResponseWriter, r *http.Requ
 		for _, pay := range plan.Payments {
 			totalPaidOnPlan += pay.Amount
 		}
-		planRemaining := plan.TotalAmount - plan.DownPayment - totalPaidOnPlan
+		// NOTE: Payments collection already includes down payment, so don't subtract plan.DownPayment again
+		planRemaining := plan.TotalAmount - totalPaidOnPlan
 		if planRemaining < 0 {
 			planRemaining = 0
 		}
@@ -889,7 +895,8 @@ func (h *DashboardHandler) TodayInstallments(w http.ResponseWriter, r *http.Requ
 		for _, pay := range plan.Payments {
 			totalPaidOnPlan += pay.Amount
 		}
-		planRemaining := plan.TotalAmount - plan.DownPayment - totalPaidOnPlan
+		// NOTE: Payments collection already includes down payment, so don't subtract plan.DownPayment again
+		planRemaining := plan.TotalAmount - totalPaidOnPlan
 		if planRemaining < 0 {
 			planRemaining = 0
 		}
@@ -1210,7 +1217,8 @@ func (h *DashboardHandler) ActiveInstallments(w http.ResponseWriter, r *http.Req
 		for _, pay := range plan.Payments {
 			totalPaidOnPlan += pay.Amount
 		}
-		planRemaining := plan.TotalAmount - plan.DownPayment - totalPaidOnPlan
+		// NOTE: Payments collection already includes down payment, so don't subtract plan.DownPayment again
+		planRemaining := plan.TotalAmount - totalPaidOnPlan
 		if planRemaining < 0 {
 			planRemaining = 0
 		}
@@ -1292,7 +1300,8 @@ func (h *DashboardHandler) CompletedInstallments(w http.ResponseWriter, r *http.
 		for _, pay := range plan.Payments {
 			totalPaidOnPlan += pay.Amount
 		}
-		planRemaining := plan.TotalAmount - plan.DownPayment - totalPaidOnPlan
+		// NOTE: Payments collection already includes down payment, so don't subtract plan.DownPayment again
+		planRemaining := plan.TotalAmount - totalPaidOnPlan
 		if planRemaining < 0 {
 			planRemaining = 0
 		}
@@ -1332,68 +1341,110 @@ func (h *DashboardHandler) CustomersWithFinance(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	pipeline := mongo.Pipeline{
-		{{Key: "$match", Value: bson.D{{Key: "status", Value: bson.M{"$in": []string{"active", "Active", "Open"}}}}}},
-		{{Key: "$lookup", Value: bson.D{{Key: "from", Value: "customers"}, {Key: "localField", Value: "customerid"}, {Key: "foreignField", Value: "_id"}, {Key: "as", Value: "customer"}}}},
-		{{Key: "$lookup", Value: bson.D{{Key: "from", Value: "products"}, {Key: "localField", Value: "productid"}, {Key: "foreignField", Value: "_id"}, {Key: "as", Value: "product"}}}},
-		{{Key: "$lookup", Value: bson.D{{Key: "from", Value: "payments"}, {Key: "localField", Value: "_id"}, {Key: "foreignField", Value: "installmentplanid"}, {Key: "as", Value: "payments"}}}},
-	}
-
-	cursor, err := db.Collection("installment_plans").Aggregate(ctx(), pipeline)
+	// Step 1: Get ALL customers first
+	custCursor, err := db.Collection("customers").Find(ctx(), bson.M{})
 	if err != nil {
 		respondJSON(w, http.StatusOK, []interface{}{})
 		return
 	}
-	defer cursor.Close(ctx())
+	defer custCursor.Close(ctx())
+
+	// Step 2: For each customer, calculate total remaining balance from all their plans
+	type customerFinance struct {
+		ID               string  `bson:"_id"`
+		Name             string  `bson:"name"`
+		NameUrdu         string  `bson:"nameurdu"`
+		FatherName       string  `bson:"fathername"`
+		Phone            string  `bson:"phone"`
+		CNIC             string  `bson:"cnic"`
+		Address          string  `bson:"address"`
+		AddressUrdu      string  `bson:"addressurdu"`
+		CreatedAt        time.Time `bson:"createdat"`
+	}
 
 	var result []map[string]interface{}
-	for cursor.Next(ctx()) {
-		var plan struct {
-			ID                   string               `bson:"_id"`
-			CustomerID           string               `bson:"customerid"`
-			ProductID            string               `bson:"productid"`
-			TotalAmount          float64              `bson:"totalamount"`
-			DownPayment          float64              `bson:"downpayment"`
-			NumberOfInstallments int                  `bson:"numinstallments"`
-			Installments         []domain.InstallmentDetail `bson:"installments"`
-			Customer             []domain.Customer    `bson:"customer"`
-			Product              []domain.Product     `bson:"product"`
-			Payments             []domain.Payment     `bson:"payments"`
-			CreatedAt            time.Time            `bson:"createdat"`
-		}
-		if cursor.Decode(&plan) != nil || len(plan.Customer) == 0 {
+	for custCursor.Next(ctx()) {
+		var cust customerFinance
+		if custCursor.Decode(&cust) != nil {
 			continue
 		}
-		cust := plan.Customer[0]
-		var prodName string
-		if len(plan.Product) > 0 {
-			prodName = plan.Product[0].Name
+
+		// Get all plans for this customer
+		planCursor, err := db.Collection("installment_plans").Find(ctx(), bson.M{
+			"customerid": cust.ID,
+			"status": bson.M{"$in": []string{"active", "Active", "Open"}},
+		})
+		if err != nil {
+			// Customer with no plans - still include with 0 balance
+			result = append(result, map[string]interface{}{
+				"customer_id":    cust.ID,
+				"name":           cust.Name,
+				"customer_name":  cust.Name,
+				"name_urdu":      cust.NameUrdu,
+				"father_name":    cust.FatherName,
+				"phone":          cust.Phone,
+				"cnic":           cust.CNIC,
+				"address":        cust.Address,
+				"address_urdu":   cust.AddressUrdu,
+				"total_amount":   0.0,
+				"pending_amount": 0.0,
+				"remaining":      0.0,
+				"created_at":     cust.CreatedAt.Format("2006-01-02"),
+			})
+			continue
 		}
 
-		totalPaidOnPlan := 0.0
-		for _, pay := range plan.Payments {
-			totalPaidOnPlan += pay.Amount
-		}
-		planRemaining := plan.TotalAmount - plan.DownPayment - totalPaidOnPlan
-		if planRemaining < 0 {
-			planRemaining = 0
-		}
-
-		paidCount := 0
-		for _, inst := range plan.Installments {
-			if inst.Paid {
-				paidCount++
+		totalAmount := 0.0
+		totalRemaining := 0.0
+		for planCursor.Next(ctx()) {
+			var plan domain.InstallmentPlan
+			if planCursor.Decode(&plan) != nil {
+				continue
 			}
+
+			totalAmount += plan.TotalAmount
+
+			// Calculate total paid on this plan
+			// NOTE: Down payment is already in payments collection, so don't add plan.DownPayment separately
+			totalPaid := 0.0
+			payCur, _ := db.Collection("payments").Find(ctx(), bson.M{
+				"$or": []interface{}{
+					bson.M{"installmentplanid": plan.ID},
+					bson.M{"installmentPlanId": plan.ID},
+				},
+			})
+			if payCur != nil {
+				for payCur.Next(ctx()) {
+					var pay domain.Payment
+					if payCur.Decode(&pay) == nil {
+						totalPaid += pay.Amount
+					}
+				}
+				payCur.Close(ctx())
+			}
+
+			remaining := plan.TotalAmount - totalPaid
+			if remaining < 0 {
+				remaining = 0
+			}
+			totalRemaining += remaining
 		}
+		planCursor.Close(ctx())
 
 		result = append(result, map[string]interface{}{
-			"plan_id": plan.ID, "customer_id": cust.ID, "customer_name": cust.Name,
-			"customer_urdu": cust.NameUrdu, "father_name": cust.FatherName, "phone": cust.Phone,
-			"cnic": cust.CNIC, "address": cust.Address, "address_urdu": cust.AddressUrdu,
-			"product_name": prodName,
-			"total_amount": plan.TotalAmount, "down_payment": plan.DownPayment,
-			"total_installments": plan.NumberOfInstallments, "paid_count": paidCount,
-			"remaining": planRemaining, "created_at": plan.CreatedAt.Format("2006-01-02"),
+			"customer_id":    cust.ID,
+			"name":           cust.Name,
+			"customer_name":  cust.Name,
+			"name_urdu":      cust.NameUrdu,
+			"father_name":    cust.FatherName,
+			"phone":          cust.Phone,
+			"cnic":           cust.CNIC,
+			"address":        cust.Address,
+			"address_urdu":   cust.AddressUrdu,
+			"total_amount":   totalAmount,
+			"pending_amount": totalRemaining,
+			"remaining":      totalRemaining,
+			"created_at":     cust.CreatedAt.Format("2006-01-02"),
 		})
 	}
 

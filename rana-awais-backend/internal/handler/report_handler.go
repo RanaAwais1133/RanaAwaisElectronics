@@ -536,7 +536,8 @@ func (h *ReportHandler) CustomerReport(w http.ResponseWriter, r *http.Request) {
 						}
 						payC.Close(r.Context())
 					}
-					remaining := plan.TotalAmount - plan.DownPayment - totalPaid
+					// NOTE: Payments collection already includes down payment
+					remaining := plan.TotalAmount - totalPaid
 					if remaining > 0 {
 						totalOutstanding += remaining
 					}

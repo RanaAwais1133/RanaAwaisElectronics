@@ -1220,7 +1220,7 @@ const DashboardPage: React.FC = () => {
           <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5">
             <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4">{isUrdu ? 'فوری اعداد و شمار' : 'Quick Stats'}</h3>
             <div className="space-y-1">
-              <button onClick={() => setModal({ title: isUrdu ? 'کل گاہک' : 'Total Customers', endpoint: '/customers?limit=200' })} className="w-full flex items-center justify-between py-2.5 px-2 border-b border-gray-100 dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30 rounded-lg transition-colors cursor-pointer">
+              <button onClick={() => setModal({ title: isUrdu ? 'کل گاہک' : 'Total Customers', endpoint: '/dashboard/customers-with-finance' })} className="w-full flex items-center justify-between py-2.5 px-2 border-b border-gray-100 dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30 rounded-lg transition-colors cursor-pointer">
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 rounded-full bg-blue-500" />
                   <span className="text-xs text-gray-600 dark:text-gray-300">{isUrdu ? 'کل گاہک' : 'Total Customers'}</span>

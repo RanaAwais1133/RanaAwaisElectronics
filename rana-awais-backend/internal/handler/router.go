@@ -500,9 +500,11 @@ func SetupRouter(
 				continue
 			}
 
-			// Calculate total paid on this plan (including down payment)
-			totalPaidOnPlan := plan.DownPayment
-			// Also fetch payments from payments collection to get accurate total
+			// Calculate total paid on this plan
+			// NOTE: Down payment is already stored as a payment in the payments collection
+			// so we should NOT add plan.DownPayment separately (it would be double-counted)
+			totalPaidOnPlan := 0.0
+			// Fetch payments from payments collection to get accurate total (includes down payment)
 			// Use $or to handle both camelCase and lowercase field names
 			payCur, err := db.Collection("payments").Find(r.Context(), bson.M{
 				"$or": []interface{}{
