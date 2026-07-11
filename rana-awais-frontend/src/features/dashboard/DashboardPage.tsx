@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState, lazy, Suspense } from 'react';
+﻿import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import api from '../../utils/api';
 import { getTodayInstallments } from '../../utils/api';
@@ -9,8 +9,6 @@ import DashboardModal from './DashboardModal';
 import DashboardSummaryModal from './DashboardSummaryModal';
 import AddPromiseModal from './AddPromiseModal';
 import PromisesModal from '../promises/PromisesModal';
-
-const InstallmentDetailTable = lazy(() => import('./InstallmentDetailTable'));
 
 const LS_CACHE_KEY = 'dashboard_summary_cache';
 const LS_CACHE_TTL = 5 * 60 * 1000;
@@ -1019,7 +1017,6 @@ const DashboardPage: React.FC = () => {
   const [summaryModal, setSummaryModal] = useState<SummaryModalState | null>(null);
   const [showPromiseModal, setShowPromiseModal] = useState(false);
   const [showPromisesList, setShowPromisesList] = useState(false);
-  const [showInstallmentDetail, setShowInstallmentDetail] = useState(false);
   const [showMonthlyReport, setShowMonthlyReport] = useState(false);
 
   // ✅ Use offline-first dashboard hook
@@ -1303,31 +1300,6 @@ const DashboardPage: React.FC = () => {
       </div>
 
 
-      {/* Installment Detail Table (Lazy Loaded) */}
-      {showInstallmentDetail && (
-        <div className="mb-8">
-          <Suspense fallback={
-            <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-8 flex justify-center">
-              <div className="w-8 h-8 border-4 border-gray-900 dark:border-white border-t-transparent rounded-full animate-spin" />
-            </div>
-          }>
-            <InstallmentDetailTable type="today-due" isUrdu={isUrdu} />
-          </Suspense>
-        </div>
-      )}
-
-      {/* Toggle Installment Detail */}
-      <div className="text-center mb-8">
-        <button
-          onClick={() => setShowInstallmentDetail(!showInstallmentDetail)}
-          className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-xl text-xs font-semibold hover:bg-gray-200 dark:hover:bg-gray-600 transition-all"
-        >
-          <svg className={`w-4 h-4 transition-transform ${showInstallmentDetail ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-          {showInstallmentDetail
-            ? (isUrdu ? 'تفصیلات چھپائیں' : 'Hide Details')
-            : (isUrdu ? 'قسطوں کی تفصیلات دیکھیں' : 'View Installment Details')}
-        </button>
-      </div>
 
       {/* Modals */}
       {modal && (

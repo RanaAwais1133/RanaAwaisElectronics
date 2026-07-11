@@ -452,11 +452,23 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 	// Total products & low stock
 	totalProducts := int64(0)
 	lowStock := int64(0)
+	inventoryValue := 0.0
 	if count, err := db.Collection("products").CountDocuments(ctx(), bson.M{}); err == nil {
 		totalProducts = count
 	}
 	if count, err := db.Collection("products").CountDocuments(ctx(), bson.M{"stockcount": bson.M{"$lte": 5}}); err == nil {
 		lowStock = count
+	}
+	// Calculate total inventory value (stock_count × purchase_price)
+	prodCursor, prodErr := db.Collection("products").Find(ctx(), bson.M{})
+	if prodErr == nil {
+		for prodCursor.Next(ctx()) {
+			var p domain.Product
+			if prodCursor.Decode(&p) == nil && p.StockCount > 0 {
+				inventoryValue += float64(p.StockCount) * p.PurchasePrice
+			}
+		}
+		prodCursor.Close(ctx())
 	}
 
 	// Monthly due count
@@ -517,6 +529,7 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 		"todayDueCount":     todayDueCount,
 		"totalProducts":     totalProducts,
 		"lowStock":          lowStock,
+		"inventoryValue":    inventoryValue,
 		"monthlyDueCount":   monthlyDueCount,
 	})
 }
@@ -770,7 +783,9 @@ func (h *DashboardHandler) LowStockDetails(w http.ResponseWriter, r *http.Reques
 		if cursor.Decode(&prod) == nil {
 			result = append(result, map[string]interface{}{
 				"id": prod.ID, "name": prod.Name, "name_urdu": prod.NameUrdu,
-				"stock_count": prod.StockCount, "purchase_price": prod.PurchasePrice,
+				"category": prod.Category, "company": prod.Company,
+				"price": prod.Price, "purchase_price": prod.PurchasePrice,
+				"stock_count": prod.StockCount,
 			})
 		}
 	}

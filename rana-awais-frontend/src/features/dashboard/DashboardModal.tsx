@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import api from '../../utils/api';
 import { formatPhone } from '../../utils/helpers';
 import { useClientStore } from '../../store/useClientStore';
@@ -23,6 +24,7 @@ const displayName = (item: any, isUrdu: boolean): string => {
 
 const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClose, isUrdu }) => {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const clientInfo = useClientStore((s) => s.info);
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -452,22 +454,30 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
           );
 
         // ========== PRODUCTS ==========
-        case 'products':
+        case 'products': {
+          const stockVal = item.stock_count ?? item.stockCount ?? item.stock ?? item.quantity ?? 0;
+          const isLowStock = stockVal <= 5;
+          const productId = item.id || item._id || '';
           return (
-            <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
+            <tr
+              key={idx}
+              className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors cursor-pointer"
+              onClick={() => { onClose(); navigate('/products'); }}
+            >
               <td className="px-4 py-3 text-gray-400 font-mono text-xs text-center">{idx + 1}</td>
               <td className="px-4 py-3">
                 <div className="font-semibold text-gray-800 dark:text-white text-sm">
                   {isUrdu ? (item.name_urdu || item.name || '—') : (item.name || '—')}
                 </div>
+                {!isUrdu && item.name_urdu && (
+                  <div className="text-[10px] text-gray-400 mt-0.5" dir="rtl">{item.name_urdu}</div>
+                )}
+              </td>
+              <td className="px-4 py-3">
+                <span className="text-xs text-gray-600 dark:text-gray-300">{item.company || '—'}</span>
               </td>
               <td className="px-4 py-3">
                 <span className="text-xs text-gray-600 dark:text-gray-300">{item.category || '—'}</span>
-              </td>
-              <td className="px-4 py-3 text-center">
-                <span className={`text-xs font-semibold px-2 py-1 rounded ${(item.stockCount ?? item.stock ?? item.quantity ?? 0) <= 5 ? 'text-red-600 bg-red-50 dark:bg-red-900/30' : 'text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30'}`}>
-                  {item.stockCount ?? item.stock ?? item.quantity ?? item.current_stock ?? '—'}
-                </span>
               </td>
               <td className="px-4 py-3 text-end">
                 <span className="font-bold text-gray-800 dark:text-white text-sm whitespace-nowrap">
@@ -475,12 +485,13 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
                 </span>
               </td>
               <td className="px-4 py-3 text-center">
-                <span className="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50 px-2 py-1 rounded">
-                  {item.createdAt || item.created_at ? new Date(item.createdAt || item.created_at).toLocaleDateString() : '—'}
+                <span className={`text-xs font-semibold px-2 py-1 rounded ${isLowStock ? 'text-red-600 bg-red-50 dark:bg-red-900/30' : 'text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30'}`}>
+                  {stockVal}
                 </span>
               </td>
             </tr>
           );
+        }
 
         // ========== INVENTORY (GROUPED) ==========
         case 'inventory':
@@ -805,10 +816,10 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
                     {dataType === 'products' && (
                       <>
                         <th className="px-4 py-3 text-start text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'نام' : 'Name'}</th>
+                        <th className="px-4 py-3 text-start text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'کمپنی' : 'Company'}</th>
                         <th className="px-4 py-3 text-start text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'زمرہ' : 'Category'}</th>
-                        <th className="px-4 py-3 text-center text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'اسٹاک' : 'Stock'}</th>
                         <th className="px-4 py-3 text-end text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'قیمت' : 'Price'}</th>
-                        <th className="px-4 py-3 text-center text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'تاریخ' : 'Date'}</th>
+                        <th className="px-4 py-3 text-center text-[10px] font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">{isUrdu ? 'اسٹاک' : 'Stock'}</th>
                       </>
                     )}
                     {dataType === 'inventory' && (
