@@ -620,6 +620,16 @@ func (h *DashboardHandler) OverdueDetails(w http.ResponseWriter, r *http.Request
 				paidCount++
 			}
 		}
+		// Count installment payments for accurate paid_count
+		installmentPayments := 0
+		for _, pay := range plan.Payments {
+			if pay.InstallmentNo > 0 {
+				installmentPayments++
+			}
+		}
+		if installmentPayments > paidCount {
+			paidCount = installmentPayments
+		}
 
 		for _, d := range plan.Installments {
 			if d.Paid || !d.DueDate.Before(todayStart) {
@@ -633,6 +643,7 @@ func (h *DashboardHandler) OverdueDetails(w http.ResponseWriter, r *http.Request
 				"due_date": d.DueDate.Format("2006-01-02"), "amount": d.Amount, "fine": d.Fine,
 				"days_overdue": int(time.Since(d.DueDate).Hours() / 24),
 				"total_installments": plan.NumberOfInstallments, "paid_count": paidCount,
+				"paid_amount": totalPaidOnPlan,
 				"remaining": planRemaining, "total_amount": plan.TotalAmount,
 				"down_payment": plan.DownPayment, "created_at": plan.CreatedAt.Format("2006-01-02"),
 			})
