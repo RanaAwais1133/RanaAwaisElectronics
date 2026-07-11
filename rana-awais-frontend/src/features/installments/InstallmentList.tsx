@@ -8,11 +8,13 @@ import PaymentModal from './PaymentModal';
 import BulkPaymentModal from './BulkPaymentModal';
 import PlanReceipt from './PlanReceipt';
 import RescheduleModal from './RescheduleModal';
+import EditInstallmentModal from './EditInstallmentModal';
 import api from '../../utils/api';
 import { useCustomerStore } from '../../store/useCustomerStore';
 // ✅ Fixed: Removed unused imports
 // import { formatPhone, formatCNIC } from '../../utils/helpers';
 import { useClientStore } from '../../store/useClientStore';
+import { useIsAdmin } from '../../store/useAuthStore';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 
@@ -78,6 +80,8 @@ const InstallmentList: React.FC = () => {
   const [receiptPlanId, setReceiptPlanId] = useState<string | null>(null);
   const [reschedulePlan, setReschedulePlan] = useState<{ id: string; status: string } | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [editInstallment, setEditInstallment] = useState<{ planId: string; installment: any } | null>(null);
+  const isAdmin = useIsAdmin();
 
   const { customers, fetchCustomers } = useCustomerStore();
 
@@ -1146,6 +1150,14 @@ const InstallmentList: React.FC = () => {
                     {t('pay')}
                   </button>
                 )}
+                {isAdmin && (
+                  <button
+                    onClick={() => setEditInstallment({ planId: plan.id, installment: inst })}
+                    className="w-full mt-1 bg-gray-600 hover:bg-gray-700 text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
+                  >
+                    ✏️ {isUrdu ? 'ترمیم' : 'Edit'}
+                  </button>
+                )}
               </div>
             );
           })}
@@ -1246,24 +1258,35 @@ const InstallmentList: React.FC = () => {
                       })()}
                     </td>
                     <td className="px-4 py-2">
-                      {!isPaid && (
-                        <button
-                          onClick={() => setSinglePay({
-                            planId: plan.id,
-                            installmentNo: inst.installmentNo,
-                            dueAmount: inst.remaining > 0 && inst.remaining < instAmt ? inst.remaining : instAmt,
-                            finePerDay: plan.finePerDay || 10,
-                            graceDays: plan.gracePeriodDays || 2,
-                            dueDate: inst.dueDate,
-                            fineAmount: fineAmt,
-                            fineType: plan.fineType || 'per_day',
-                            fixedFineAmount: plan.fixedFineAmount || 0
-                          })}
-                          className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded-lg text-xs transition-colors"
-                        >
-                          {t('pay')}
-                        </button>
-                      )}
+                      <div className="flex items-center gap-1">
+                        {!isPaid && (
+                          <button
+                            onClick={() => setSinglePay({
+                              planId: plan.id,
+                              installmentNo: inst.installmentNo,
+                              dueAmount: inst.remaining > 0 && inst.remaining < instAmt ? inst.remaining : instAmt,
+                              finePerDay: plan.finePerDay || 10,
+                              graceDays: plan.gracePeriodDays || 2,
+                              dueDate: inst.dueDate,
+                              fineAmount: fineAmt,
+                              fineType: plan.fineType || 'per_day',
+                              fixedFineAmount: plan.fixedFineAmount || 0
+                            })}
+                            className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded-lg text-xs transition-colors"
+                          >
+                            {t('pay')}
+                          </button>
+                        )}
+                        {isAdmin && (
+                          <button
+                            onClick={() => setEditInstallment({ planId: plan.id, installment: inst })}
+                            className="bg-gray-500 hover:bg-gray-600 text-white px-2 py-1 rounded-lg text-xs transition-colors"
+                            title={isUrdu ? 'ترمیم' : 'Edit'}
+                          >
+                            ✏️
+                          </button>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-2 text-center">
                       {!isPaid && (
@@ -1523,6 +1546,16 @@ const InstallmentList: React.FC = () => {
           planId={reschedulePlan.id}
           planStatus={reschedulePlan.status}
           onClose={() => setReschedulePlan(null)}
+          onSuccess={refresh}
+        />
+      )}
+
+      {/* ✅ Edit Installment Modal (Admin Only) */}
+      {editInstallment && (
+        <EditInstallmentModal
+          planId={editInstallment.planId}
+          installment={editInstallment.installment}
+          onClose={() => setEditInstallment(null)}
           onSuccess={refresh}
         />
       )}
