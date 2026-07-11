@@ -473,6 +473,11 @@ func SetupRouter(
 	protected.HandleFunc("/installments/{id}", installmentH.GetByID).Methods("GET")
 	protected.HandleFunc("/installments/{id}", installmentH.Delete).Methods("DELETE")
 
+	// Installment plan & installment detail edit (Admin Only)
+	admin.HandleFunc("/installments/{id}", installmentH.Update).Methods("PUT")
+	admin.HandleFunc("/installments/{planID}/installment/{installmentNo}", installmentH.UpdateInstallmentDetail).Methods("PUT")
+	admin.HandleFunc("/installments/{planID}/installment/{installmentNo}/undo", installmentH.UndoInstallment).Methods("POST")
+
 	// Accounting
 	protected.HandleFunc("/accounting/today", accountingH.TodaySummary).Methods("GET")
 	protected.HandleFunc("/accounting/month", accountingH.MonthSummary).Methods("GET")

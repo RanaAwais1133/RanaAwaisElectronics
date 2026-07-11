@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -262,6 +263,66 @@ func (h *InstallmentHandler) UndoPayment(w http.ResponseWriter, r *http.Request)
 	}
 	audit.Log(r.Context(), "UNDO_PAYMENT", "installment", payload.PlanID, "", getUserID(r))
 	respondJSON(w, http.StatusOK, map[string]string{"message": "Payment undone"})
+}
+
+func (h *InstallmentHandler) Update(w http.ResponseWriter, r *http.Request) {
+	id := mux.Vars(r)["id"]
+	var payload domain.InstallmentPlan
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		respondError(w, r, http.StatusBadRequest, "Invalid request body", "غلط درخواست")
+		return
+	}
+	if err := h.svc.UpdatePlan(r.Context(), id, &payload); err != nil {
+		respondError(w, r, http.StatusInternalServerError, err.Error(), "پلان ایڈٹ نہیں ہوا")
+		return
+	}
+	audit.Log(r.Context(), "EDIT_PLAN", "installment", id, "plan updated", getUserID(r))
+	respondJSON(w, http.StatusOK, map[string]string{"message": "Plan updated"})
+}
+
+func (h *InstallmentHandler) UpdateInstallmentDetail(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	planID := vars["planID"]
+	installmentNoStr := vars["installmentNo"]
+	installmentNo, err := strconv.Atoi(installmentNoStr)
+	if err != nil {
+		respondError(w, r, http.StatusBadRequest, "Invalid installment number", "غلط قسط نمبر")
+		return
+	}
+
+	var payload domain.InstallmentDetail
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		respondError(w, r, http.StatusBadRequest, "Invalid request body", "غلط درخواست")
+		return
+	}
+	payload.InstallmentNo = installmentNo
+
+	if err := h.svc.UpdateInstallmentDetail(r.Context(), planID, installmentNo, &payload); err != nil {
+		respondError(w, r, http.StatusInternalServerError, err.Error(), "قسط ایڈٹ نہیں ہوئی")
+		return
+	}
+	audit.Log(r.Context(), "EDIT_INSTALLMENT", "installment", planID,
+		fmt.Sprintf("installment_no=%d", installmentNo), getUserID(r))
+	respondJSON(w, http.StatusOK, map[string]string{"message": "Installment updated"})
+}
+
+func (h *InstallmentHandler) UndoInstallment(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	planID := vars["planID"]
+	installmentNoStr := vars["installmentNo"]
+	installmentNo, err := strconv.Atoi(installmentNoStr)
+	if err != nil {
+		respondError(w, r, http.StatusBadRequest, "Invalid installment number", "غلط قسط نمبر")
+		return
+	}
+
+	if err := h.svc.UndoInstallment(r.Context(), planID, installmentNo); err != nil {
+		respondError(w, r, http.StatusInternalServerError, err.Error(), "قسط واپس نہیں ہوئی")
+		return
+	}
+	audit.Log(r.Context(), "UNDO_INSTALLMENT", "installment", planID,
+		fmt.Sprintf("installment_no=%d reset to unpaid", installmentNo), getUserID(r))
+	respondJSON(w, http.StatusOK, map[string]string{"message": "Installment undone"})
 }
 
 func (h *InstallmentHandler) ListAll(w http.ResponseWriter, r *http.Request) {

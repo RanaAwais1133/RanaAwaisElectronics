@@ -122,4 +122,15 @@ func (r *PaymentRepository) Delete(ctx context.Context, id string) error {
 	return err
 }
 
+func (r *PaymentRepository) DeleteByInstallment(ctx context.Context, planID string, installmentNo int) (int64, error) {
+	result, err := r.coll.DeleteMany(ctx, bson.M{
+		"installmentplanid": planID,
+		"installmentno":     installmentNo,
+	})
+	if err != nil {
+		return 0, err
+	}
+	return result.DeletedCount, nil
+}
+
 

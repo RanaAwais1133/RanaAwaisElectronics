@@ -965,6 +965,212 @@ func (s *InstallmentService) UndoPayment(ctx context.Context, planID string) err
 	return nil
 }
 
+// ============================================================
+// UPDATE PLAN (Admin Edit)
+// ============================================================
+func (s *InstallmentService) UpdatePlan(ctx context.Context, planID string, updated *domain.InstallmentPlan) error {
+	existing, err := s.planRepo.GetByID(ctx, planID)
+	if err != nil || existing == nil {
+		return errors.New("plan not found")
+	}
+
+	// Update plan-level fields
+	existing.TotalAmount = updated.TotalAmount
+	existing.DownPayment = updated.DownPayment
+	existing.RemainingAmount = updated.RemainingAmount
+	existing.NumberOfInstallments = updated.NumberOfInstallments
+	existing.InstallmentAmount = updated.InstallmentAmount
+	existing.GracePeriodDays = updated.GracePeriodDays
+	existing.FinePerDay = updated.FinePerDay
+	existing.FineType = updated.FineType
+	existing.FixedFineAmount = updated.FixedFineAmount
+	existing.PaymentType = updated.PaymentType
+	existing.SerialNumber = updated.SerialNumber
+	existing.IMEI = updated.IMEI
+	existing.EngineNo = updated.EngineNo
+	existing.ChassisNo = updated.ChassisNo
+	existing.Model = updated.Model
+	existing.Color = updated.Color
+	existing.Company = updated.Company
+	existing.ProcessFee = updated.ProcessFee
+	existing.Discount = updated.Discount
+	existing.Remarks = updated.Remarks
+	existing.SalaryIncome = updated.SalaryIncome
+	existing.Defaulter = updated.Defaulter
+	existing.PTO = updated.PTO
+	existing.VPNStatus = updated.VPNStatus
+	existing.EmployeeStatus = updated.EmployeeStatus
+	existing.DBMRemarks = updated.DBMRemarks
+	existing.CRCRemarks = updated.CRCRemarks
+	existing.ProcessAt = updated.ProcessAt
+	existing.DOOfficer = updated.DOOfficer
+	existing.MarkOff = updated.MarkOff
+	existing.DebtMng = updated.DebtMng
+	existing.SecondMng = updated.SecondMng
+	existing.InspOff = updated.InspOff
+	existing.SRM = updated.SRM
+	existing.MobilePhone = updated.MobilePhone
+	existing.CRC = updated.CRC
+	existing.ProductID = updated.ProductID
+	existing.CustomerID = updated.CustomerID
+
+	if !updated.StartDate.IsZero() {
+		existing.StartDate = updated.StartDate
+	}
+
+	// Recalculate installment amount if needed
+	if existing.RemainingAmount > 0 && existing.NumberOfInstallments > 0 {
+		if existing.InstallmentAmount <= 0 {
+			existing.InstallmentAmount = mathutil.RoundMoney(existing.RemainingAmount / float64(existing.NumberOfInstallments))
+		}
+	}
+
+	// Regenerate schedule if financials changed
+	existing.Installments = s.generateSchedule(existing)
+	if len(existing.Installments) > 0 {
+		existing.EndDate = existing.Installments[len(existing.Installments)-1].DueDate
+	}
+
+	if existing.Status == "completed" {
+		existing.Status = "active"
+	}
+
+	return s.planRepo.Update(ctx, planID, existing)
+}
+
+// ============================================================
+// UPDATE SINGLE INSTALLMENT DETAIL (Admin Edit)
+// ============================================================
+func (s *InstallmentService) UpdateInstallmentDetail(ctx context.Context, planID string, installmentNo int, updated *domain.InstallmentDetail) error {
+	plan, err := s.planRepo.GetByID(ctx, planID)
+	if err != nil || plan == nil {
+		return errors.New("plan not found")
+	}
+
+	idx := -1
+	for i := range plan.Installments {
+		if plan.Installments[i].InstallmentNo == installmentNo {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		return errors.New("installment not found")
+	}
+
+	inst := &plan.Installments[idx]
+
+	// If changing from paid to unpaid, delete associated payments and reverse accounting
+	if inst.Paid && !updated.Paid {
+		deletedCount, err := s.paymentRepo.DeleteByInstallment(ctx, planID, installmentNo)
+		if err != nil {
+			return errors.New("failed to delete payment records: " + err.Error())
+		}
+		// Reverse accounting entries for the deleted payments
+		_ = deletedCount
+		s.accRepo.DeleteByPlanID(ctx, planID)
+	}
+
+	// Apply updates
+	inst.DueDate = updated.DueDate
+	inst.Amount = updated.Amount
+	inst.Paid = updated.Paid
+	inst.PaidDate = updated.PaidDate
+	inst.Fine = updated.Fine
+	inst.FinePerDay = updated.FinePerDay
+	inst.DaysLate = updated.DaysLate
+	inst.FineApplied = updated.FineApplied
+	inst.TotalPayable = updated.TotalPayable
+	inst.PartialPaid = updated.PartialPaid
+	inst.Remaining = updated.Remaining
+	inst.CollectedBy = updated.CollectedBy
+	inst.CollectedById = updated.CollectedById
+	inst.Remarks = updated.Remarks
+
+	// If unpaid, reset payment fields
+	if !inst.Paid {
+		inst.PaidDate = nil
+		inst.Fine = 0
+		inst.PartialPaid = 0
+		if inst.Remaining <= 0 {
+			inst.Remaining = inst.Amount
+		}
+	}
+
+	if err := s.planRepo.AddPaymentDetail(ctx, planID, installmentNo, *inst); err != nil {
+		return err
+	}
+
+	// Update plan-level status
+	allPaid := true
+	hasPaid := false
+	for _, d := range plan.Installments {
+		if d.Paid {
+			hasPaid = true
+		} else {
+			allPaid = false
+		}
+	}
+	if allPaid && hasPaid {
+		plan.Status = "completed"
+	} else if plan.Status == "completed" && !allPaid {
+		plan.Status = "active"
+	}
+	plan.UpdatedAt = time.Now()
+	return s.planRepo.Update(ctx, planID, plan)
+}
+
+// ============================================================
+// UNDO SINGLE INSTALLMENT (Admin - Reset to unpaid)
+// ============================================================
+func (s *InstallmentService) UndoInstallment(ctx context.Context, planID string, installmentNo int) error {
+	plan, err := s.planRepo.GetByID(ctx, planID)
+	if err != nil || plan == nil {
+		return errors.New("plan not found")
+	}
+
+	idx := -1
+	for i := range plan.Installments {
+		if plan.Installments[i].InstallmentNo == installmentNo {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		return errors.New("installment not found")
+	}
+
+	inst := &plan.Installments[idx]
+	if !inst.Paid && inst.PartialPaid <= 0 {
+		return errors.New("installment is not paid")
+	}
+
+	// Delete all payments for this installment
+	s.paymentRepo.DeleteByInstallment(ctx, planID, installmentNo)
+	// Reverse accounting
+	s.accRepo.DeleteByPlanID(ctx, planID)
+
+	// Reset to unpaid
+	inst.Paid = false
+	inst.PaidDate = nil
+	inst.Fine = 0
+	inst.PartialPaid = 0
+	inst.Remaining = inst.Amount
+	inst.CollectedBy = ""
+	inst.CollectedById = ""
+	inst.Remarks = ""
+
+	if err := s.planRepo.AddPaymentDetail(ctx, planID, installmentNo, *inst); err != nil {
+		return err
+	}
+
+	if plan.Status == "completed" {
+		plan.Status = "active"
+	}
+	plan.UpdatedAt = time.Now()
+	return s.planRepo.Update(ctx, planID, plan)
+}
+
 func (s *InstallmentService) DeletePlan(ctx context.Context, planID string) error {
 	plan, err := s.planRepo.GetByID(ctx, planID)
 	if err != nil || plan == nil {

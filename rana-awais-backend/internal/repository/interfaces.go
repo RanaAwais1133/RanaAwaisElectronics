@@ -81,6 +81,7 @@ type PaymentRepository interface {
 	GetTodayPayments(ctx context.Context) ([]domain.Payment, error)
 	GetMonthlyPayments(ctx context.Context, year int, month time.Month) ([]domain.Payment, error)
 	Delete(ctx context.Context, id string) error
+	DeleteByInstallment(ctx context.Context, planID string, installmentNo int) (int64, error)
 }
 
 type AccountingRepository interface {
