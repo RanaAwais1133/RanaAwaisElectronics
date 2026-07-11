@@ -46,6 +46,7 @@ const InventoryReport: React.FC = () => {
       product_name: p.name || p.product_name,
       product_name_urdu: p.name_urdu || p.nameUrdu,
       company: p.company || '',
+      model: p.model || '',
       category: p.category || '',
       stockCount: Number(p.stockcount ?? p.stockCount ?? p.stock_count ?? p.stock ?? 0),
       price: Number(p.price ?? p.selling_price ?? p.sellingPrice ?? 0),
