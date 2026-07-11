@@ -1,5 +1,6 @@
 ﻿import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import api from '../../utils/api';
 import { getTodayInstallments } from '../../utils/api';
 import { useClientStore } from '../../store/useClientStore';
@@ -869,7 +870,7 @@ const DashboardPage: React.FC = () => {
   const [summaryModal, setSummaryModal] = useState<SummaryModalState | null>(null);
   const [showPromiseModal, setShowPromiseModal] = useState(false);
   const [showPromisesList, setShowPromisesList] = useState(false);
-  const [showMonthlyReport, setShowMonthlyReport] = useState(false);
+  const navigate = useNavigate();
 
   // ✅ Use offline-first dashboard hook
   const {
@@ -952,7 +953,7 @@ const DashboardPage: React.FC = () => {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => setShowMonthlyReport(true)}
+            onClick={() => navigate('/reports/monthly')}
             className="inline-flex items-center gap-1.5 px-3 py-2 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-xl text-xs font-semibold hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-all border border-indigo-200 dark:border-indigo-800"
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
@@ -1175,9 +1176,6 @@ const DashboardPage: React.FC = () => {
       )}
       {showPromisesList && (
         <PromisesModal onClose={() => setShowPromisesList(false)} isUrdu={isUrdu} onSuccess={handleRefresh} />
-      )}
-      {showMonthlyReport && (
-        <MonthlyReportModal onClose={() => setShowMonthlyReport(false)} isUrdu={isUrdu} />
       )}
     </div>
   );

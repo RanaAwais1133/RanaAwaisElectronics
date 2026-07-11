@@ -430,12 +430,12 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 		overdueCur.Close(ctx())
 	}
 
-	// Today due count
+	// Due Today + Overdue count: all unpaid installments due today or earlier
 	todayDueCount := int64(0)
 	todayDuePipe := mongo.Pipeline{
 		{{Key: "$match", Value: bson.D{{Key: "status", Value: bson.M{"$in": []string{"active", "Active", "Open"}}}}}},
 		{{Key: "$unwind", Value: "$installments"}},
-		{{Key: "$match", Value: bson.D{{Key: "installments.paid", Value: false}, {Key: "installments.due_date", Value: bson.D{{Key: "$gte", Value: todayStart}, {Key: "$lt", Value: todayEnd}}}}}},
+		{{Key: "$match", Value: bson.D{{Key: "installments.paid", Value: false}, {Key: "installments.due_date", Value: bson.D{{Key: "$lt", Value: todayEnd}}}}}},
 		{{Key: "$count", Value: "count"}},
 	}
 	todayDueCur, err := db.Collection("installment_plans").Aggregate(ctx(), todayDuePipe)
@@ -684,7 +684,7 @@ func (h *DashboardHandler) TodayDueDetails(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	todayStart, todayEnd := todayRange()
+	_, todayEnd := todayRange()
 	pipeline := mongo.Pipeline{
 		{{Key: "$match", Value: bson.D{{Key: "status", Value: bson.M{"$in": []string{"active", "Active", "Open"}}}}}},
 		{{Key: "$lookup", Value: bson.D{{Key: "from", Value: "customers"}, {Key: "localField", Value: "customerid"}, {Key: "foreignField", Value: "_id"}, {Key: "as", Value: "customer"}}}},
@@ -741,7 +741,7 @@ func (h *DashboardHandler) TodayDueDetails(w http.ResponseWriter, r *http.Reques
 		}
 
 		for _, d := range plan.Installments {
-			if d.Paid || d.DueDate.Before(todayStart) || d.DueDate.After(todayEnd) {
+			if d.Paid || !d.DueDate.Before(todayEnd) {
 				continue
 			}
 			result = append(result, map[string]interface{}{
