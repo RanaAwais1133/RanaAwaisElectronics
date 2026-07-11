@@ -29,14 +29,24 @@ const InventoryReport: React.FC = () => {
     setLoading(true);
     setError('');
     try {
-      const res = await api.get('/inventory?limit=500');
+      const res = await api.get('/products?limit=200');
       const d = res.data;
       let list: any[] = [];
-      if (d?.data && Array.isArray(d.data)) {
-        list = d.data;
-      } else if (Array.isArray(d)) {
-        list = d;
-      }
+      if (Array.isArray(d)) list = d;
+      else if (d?.data && Array.isArray(d.data)) list = d.data;
+      else if (d?.products && Array.isArray(d.products)) list = d.products;
+      // Map products to inventory-style format
+      list = list.map((p: any) => ({
+        productId: p.id || p._id,
+        product_name: p.name || p.product_name,
+        product_name_urdu: p.name_urdu || p.nameUrdu,
+        company: p.company || '',
+        model: p.model || '',
+        status: 'in_stock',
+        quantity: p.stock_count || p.stockCount || p.quantity || 0,
+        purchase_price: p.purchase_price || p.purchasePrice || p.price || 0,
+        sellingPrice: p.price || p.selling_price || p.sellingPrice || 0,
+      }));
       setItems(list);
     } catch (err) {
       setError(isUrdu ? 'انوینٹری ڈیٹا لوڈ کرنے میں ناکامی' : 'Failed to load inventory data');

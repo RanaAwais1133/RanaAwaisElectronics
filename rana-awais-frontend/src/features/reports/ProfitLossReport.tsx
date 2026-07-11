@@ -53,19 +53,17 @@ const ProfitLossReport: React.FC = () => {
     if (!start || !end) return;
     setLoading(true);
     try {
-      const [cashRes, accRes, summaryRes, productRes] = await Promise.all([
-        api.get(`/accounting/profit-loss/cash?start=${start}&end=${end}`),
+      const [accRes, summaryRes, productRes] = await Promise.all([
         api.get(`/accounting/profit-loss/accrual?start=${start}&end=${end}`),
         api.get(`/accounting/summary?start=${start}&end=${end}&basis=cash_flow`),
         api.get('/accounting/product-wise'),
       ]);
-      setCashProfit(cashRes.data.profit ?? 0);
+      // Cash profit = income - expense from accounting summary (same as Income vs Expense net)
+      const income = summaryRes.data.total_income || 0;
+      const expense = summaryRes.data.total_expense || 0;
+      setCashProfit(income - expense);
       setAccrualProfit(accRes.data.profit ?? 0);
-      setIncomeExpense({
-        income: summaryRes.data.total_income || 0,
-        expense: summaryRes.data.total_expense || 0,
-        net: summaryRes.data.net_profit || 0,
-      });
+      setIncomeExpense({ income, expense, net: income - expense });
       setProductWise(productRes.data || []);
     } catch { /* ignore */ }
     setLoading(false);
