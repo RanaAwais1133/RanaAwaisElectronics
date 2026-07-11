@@ -1342,6 +1342,16 @@ func (h *DashboardHandler) CompletedInstallments(w http.ResponseWriter, r *http.
 				paidCount++
 			}
 		}
+		// Count installment payments (exclude down payment = installment_no 0)
+		installmentPayments := 0
+		for _, pay := range plan.Payments {
+			if pay.InstallmentNo > 0 {
+				installmentPayments++
+			}
+		}
+		if installmentPayments > paidCount {
+			paidCount = installmentPayments
+		}
 
 		result = append(result, map[string]interface{}{
 			"plan_id": plan.ID, "customer_id": cust.ID, "customer_name": cust.Name,
@@ -1350,7 +1360,9 @@ func (h *DashboardHandler) CompletedInstallments(w http.ResponseWriter, r *http.
 			"product_name": prodName,
 			"total_amount": plan.TotalAmount, "down_payment": plan.DownPayment,
 			"total_installments": plan.NumberOfInstallments, "paid_count": paidCount,
+			"paid_amount": totalPaidOnPlan, "paid": true,
 			"remaining": planRemaining, "created_at": plan.CreatedAt.Format("2006-01-02"),
+			"status": "completed",
 		})
 	}
 
