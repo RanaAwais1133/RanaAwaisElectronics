@@ -479,7 +479,7 @@ func SetupRouter(
 			return
 		}
 
-		cursor, err := db.Collection("installment_plans").Find(r.Context(), bson.M{"status": bson.M{"$in": []string{"active", "Active", "Open"}}})
+		cursor, err := db.Collection("installment_plans").Find(r.Context(), bson.M{"status": "active"})
 		if err != nil {
 			respondJSON(w, http.StatusOK, map[string]interface{}{"pending_total": 0, "customers": []interface{}{}})
 			return
@@ -495,27 +495,12 @@ func SetupRouter(
 				continue
 			}
 
-			// Total paid on this plan (all payments: installments, bulk, advance, down payment)
-			totalPaidOnPlan := 0.0
-			payCur, payErr := db.Collection("payments").Find(r.Context(), bson.M{"installmentplanid": plan.ID})
-			if payErr == nil {
-				for payCur.Next(r.Context()) {
-					var pay domain.Payment
-					if payCur.Decode(&pay) == nil {
-						totalPaidOnPlan += pay.Amount
-					}
+			for _, d := range plan.Installments {
+				if d.Paid {
+					continue
 				}
-				payCur.Close(r.Context())
-			}
-
-			// Actual pending = TotalAmount - DownPayment - TotalPaid
-			actualPending := plan.TotalAmount - plan.DownPayment - totalPaidOnPlan
-			if actualPending < 0 {
-				actualPending = 0
-			}
-
-			if actualPending > 0 {
-				pendingTotal += actualPending
+				due := d.Amount + d.Fine - d.PartialPaid
+				pendingTotal += due
 
 				if _, ok := customerMap[plan.CustomerID]; !ok {
 					var cust domain.Customer
@@ -531,8 +516,12 @@ func SetupRouter(
 					}
 				}
 				if entry, ok := customerMap[plan.CustomerID]; ok {
-					entry["pending_amount"] = entry["pending_amount"].(float64) + actualPending
+					entry["pending_amount"] = entry["pending_amount"].(float64) + due
 					entry["installment_count"] = entry["installment_count"].(int) + 1
+					earliest := entry["earliest_due_date"].(string)
+					if earliest == "" || d.DueDate.Format("2006-01-02") < earliest {
+						entry["earliest_due_date"] = d.DueDate.Format("2006-01-02")
+					}
 				}
 			}
 		}

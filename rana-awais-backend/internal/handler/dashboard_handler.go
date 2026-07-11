@@ -323,13 +323,13 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// ─────────────────────────────────────────────────────────────
-	// PENDING CALCULATION: TotalAmount - DownPayment - TotalPaid
+	// PENDING CALCULATION: Sab active plans ki sab unpaid installments
 	// ─────────────────────────────────────────────────────────────
 	pendingTotal := 0.0
 	pendingCustomersCount := 0
 	pendingCustSet := make(map[string]bool)
 
-	// Fetch all active plans
+	// Fetch all active plans again for pending calculation (sab months ki)
 	pendingCur, err := db.Collection("installment_plans").Find(ctx(), bson.M{"status": bson.M{"$in": []string{"active", "Active", "Open"}}})
 	if err == nil {
 		for pendingCur.Next(ctx()) {
@@ -337,28 +337,12 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 			if pendingCur.Decode(&plan) != nil {
 				continue
 			}
-
-			// Total paid on this plan (all payments: installments, bulk, advance, down payment)
-			totalPaidOnPlan := 0.0
-			payCur, payErr := db.Collection("payments").Find(ctx(), bson.M{"installmentplanid": plan.ID})
-			if payErr == nil {
-				for payCur.Next(ctx()) {
-					var pay domain.Payment
-					if payCur.Decode(&pay) == nil {
-						totalPaidOnPlan += pay.Amount
-					}
+			for _, d := range plan.Installments {
+				if d.Paid {
+					continue
 				}
-				payCur.Close(ctx())
-			}
-
-			// Actual pending = TotalAmount - DownPayment - TotalPaid
-			actualPending := plan.TotalAmount - plan.DownPayment - totalPaidOnPlan
-			if actualPending < 0 {
-				actualPending = 0
-			}
-
-			if actualPending > 0 {
-				pendingTotal += actualPending
+				due := d.Amount + d.Fine - d.PartialPaid
+				pendingTotal += due
 				if !pendingCustSet[plan.CustomerID] {
 					pendingCustSet[plan.CustomerID] = true
 					pendingCustomersCount++
