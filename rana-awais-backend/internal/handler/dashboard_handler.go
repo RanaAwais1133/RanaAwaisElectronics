@@ -331,13 +331,14 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// ─────────────────────────────────────────────────────────────
-	// PENDING CALCULATION: Sab active plans ki sab unpaid installments
+	// PENDING CALCULATION: Payment-based (consistent with modal)
+	// TotalAmount - all payments (includes down payment which is in payments collection)
 	// ─────────────────────────────────────────────────────────────
 	pendingTotal := 0.0
 	pendingCustomersCount := 0
 	pendingCustSet := make(map[string]bool)
 
-	// Fetch all active plans again for pending calculation (sab months ki)
+	// Fetch all active plans
 	pendingCur, err := db.Collection("installment_plans").Find(ctx(), bson.M{"status": bson.M{"$in": []string{"active", "Active", "Open"}}})
 	if err == nil {
 		for pendingCur.Next(ctx()) {
@@ -345,12 +346,29 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 			if pendingCur.Decode(&plan) != nil {
 				continue
 			}
-			for _, d := range plan.Installments {
-				if d.Paid {
-					continue
+			// Calculate total paid from payments collection (includes down payment)
+			totalPaid := 0.0
+			payCur, payErr := db.Collection("payments").Find(ctx(), bson.M{
+				"$or": []interface{}{
+					bson.M{"installmentplanid": plan.ID},
+					bson.M{"installmentPlanId": plan.ID},
+				},
+			})
+			if payErr == nil {
+				for payCur.Next(ctx()) {
+					var pay domain.Payment
+					if payCur.Decode(&pay) == nil {
+						totalPaid += pay.Amount
+					}
 				}
-				due := d.Amount + d.Fine - d.PartialPaid
-				pendingTotal += due
+				payCur.Close(ctx())
+			}
+			planRemaining := plan.TotalAmount - totalPaid
+			if planRemaining < 0 {
+				planRemaining = 0
+			}
+			if planRemaining > 0 {
+				pendingTotal += planRemaining
 				if !pendingCustSet[plan.CustomerID] {
 					pendingCustSet[plan.CustomerID] = true
 					pendingCustomersCount++
@@ -1237,6 +1255,7 @@ func (h *DashboardHandler) ActiveInstallments(w http.ResponseWriter, r *http.Req
 			"product_name": prodName,
 			"total_amount": plan.TotalAmount, "down_payment": plan.DownPayment,
 			"total_installments": plan.NumberOfInstallments, "paid_count": paidCount,
+			"paid_amount": totalPaidOnPlan,
 			"remaining": planRemaining, "created_at": plan.CreatedAt.Format("2006-01-02"),
 		})
 	}
