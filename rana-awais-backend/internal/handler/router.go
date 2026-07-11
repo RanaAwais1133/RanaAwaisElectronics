@@ -489,6 +489,10 @@ func SetupRouter(
 
 		var pendingTotal float64
 		customerMap := make(map[string]map[string]interface{})
+		// Track unique product names per customer
+		customerProducts := make(map[string]map[string]bool)
+		// Track plan IDs per customer
+		customerPlanIDs := make(map[string][]string)
 
 		for cursor.Next(r.Context()) {
 			var plan domain.InstallmentPlan
@@ -535,17 +539,43 @@ func SetupRouter(
 
 			pendingTotal += planRemaining
 
+			// Track plan IDs per customer
+			if _, exists := customerPlanIDs[plan.CustomerID]; !exists {
+				customerPlanIDs[plan.CustomerID] = []string{}
+			}
+			customerPlanIDs[plan.CustomerID] = append(customerPlanIDs[plan.CustomerID], plan.ID)
+
+			// Fetch product name for this plan
+			if plan.ProductID != "" {
+				if _, exists := customerProducts[plan.CustomerID]; !exists {
+					customerProducts[plan.CustomerID] = make(map[string]bool)
+				}
+				var prod domain.Product
+				if err := db.Collection("products").FindOne(r.Context(), bson.M{"_id": plan.ProductID}).Decode(&prod); err == nil {
+					customerProducts[plan.CustomerID][prod.Name] = true
+				}
+			}
+
 			if _, ok := customerMap[plan.CustomerID]; !ok {
 				var cust domain.Customer
 				if err := db.Collection("customers").FindOne(r.Context(), bson.M{"_id": plan.CustomerID}).Decode(&cust); err != nil {
 					continue
 				}
 				customerMap[plan.CustomerID] = map[string]interface{}{
-					"customerid": plan.CustomerID, "customer_name": cust.Name,
-					"customer_name_urdu": cust.NameUrdu, "father_name": cust.FatherName,
-					"phone": cust.Phone, "cnic": cust.CNIC, "address": cust.Address,
-					"address_urdu": cust.AddressUrdu, "pending_amount": 0.0,
-					"installment_count": 0, "earliest_due_date": "",
+					"customer_id":         plan.CustomerID,
+					"customer_name":       cust.Name,
+					"customer_name_urdu":  cust.NameUrdu,
+					"father_name":         cust.FatherName,
+					"phone":               cust.Phone,
+					"cnic":                cust.CNIC,
+					"address":             cust.Address,
+					"address_urdu":        cust.AddressUrdu,
+					"pending_amount":      0.0,
+					"installment_count":   0,
+					"earliest_due_date":   "",
+					"product_name":        "",
+					"product_name_urdu":   "",
+					"plan_ids":            []string{},
 				}
 			}
 			if entry, ok := customerMap[plan.CustomerID]; ok {
@@ -570,6 +600,27 @@ func SetupRouter(
 			}
 		}
 
+		// Build product name strings per customer (comma-separated unique names)
+		for custID, entry := range customerMap {
+			if prods, ok := customerProducts[custID]; ok {
+				var names []string
+				for name := range prods {
+					names = append(names, name)
+				}
+				productName := ""
+				for i, n := range names {
+					if i > 0 {
+						productName += ", "
+					}
+					productName += n
+				}
+				entry["product_name"] = productName
+			}
+			if planIDs, ok := customerPlanIDs[custID]; ok {
+				entry["plan_ids"] = planIDs
+			}
+		}
+
 		var customers []map[string]interface{}
 		for _, v := range customerMap {
 			customers = append(customers, v)
@@ -578,7 +629,11 @@ func SetupRouter(
 			customers = []map[string]interface{}{}
 		}
 
-		respondJSON(w, http.StatusOK, map[string]interface{}{"pending_total": pendingTotal, "customers": customers})
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"pending_total": pendingTotal,
+			"totalPending":  pendingTotal,
+			"customers":     customers,
+		})
 	}).Methods("GET")
 
 	// Total paid (MongoDB-based)

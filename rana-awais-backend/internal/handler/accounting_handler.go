@@ -204,10 +204,12 @@ func (h *AccountingHandler) TodaySummary(w http.ResponseWriter, r *http.Request)
 	details, revenue, profit := getPaymentDetailsWithProfit(db, start, end)
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"revenue":  revenue,
-		"profit":   profit,
-		"details":  details,
-		"date":     now.Format("2006-01-02"),
+		"revenue":       revenue,
+		"todayRevenue":  revenue,
+		"profit":        profit,
+		"todayProfit":   profit,
+		"details":       details,
+		"date":          now.Format("2006-01-02"),
 	})
 }
 
@@ -227,10 +229,12 @@ func (h *AccountingHandler) MonthSummary(w http.ResponseWriter, r *http.Request)
 	details, revenue, profit := getPaymentDetailsWithProfit(db, start, end)
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"revenue":  revenue,
-		"profit":   profit,
-		"details":  details,
-		"month":    now.Format("2006-01"),
+		"revenue":       revenue,
+		"monthRevenue":  revenue,
+		"profit":        profit,
+		"monthProfit":   profit,
+		"details":       details,
+		"month":         now.Format("2006-01"),
 	})
 }
 

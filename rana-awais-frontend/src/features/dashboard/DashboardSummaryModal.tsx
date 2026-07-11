@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import api from '../../utils/api';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useClientStore } from '../../store/useClientStore';
@@ -30,6 +31,9 @@ interface CustomerPending {
   pending_amount: number;
   installment_count: number;
   earliest_due_date?: string;
+  product_name?: string;
+  product_name_urdu?: string;
+  plan_ids?: string[];
 }
 
 interface PaymentDetail {
@@ -49,6 +53,7 @@ interface PaymentDetail {
 
 
 const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, type, onClose, isUrdu }) => {
+  const navigate = useNavigate();
   const currentUser = useAuthStore((state) => state.user);
   const clientInfo = useClientStore((s) => s.info);
   const [details, setDetails] = useState<DetailItem[]>([]);
@@ -56,6 +61,12 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
   const [paymentDetails, setPaymentDetails] = useState<PaymentDetail[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  // Handle click on a pending customer - navigate to installments page for that customer
+  const handleCustomerClick = useCallback((customerId: string) => {
+    onClose();
+    navigate(`/installments?customerId=${customerId}`);
+  }, [navigate, onClose]);
 
 
   useEffect(() => {
@@ -511,36 +522,37 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
                     {customers.map((cust, idx) => (
                       <div
                         key={cust.customer_id}
-                        className="p-4 bg-white dark:bg-gray-700 rounded-xl border border-gray-200 dark:border-gray-600 shadow-sm"
+                        className="p-4 bg-white dark:bg-gray-700 rounded-xl border border-gray-200 dark:border-gray-600 shadow-sm hover:shadow-md hover:border-amber-300 dark:hover:border-amber-600 cursor-pointer transition-all"
+                        onClick={() => handleCustomerClick(cust.customer_id)}
                       >
                         <div className="flex items-start justify-between mb-2">
-                          <div className="flex items-center gap-2">
-                            <div className="w-7 h-7 rounded-full bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center text-xs font-bold text-amber-600 dark:text-amber-400">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <div className="w-7 h-7 rounded-full bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center text-xs font-bold text-amber-600 dark:text-amber-400 flex-shrink-0">
                               {idx + 1}
                             </div>
-                            <div>
-                              <p className="text-sm font-bold text-gray-900 dark:text-white">
+                            <div className="min-w-0">
+                              <p className="text-sm font-bold text-gray-900 dark:text-white truncate">
                                 {isUrdu && cust.customer_name_urdu ? cust.customer_name_urdu : cust.customer_name}
                               </p>
-                              <p className="text-xs text-gray-500 dark:text-gray-400">
+                              <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
                                 {cust.father_name ? `${isUrdu ? 'والد کا نام' : 'Father'}: ${cust.father_name}` : ''}
                               </p>
                             </div>
                           </div>
-                          <span className="text-base font-extrabold text-amber-600 dark:text-amber-400">
+                          <span className="text-base font-extrabold text-amber-600 dark:text-amber-400 flex-shrink-0 ml-2">
                             Rs. {(cust.pending_amount || 0).toLocaleString()}
                           </span>
                         </div>
                         <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500 dark:text-gray-400 mt-2 pt-2 border-t border-gray-100 dark:border-gray-600">
-                          <span>{isUrdu ? 'فون' : 'Phone'}: {cust.phone || '—'}</span>
-                          <span>{isUrdu ? 'اقساط' : 'Installments'}: {cust.installment_count || 0}</span>
-                          {cust.address && (
-                            <span className="truncate max-w-[200px]" title={cust.address}>
-                              {isUrdu ? 'پتہ' : 'Address'}: {isUrdu ? (cust.address_urdu || cust.address) : cust.address}
+                          {cust.product_name ? (
+                            <span className="font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 px-2 py-0.5 rounded-full">
+                              {cust.product_name}
                             </span>
-                          )}
+                          ) : null}
+                          <span>{isUrdu ? 'فون' : 'Phone'}: {cust.phone || '—'}</span>
+                          <span>{isUrdu ? 'باقی اقساط' : 'Remaining Inst'}: {cust.installment_count || 0}</span>
                           {cust.earliest_due_date && (
-                            <span>{isUrdu ? 'تاریخ' : 'Due Date'}: {new Date(cust.earliest_due_date).toLocaleDateString()}</span>
+                            <span>{isUrdu ? 'تاریخ' : 'Due'}: {new Date(cust.earliest_due_date).toLocaleDateString()}</span>
                           )}
                         </div>
                       </div>
