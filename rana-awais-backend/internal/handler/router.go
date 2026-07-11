@@ -764,9 +764,3 @@ func SetupRouter(
 
 	return r
 }
-
-
-
-
-
-
