@@ -77,16 +77,16 @@ func getPaymentDetailsWithProfit(db *mongo.Database, start, end time.Time) ([]ma
 	totalRevenue := 0.0
 	totalProfit := 0.0
 
-	// Try both field name formats: transactiondate (lowercase) and transactionDate (camelCase)
+	// Query payments with transactiondate in range
+	// Use $or to handle both camelCase and lowercase field names
 	cursor, err := db.Collection("payments").Find(nil, bson.M{
-		"transactiondate": bson.M{"$gte": start, "$lt": end},
+		"$or": []interface{}{
+			bson.M{"transactiondate": bson.M{"$gte": start, "$lt": end}},
+			bson.M{"transactionDate": bson.M{"$gte": start, "$lt": end}},
+			bson.M{"paymentdate": bson.M{"$gte": start, "$lt": end}},
+			bson.M{"createdat": bson.M{"$gte": start, "$lt": end}},
+		},
 	})
-	if err != nil {
-		// Retry with camelCase field name
-		cursor, err = db.Collection("payments").Find(nil, bson.M{
-			"transactionDate": bson.M{"$gte": start, "$lt": end},
-		})
-	}
 	if err != nil {
 		return details, totalRevenue, totalProfit
 	}

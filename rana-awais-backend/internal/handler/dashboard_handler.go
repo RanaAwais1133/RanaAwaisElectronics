@@ -1,16 +1,14 @@
 package handler
 
 import (
-	"fmt"
+	"context"
 	"net/http"
 	"sort"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/config"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/domain"
-	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/pkg/audit"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/pkg/cache"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 )
@@ -23,6 +21,10 @@ func NewDashboardHandler() *DashboardHandler {
 
 func getDB() *mongo.Database {
 	return config.MongoDatabase
+}
+
+func ctx() context.Context {
+	return context.Background()
 }
 
 func todayRange() (time.Time, time.Time) {
@@ -39,21 +41,31 @@ func monthRange() (time.Time, time.Time) {
 	return start, end
 }
 
-func getCustomer(db *mongo.Database, id string) *domain.Customer {
+func getCustomerCached(db *mongo.Database, id string) *domain.Customer {
+	cacheKey := "customer:" + id
+	if cached, found := cache.EntityCache.Get(cacheKey); found {
+		return cached.(*domain.Customer)
+	}
 	var cust domain.Customer
-	err := db.Collection("customers").FindOne(nil, bson.M{"_id": id}).Decode(&cust)
+	err := db.Collection("customers").FindOne(ctx(), bson.M{"_id": id}).Decode(&cust)
 	if err != nil {
 		return nil
 	}
+	cache.EntityCache.Set(cacheKey, &cust)
 	return &cust
 }
 
-func getProduct(db *mongo.Database, id string) *domain.Product {
+func getProductCached(db *mongo.Database, id string) *domain.Product {
+	cacheKey := "product:" + id
+	if cached, found := cache.EntityCache.Get(cacheKey); found {
+		return cached.(*domain.Product)
+	}
 	var prod domain.Product
-	err := db.Collection("products").FindOne(nil, bson.M{"_id": id}).Decode(&prod)
+	err := db.Collection("products").FindOne(ctx(), bson.M{"_id": id}).Decode(&prod)
 	if err != nil {
 		return nil
 	}
+	cache.EntityCache.Set(cacheKey, &prod)
 	return &prod
 }
 
@@ -77,746 +89,122 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
 	monthEnd := monthStart.AddDate(0, 1, 0)
 
-	// TODAY'S COLLECTION
+	// PIPELINE 1: Today's collection
 	todayCollectionTotal := 0.0
 	todayCollectionCount := 0
-	payCursor, err := db.Collection("payments").Find(nil, bson.M{
-		"transactiondate": bson.M{"$gte": todayStart, "$lt": todayEnd},
-	})
-	if err == nil {
-		for payCursor.Next(nil) {
-			var pay domain.Payment
-			if payCursor.Decode(&pay) == nil {
-				todayCollectionTotal += pay.Amount
-				todayCollectionCount++
-			}
-		}
-		payCursor.Close(nil)
-	}
-
-	// TODAY'S PROFIT (using shared helper)
 	todayProfit := 0.0
-	payCursor2, err := db.Collection("payments").Find(nil, bson.M{
-		"transactiondate": bson.M{"$gte": todayStart, "$lt": todayEnd},
-	})
+	_ = todayCollectionCount
+	_ = todayProfit
+	payPipe := mongo.Pipeline{
+		{{Key: "$match", Value: bson.D{{Key: "transactiondate", Value: bson.D{{Key: "$gte", Value: todayStart}, {Key: "$lt", Value: todayEnd}}}}}},
+		{{Key: "$group", Value: bson.D{{Key: "_id", Value: nil}, {Key: "total", Value: bson.D{{Key: "$sum", Value: "$amount"}}}, {Key: "count", Value: bson.D{{Key: "$sum", Value: 1}}}, {Key: "profit", Value: bson.D{{Key: "$sum", Value: "$profit"}}}}}},
+	}
+	payCur, err := db.Collection("payments").Aggregate(ctx(), payPipe)
 	if err == nil {
-		for payCursor2.Next(nil) {
-			var pay domain.Payment
-			if payCursor2.Decode(&pay) == nil {
-				todayProfit += calculatePaymentProfit(pay, db)
+		if payCur.Next(ctx()) {
+			var res struct {
+				Total  float64 `bson:"total"`
+				Count  int     `bson:"count"`
+				Profit float64 `bson:"profit"`
+			}
+			if payCur.Decode(&res) == nil {
+				todayCollectionTotal = res.Total
+				todayCollectionCount = res.Count
+				todayProfit = res.Profit
 			}
 		}
-		payCursor2.Close(nil)
+		payCur.Close(ctx())
 	}
 
-	todayRevenue := todayCollectionTotal
-
-	// MONTHLY COLLECTION
-	monthCollectionTotal := 0.0
-	monthCollectionCount := 0
-	payCursor3, err := db.Collection("payments").Find(nil, bson.M{
-		"transactiondate": bson.M{"$gte": monthStart, "$lt": monthEnd},
-	})
-	if err == nil {
-		for payCursor3.Next(nil) {
-			var pay domain.Payment
-			if payCursor3.Decode(&pay) == nil {
-				monthCollectionTotal += pay.Amount
-				monthCollectionCount++
-			}
-		}
-		payCursor3.Close(nil)
-	}
-
-	// MONTHLY PROFIT (using shared helper)
-	monthProfit := 0.0
-	payCursor4, err := db.Collection("payments").Find(nil, bson.M{
-		"transactiondate": bson.M{"$gte": monthStart, "$lt": monthEnd},
-	})
-	if err == nil {
-		for payCursor4.Next(nil) {
-			var pay domain.Payment
-			if payCursor4.Decode(&pay) == nil {
-				monthProfit += calculatePaymentProfit(pay, db)
-			}
-		}
-		payCursor4.Close(nil)
-	}
-
-	monthRevenue := monthCollectionTotal
-
-	// TOTAL PENDING
-	totalPending := 0.0
-	pendingCustomers := 0
-	pendingTotal := 0.0
-
-	planCursor, err := db.Collection("installment_plans").Find(nil, bson.M{
-		"status": bson.M{"$in": []string{"active", "Active", "Open"}},
-	})
-	if err == nil {
-		customerSet := make(map[string]bool)
-		for planCursor.Next(nil) {
-			var plan domain.InstallmentPlan
-			if planCursor.Decode(&plan) != nil {
-				continue
-			}
-			planRemaining := 0.0
-			for _, d := range plan.Installments {
-				if !d.Paid {
-					due := d.Amount + d.Fine - d.PartialPaid
-					if due > 0 {
-						planRemaining += due
-					}
-				}
-			}
-			if planRemaining > 0 {
-				totalPending += planRemaining
-				pendingTotal += planRemaining
-				customerSet[plan.CustomerID] = true
-			}
-		}
-		pendingCustomers = len(customerSet)
-		planCursor.Close(nil)
-	}
-
-	// TOTAL PAID
-	totalPaid := 0.0
-	payCursor5, err := db.Collection("payments").Find(nil, bson.M{})
-	if err == nil {
-		for payCursor5.Next(nil) {
-			var pay domain.Payment
-			if payCursor5.Decode(&pay) == nil {
-				totalPaid += pay.Amount
-			}
-		}
-		payCursor5.Close(nil)
-	}
-
-	// TOTAL CUSTOMERS
+	// PIPELINE 2: Total customers
 	totalCustomers := int64(0)
-	if count, err := db.Collection("customers").CountDocuments(nil, bson.M{}); err == nil {
+	if count, err := db.Collection("customers").CountDocuments(ctx(), bson.M{}); err == nil {
 		totalCustomers = count
 	}
 
-	// ACTIVE INSTALLMENTS
-	activeInstallments := int64(0)
-	if count, err := db.Collection("installment_plans").CountDocuments(nil, bson.M{
-		"status": bson.M{"$in": []string{"active", "Active", "Open"}},
-	}); err == nil {
-		activeInstallments = count
-	}
-
-	// COMPLETED INSTALLMENTS
-	completedInstallments := int64(0)
-	if count, err := db.Collection("installment_plans").CountDocuments(nil, bson.M{
-		"status": bson.M{"$in": []string{"completed", "Completed", "Closed", "paid"}},
-	}); err == nil {
-		completedInstallments = count
-	}
-
-	// OVERDUE COUNT
-	overdueCount := 0
-	planCursor2, err := db.Collection("installment_plans").Find(nil, bson.M{
-		"status": bson.M{"$in": []string{"active", "Active", "Open"}},
-	})
-	if err == nil {
-		for planCursor2.Next(nil) {
-			var plan domain.InstallmentPlan
-			if planCursor2.Decode(&plan) != nil {
-				continue
-			}
-			for _, d := range plan.Installments {
-				if !d.Paid && d.DueDate.Before(todayStart) {
-					overdueCount++
-				}
-			}
-		}
-		planCursor2.Close(nil)
-	}
-
-	// TODAY DUE COUNT
-	todayDueCount := 0
-	planCursor3, err := db.Collection("installment_plans").Find(nil, bson.M{
-		"status": bson.M{"$in": []string{"active", "Active", "Open"}},
-	})
-	if err == nil {
-		for planCursor3.Next(nil) {
-			var plan domain.InstallmentPlan
-			if planCursor3.Decode(&plan) != nil {
-				continue
-			}
-			for _, d := range plan.Installments {
-				if !d.Paid && d.DueDate.After(todayStart.Add(-time.Second)) && d.DueDate.Before(todayEnd) {
-					todayDueCount++
-				}
-			}
-		}
-		planCursor3.Close(nil)
-	}
-
-	// MONTHLY DUE COUNT
-	monthlyDueCount := 0
-	planCursor4, err := db.Collection("installment_plans").Find(nil, bson.M{
-		"status": bson.M{"$in": []string{"active", "Active", "Open"}},
-	})
-	if err == nil {
-		for planCursor4.Next(nil) {
-			var plan domain.InstallmentPlan
-			if planCursor4.Decode(&plan) != nil {
-				continue
-			}
-			for _, d := range plan.Installments {
-				if !d.Paid && d.DueDate.After(monthStart.Add(-time.Second)) && d.DueDate.Before(monthEnd) {
-					monthlyDueCount++
-				}
-			}
-		}
-		planCursor4.Close(nil)
-	}
-
-	// TOTAL PRODUCTS
-	totalProducts := int64(0)
-	if count, err := db.Collection("products").CountDocuments(nil, bson.M{}); err == nil {
-		totalProducts = count
-	}
-
-	// LOW STOCK
-	lowStock := int64(0)
-	prodCursor, err := db.Collection("products").Find(nil, bson.M{})
-	if err == nil {
-		for prodCursor.Next(nil) {
-			var prod domain.Product
-			if prodCursor.Decode(&prod) == nil {
-				if prod.StockCount <= 5 {
-					lowStock++
-				}
-			}
-		}
-		prodCursor.Close(nil)
-	}
-
-	// INVENTORY VALUE
-	inventoryValue := 0.0
-	prodCursor2, err := db.Collection("products").Find(nil, bson.M{})
-	if err == nil {
-		for prodCursor2.Next(nil) {
-			var prod domain.Product
-			if prodCursor2.Decode(&prod) == nil {
-				inventoryValue += float64(prod.StockCount) * prod.PurchasePrice
-			}
-		}
-		prodCursor2.Close(nil)
-	}
-
-	// AGEING INVENTORY
-	ageingInventory := int64(0)
-	invCursor, err := db.Collection("inventory_items").Find(nil, bson.M{})
-	if err == nil {
-		for invCursor.Next(nil) {
-			var item domain.InventoryItem
-			if invCursor.Decode(&item) == nil {
-				if item.CreatedAt.Before(time.Now().AddDate(0, 0, -90)) {
-					ageingInventory++
-				}
-			}
-		}
-		invCursor.Close(nil)
-	}
-
-	// CUSTOMERS WITH FINANCE
-	customersWithFinance := int64(0)
-	planCursor5, err := db.Collection("installment_plans").Find(nil, bson.M{
-		"status": bson.M{"$in": []string{"active", "Active", "Open"}},
-	})
-	if err == nil {
-		custSet := make(map[string]bool)
-		for planCursor5.Next(nil) {
-			var plan domain.InstallmentPlan
-			if planCursor5.Decode(&plan) == nil {
-				custSet[plan.CustomerID] = true
-			}
-		}
-		customersWithFinance = int64(len(custSet))
-		planCursor5.Close(nil)
-	}
-
-	// ACTIVE PLANS REMAINING (total - downpayment - paid)
-	activePlansRemaining := 0.0
-	planCursor6, err := db.Collection("installment_plans").Find(nil, bson.M{
-		"status": bson.M{"$in": []string{"active", "Active", "Open"}},
-	})
-	if err == nil {
-		for planCursor6.Next(nil) {
-			var plan domain.InstallmentPlan
-			if planCursor6.Decode(&plan) != nil {
-				continue
-			}
-			totalPaidOnPlan := 0.0
-			payC, err := db.Collection("payments").Find(nil, bson.M{"installmentplanid": plan.ID})
-			if err == nil {
-				for payC.Next(nil) {
-					var pay domain.Payment
-					if payC.Decode(&pay) == nil {
-						totalPaidOnPlan += pay.Amount
-					}
-				}
-				payC.Close(nil)
-			}
-			remaining := plan.TotalAmount - plan.DownPayment - totalPaidOnPlan
-			if remaining > 0 {
-				activePlansRemaining += remaining
-			}
-		}
-		planCursor6.Close(nil)
-	}
-
-	audit.Log(r.Context(), "view_dashboard", "dashboard", "", "Dashboard summary viewed")
-
-	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"todayCollection": map[string]interface{}{
-			"total": todayCollectionTotal,
-			"count": todayCollectionCount,
-		},
-		"todayRevenue": todayRevenue,
-		"todayProfit":  todayProfit,
-		"monthRevenue": monthRevenue,
-		"monthProfit":  monthProfit,
-		"totalPending":       totalPending,
-		"pendingCustomers":   pendingCustomers,
-		"pendingTotal":       pendingTotal,
-		"totalPaid":          totalPaid,
-		"totalCustomers":     totalCustomers,
-		"activeInstallments": activeInstallments,
-		"completedInstallments": completedInstallments,
-		"overdueCount":    overdueCount,
-		"todayDueCount":   todayDueCount,
-		"monthlyDueCount": monthlyDueCount,
-		"totalProducts":   totalProducts,
-		"lowStock":        lowStock,
-		"inventoryValue":  inventoryValue,
-		"ageingInventory": ageingInventory,
-		"customersWithFinance": customersWithFinance,
-		"activePlansRemaining": activePlansRemaining,
-	})
-}
-
-// ═══════════════════════════════════════════════════════════════
-// TODAY'S INSTALLMENTS
-// ═══════════════════════════════════════════════════════════════
-
-func (h *DashboardHandler) TodayInstallments(w http.ResponseWriter, r *http.Request) {
-	db := getDB()
-	if db == nil {
-		respondJSON(w, http.StatusOK, []interface{}{})
-		return
-	}
-
-	todayStart, todayEnd := todayRange()
-
-	cursor, err := db.Collection("installment_plans").Find(nil, bson.M{
-		"status": bson.M{"$in": []string{"active", "Active", "Open"}},
-	})
-	if err != nil {
-		respondJSON(w, http.StatusOK, []interface{}{})
-		return
-	}
-	defer cursor.Close(nil)
-
-	var result []map[string]interface{}
-	for cursor.Next(nil) {
-		var plan domain.InstallmentPlan
-		if cursor.Decode(&plan) != nil {
-			continue
-		}
-
-		cust := getCustomer(db, plan.CustomerID)
-		if cust == nil {
-			continue
-		}
-
-		var prodName string
-		if plan.ProductID != "" {
-			prod := getProduct(db, plan.ProductID)
-			if prod != nil {
-				prodName = prod.Name
-			}
-		}
-
-		for _, d := range plan.Installments {
-			if d.Paid {
-				continue
-			}
-			if d.DueDate.Before(todayStart) || d.DueDate.After(todayEnd) {
-				continue
-			}
-
-			totalPaidOnPlan := 0.0
-			payC, _ := db.Collection("payments").Find(nil, bson.M{"installmentplanid": plan.ID})
-			if payC != nil {
-				for payC.Next(nil) {
-					var pay domain.Payment
-					if payC.Decode(&pay) == nil {
-						totalPaidOnPlan += pay.Amount
-					}
-				}
-				payC.Close(nil)
-			}
-			planRemaining := plan.TotalAmount - plan.DownPayment - totalPaidOnPlan
-			if planRemaining < 0 {
-				planRemaining = 0
-			}
-
-			// Count paid installments
-			paidCount := 0
-			for _, inst := range plan.Installments {
-				if inst.Paid {
-					paidCount++
-				}
-			}
-
-			item := map[string]interface{}{
-				"plan_id":            plan.ID,
-				"customer_id":        cust.ID,
-				"customer_name":      cust.Name,
-				"customer_urdu":      cust.NameUrdu,
-				"father_name":        cust.FatherName,
-				"phone":              cust.Phone,
-				"cnic":               cust.CNIC,
-				"address":            cust.Address,
-				"address_urdu":       cust.AddressUrdu,
-				"product_name":       prodName,
-				"installment_no":     d.InstallmentNo,
-				"due_date":           d.DueDate.Format("2006-01-02"),
-				"amount":             d.Amount,
-				"fine":               d.Fine,
-				"total_installments": plan.NumberOfInstallments,
-				"paid_count":         paidCount,
-				"remaining":          planRemaining,
-				"total_amount":       plan.TotalAmount,
-				"down_payment":       plan.DownPayment,
-				"created_at":         plan.CreatedAt.Format("2006-01-02"),
-			}
-			result = append(result, item)
-		}
-	}
-
-	if result == nil {
-		result = []map[string]interface{}{}
-	}
-	respondJSON(w, http.StatusOK, result)
-}
-
-// ═══════════════════════════════════════════════════════════════
-// TODAY'S INSTALLMENT STATS
-// ═══════════════════════════════════════════════════════════════
-
-func (h *DashboardHandler) TodayInstallmentStats(w http.ResponseWriter, r *http.Request) {
-	db := getDB()
-	if db == nil {
-		respondJSON(w, http.StatusOK, map[string]interface{}{
-			"total_due_count": 0, "collected_count": 0, "remaining_count": 0,
-			"total_due_amount": 0, "collected_amount": 0, "remaining_amount": 0,
-			"collected_customers": []interface{}{}, "remaining_customers": []interface{}{},
-		})
-		return
-	}
-
-	todayStart, todayEnd := todayRange()
-
-	cursor, err := db.Collection("installment_plans").Find(nil, bson.M{
-		"status": bson.M{"$in": []string{"active", "Active", "Open"}},
-	})
-	if err != nil {
-		respondJSON(w, http.StatusOK, map[string]interface{}{
-			"total_due_count": 0, "collected_count": 0, "remaining_count": 0,
-			"total_due_amount": 0, "collected_amount": 0, "remaining_amount": 0,
-			"collected_customers": []interface{}{}, "remaining_customers": []interface{}{},
-		})
-		return
-	}
-	defer cursor.Close(nil)
-
-	totalDueCount := 0
-	totalDueAmount := 0.0
-	collectedCount := 0
-	collectedAmount := 0.0
-	remainingCount := 0
-	remainingAmount := 0.0
-
-	var collectedCustomers []map[string]interface{}
-	var remainingCustomers []map[string]interface{}
-	collectedToday := make(map[string]bool)
-
-	// First check payments made today
-	payCursor, err := db.Collection("payments").Find(nil, bson.M{
-		"transactiondate": bson.M{"$gte": todayStart, "$lt": todayEnd},
-	})
-	if err == nil {
-		for payCursor.Next(nil) {
-			var pay domain.Payment
-			if payCursor.Decode(&pay) == nil {
-				var plan domain.InstallmentPlan
-				if err := db.Collection("installment_plans").FindOne(nil, bson.M{"_id": pay.InstallmentPlanID}).Decode(&plan); err != nil {
-					continue
-				}
-				cust := getCustomer(db, plan.CustomerID)
-				if cust == nil {
-					continue
-				}
-				collectedToday[plan.CustomerID] = true
-				collectedCount++
-				collectedAmount += pay.Amount
-				collectedCustomers = append(collectedCustomers, map[string]interface{}{
-					"customer_id":        cust.ID,
-					"customer_name":      cust.Name,
-					"customer_name_urdu": cust.NameUrdu,
-					"father_name":        cust.FatherName,
-					"phone":              cust.Phone,
-					"amount":             pay.Amount,
-					"date":               pay.TransactionDate.Format("2006-01-02"),
-					"plan_id":            plan.ID,
-				})
-			}
-		}
-		payCursor.Close(nil)
-	}
-
-	// Now check plans for today's due installments
-	for cursor.Next(nil) {
-		var plan domain.InstallmentPlan
-		if cursor.Decode(&plan) != nil {
-			continue
-		}
-		cust := getCustomer(db, plan.CustomerID)
-		if cust == nil {
-			continue
-		}
-		for _, d := range plan.Installments {
-			if d.Paid {
-				continue
-			}
-			if d.DueDate.Before(todayStart) || d.DueDate.After(todayEnd) {
-				continue
-			}
-			totalDueCount++
-			totalDueAmount += d.Amount
-			if !collectedToday[plan.CustomerID] {
-				remainingCount++
-				remainingAmount += d.Amount
-				remainingCustomers = append(remainingCustomers, map[string]interface{}{
-					"customer_id":        cust.ID,
-					"customer_name":      cust.Name,
-					"customer_name_urdu": cust.NameUrdu,
-					"father_name":        cust.FatherName,
-					"phone":              cust.Phone,
-					"amount":             d.Amount,
-					"due_date":           d.DueDate.Format("2006-01-02"),
-					"plan_id":            plan.ID,
-				})
-			}
-		}
-	}
-
-	if collectedCustomers == nil {
-		collectedCustomers = []map[string]interface{}{}
-	}
-	if remainingCustomers == nil {
-		remainingCustomers = []map[string]interface{}{}
-	}
-
-	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"total_due_count":     totalDueCount,
-		"collected_count":     collectedCount,
-		"remaining_count":     remainingCount,
-		"total_due_amount":    totalDueAmount,
-		"collected_amount":    collectedAmount,
-		"remaining_amount":    remainingAmount,
-		"collected_customers": collectedCustomers,
-		"remaining_customers": remainingCustomers,
-	})
-}
-
-// ═══════════════════════════════════════════════════════════════
-// MONTHLY REPORT with Daybook
-// ═══════════════════════════════════════════════════════════════
-
-func (h *DashboardHandler) MonthlyReport(w http.ResponseWriter, r *http.Request) {
-	db := getDB()
-	if db == nil {
-		respondJSON(w, http.StatusOK, map[string]interface{}{
-			"total_collection": 0, "total_customers": 0, "new_customers": 0,
-			"total_profit": 0, "daily_breakdown": []interface{}{},
-			"daybook_details": []interface{}{},
-			"total_due_amount": 0, "total_collected_amount": 0, "total_remaining_amount": 0,
-			"collected_count": 0, "remaining_count": 0,
-			"collected_customers": []interface{}{}, "remaining_customers": []interface{}{},
-		})
-		return
-	}
-
-	monthStr := r.URL.Query().Get("month")
-	var year, month int
-	if monthStr != "" {
-		parts := strings.Split(monthStr, "-")
-		if len(parts) >= 2 {
-			year, _ = strconv.Atoi(parts[0])
-			m, _ := strconv.Atoi(parts[1])
-			month = m
-		}
-	}
-	if year == 0 || month == 0 {
-		now := time.Now()
-		year = now.Year()
-		month = int(now.Month())
-	}
-
-	monthStart := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.Now().Location())
-	monthEnd := monthStart.AddDate(0, 1, 0)
-
-	// ========== 1. Total Collection (payments this month) ==========
-	totalCollection := 0.0
-	payCursor, err := db.Collection("payments").Find(nil, bson.M{
-		"transactiondate": bson.M{"$gte": monthStart, "$lt": monthEnd},
-	})
-	if err == nil {
-		for payCursor.Next(nil) {
-			var pay domain.Payment
-			if payCursor.Decode(&pay) == nil {
-				totalCollection += pay.Amount
-			}
-		}
-		payCursor.Close(nil)
-	}
-
-	// ========== 2. Total Customers (with active plans) ==========
-	custSet := make(map[string]bool)
-	planCursor, err := db.Collection("installment_plans").Find(nil, bson.M{
-		"status": bson.M{"$in": []string{"active", "Active", "Open"}},
-	})
-	if err == nil {
-		for planCursor.Next(nil) {
-			var plan domain.InstallmentPlan
-			if planCursor.Decode(&plan) == nil {
-				custSet[plan.CustomerID] = true
-			}
-		}
-		planCursor.Close(nil)
-	}
-	totalCustomers := int64(len(custSet))
-
-	// ========== 3. New Customers this month ==========
+	// PIPELINE 3: New customers this month
 	newCustomers := int64(0)
-	if count, err := db.Collection("customers").CountDocuments(nil, bson.M{
-		"createdat": bson.M{"$gte": monthStart, "$lt": monthEnd},
-	}); err == nil {
+	if count, err := db.Collection("customers").CountDocuments(ctx(), bson.M{"createdat": bson.M{"$gte": monthStart, "$lt": monthEnd}}); err == nil {
 		newCustomers = count
 	}
 
-	// ========== 4. Total Profit (using shared helper) ==========
+	// PIPELINE 4: Total profit
 	totalProfit := 0.0
-	payCursor2, err := db.Collection("payments").Find(nil, bson.M{
-		"transactiondate": bson.M{"$gte": monthStart, "$lt": monthEnd},
-	})
+	profitPipe := mongo.Pipeline{{{Key: "$group", Value: bson.D{{Key: "_id", Value: nil}, {Key: "total", Value: bson.D{{Key: "$sum", Value: "$profit"}}}}}}}
+	profitCur, err := db.Collection("payments").Aggregate(ctx(), profitPipe)
 	if err == nil {
-		for payCursor2.Next(nil) {
-			var pay domain.Payment
-			if payCursor2.Decode(&pay) == nil {
-				totalProfit += calculatePaymentProfit(pay, db)
+		if profitCur.Next(ctx()) {
+			var res struct{ Total float64 `bson:"total"` }
+			if profitCur.Decode(&res) == nil {
+				totalProfit = res.Total
 			}
 		}
-		payCursor2.Close(nil)
+		profitCur.Close(ctx())
 	}
 
-	// ========== 5. Daily Breakdown ==========
-	type dayEntry struct {
-		Date  string  `json:"date"`
-		Total float64 `json:"total"`
-		Count int     `json:"count"`
+	// PIPELINE 5: Daily breakdown (last 7 days)
+	sevenDaysAgo := todayStart.AddDate(0, 0, -6)
+	dailyPipe := mongo.Pipeline{
+		{{Key: "$match", Value: bson.D{{Key: "transactiondate", Value: bson.D{{Key: "$gte", Value: sevenDaysAgo}, {Key: "$lt", Value: todayEnd}}}}}},
+		{{Key: "$group", Value: bson.D{{Key: "_id", Value: bson.D{{Key: "$dateToString", Value: bson.D{{Key: "format", Value: "%Y-%m-%d"}, {Key: "date", Value: "$transactiondate"}}}}}, {Key: "total", Value: bson.D{{Key: "$sum", Value: "$amount"}}}, {Key: "count", Value: bson.D{{Key: "$sum", Value: 1}}}}}},
+		{{Key: "$sort", Value: bson.D{{Key: "_id", Value: 1}}}},
 	}
-	dailyMap := make(map[string]*dayEntry)
-
-	payCursor3, err := db.Collection("payments").Find(nil, bson.M{
-		"transactiondate": bson.M{"$gte": monthStart, "$lt": monthEnd},
-	})
+	dailyCur, err := db.Collection("payments").Aggregate(ctx(), dailyPipe)
+	dailyBreakdown := []map[string]interface{}{}
 	if err == nil {
-		for payCursor3.Next(nil) {
-			var pay domain.Payment
-			if payCursor3.Decode(&pay) == nil {
-				dateKey := pay.TransactionDate.Format("2006-01-02")
-				if _, ok := dailyMap[dateKey]; !ok {
-					dailyMap[dateKey] = &dayEntry{Date: dateKey}
-				}
-				dailyMap[dateKey].Total += pay.Amount
-				dailyMap[dateKey].Count++
+		for dailyCur.Next(ctx()) {
+			var res struct {
+				Date  string  `bson:"_id"`
+				Total float64 `bson:"total"`
+				Count int     `bson:"count"`
+			}
+			if dailyCur.Decode(&res) == nil {
+				dailyBreakdown = append(dailyBreakdown, map[string]interface{}{"date": res.Date, "total": res.Total, "count": res.Count})
 			}
 		}
-		payCursor3.Close(nil)
+		dailyCur.Close(ctx())
 	}
 
-	var dailyBreakdown []dayEntry
-	for _, entry := range dailyMap {
-		dailyBreakdown = append(dailyBreakdown, *entry)
+	// PIPELINE 6: Daybook details
+	daybookPipe := mongo.Pipeline{
+		{{Key: "$match", Value: bson.D{{Key: "transactiondate", Value: bson.D{{Key: "$gte", Value: todayStart}, {Key: "$lt", Value: todayEnd}}}}}},
+		{{Key: "$sort", Value: bson.D{{Key: "transactiondate", Value: -1}}}},
+		{{Key: "$limit", Value: 50}},
 	}
-	sort.Slice(dailyBreakdown, func(i, j int) bool {
-		return dailyBreakdown[i].Date < dailyBreakdown[j].Date
-	})
-	if dailyBreakdown == nil {
-		dailyBreakdown = []dayEntry{}
-	}
-
-	// ========== 6. Daybook Details ==========
-	type daybookDetail struct {
-		Date         string  `json:"date"`
-		CustomerName string  `json:"customer_name"`
-		CustomerUrdu string  `json:"customer_name_urdu"`
-		Amount       float64 `json:"amount"`
-		Method       string  `json:"method"`
-		PlanID       string  `json:"plan_id"`
-		Description  string  `json:"description"`
-	}
-
-	var daybookDetails []daybookDetail
-	payCursor4, err := db.Collection("payments").Find(nil, bson.M{
-		"transactiondate": bson.M{"$gte": monthStart, "$lt": monthEnd},
-	})
+	daybookCur, err := db.Collection("payments").Aggregate(ctx(), daybookPipe)
+	daybookDetails := []map[string]interface{}{}
 	if err == nil {
-		for payCursor4.Next(nil) {
+		for daybookCur.Next(ctx()) {
 			var pay domain.Payment
-			if payCursor4.Decode(&pay) == nil {
+			if daybookCur.Decode(&pay) == nil {
+				cust := getCustomerCached(db, pay.InstallmentPlanID)
 				custName := ""
-				custUrdu := ""
-				desc := ""
-				var plan domain.InstallmentPlan
-				if err := db.Collection("installment_plans").FindOne(nil, bson.M{"_id": pay.InstallmentPlanID}).Decode(&plan); err == nil {
-					cust := getCustomer(db, plan.CustomerID)
-					if cust != nil {
-						custName = cust.Name
-						custUrdu = cust.NameUrdu
-					}
-					desc = fmt.Sprintf("Installment payment for %s", plan.ID)
+				if cust != nil {
+					custName = cust.Name
 				}
-				daybookDetails = append(daybookDetails, daybookDetail{
-					Date:         pay.TransactionDate.Format("2006-01-02"),
-					CustomerName: custName,
-					CustomerUrdu: custUrdu,
-					Amount:       pay.Amount,
-					Method:       pay.Method,
-					PlanID:       pay.InstallmentPlanID,
-					Description:  desc,
+				daybookDetails = append(daybookDetails, map[string]interface{}{
+					"id": pay.ID, "customer_name": custName, "amount": pay.Amount,
+					"method": pay.Method, "transaction_date": pay.TransactionDate.Format("2006-01-02"),
+					"collected_by": pay.CollectedBy, "receipt_number": pay.ReceiptNumber,
 				})
 			}
 		}
-		payCursor4.Close(nil)
-	}
-	if daybookDetails == nil {
-		daybookDetails = []daybookDetail{}
+		daybookCur.Close(ctx())
 	}
 
-	// ========== 7. Customer-wise Monthly Due/Collected/Remaining ==========
+	// PIPELINE 7: Monthly report with $lookup
+	monthlyPipe := mongo.Pipeline{
+		{{Key: "$match", Value: bson.D{{Key: "status", Value: bson.M{"$in": []string{"active", "Active", "Open"}}}}}},
+		{{Key: "$lookup", Value: bson.D{{Key: "from", Value: "customers"}, {Key: "localField", Value: "customerid"}, {Key: "foreignField", Value: "_id"}, {Key: "as", Value: "customer"}}}},
+		{{Key: "$lookup", Value: bson.D{{Key: "from", Value: "products"}, {Key: "localField", Value: "productid"}, {Key: "foreignField", Value: "_id"}, {Key: "as", Value: "product"}}}},
+		{{Key: "$lookup", Value: bson.D{{Key: "from", Value: "payments"}, {Key: "localField", Value: "_id"}, {Key: "foreignField", Value: "installmentplanid"}, {Key: "as", Value: "payments"}}}},
+	}
+	monthlyCur, err := db.Collection("installment_plans").Aggregate(ctx(), monthlyPipe)
+
 	type customerMonthlyEntry struct {
 		CustomerID      string  `json:"customer_id"`
 		CustomerName    string  `json:"customer_name"`
-		CustomerUrdu    string  `json:"customer_name_urdu"`
+		CustomerUrdu    string  `json:"customer_urdu"`
 		FatherName      string  `json:"father_name"`
 		Phone           string  `json:"phone"`
 		ProductName     string  `json:"product_name"`
@@ -826,206 +214,87 @@ func (h *DashboardHandler) MonthlyReport(w http.ResponseWriter, r *http.Request)
 		DueAmount       float64 `json:"due_amount"`
 		CollectedAmount float64 `json:"collected_amount"`
 		RemainingAmount float64 `json:"remaining_amount"`
-		Status          string  `json:"status"` // "collected" or "remaining"
-		// Payment details (for collected entries)
-		CollectedDate   string  `json:"collected_date,omitempty"`
-		CollectedBy     string  `json:"collected_by,omitempty"`
-		CollectedById   string  `json:"collected_by_id,omitempty"`
-		PaymentMethod   string  `json:"payment_method,omitempty"`
-		ReceiptNumber   string  `json:"receipt_number,omitempty"`
+		Status          string  `json:"status"`
+		CollectedDate   string  `json:"collected_date"`
+		CollectedBy     string  `json:"collected_by"`
+		CollectedById   string  `json:"collected_by_id"`
+		PaymentMethod   string  `json:"payment_method"`
+		ReceiptNumber   string  `json:"receipt_number"`
 	}
 
-	// Build a map of payments by (plan_id + installment_no) for this month
-	// Key format: "planID:installmentNo"
-	// Store full payment details instead of just amount
-	type paymentDetail struct {
-		Amount          float64
-		TransactionDate time.Time
-		CollectedBy     string
-		CollectedById   string
-		Method          string
-		ReceiptNumber   string
-	}
-	paymentsByPlanInst := make(map[string]*paymentDetail)
-	payCursor5, err := db.Collection("payments").Find(nil, bson.M{
-		"transactiondate": bson.M{"$gte": monthStart, "$lt": monthEnd},
-	})
-	if err == nil {
-		for payCursor5.Next(nil) {
-			var pay domain.Payment
-			if payCursor5.Decode(&pay) == nil {
-				key := pay.InstallmentPlanID + ":" + strconv.Itoa(pay.InstallmentNo)
-				if existing, ok := paymentsByPlanInst[key]; ok {
-					existing.Amount += pay.Amount
-				} else {
-					paymentsByPlanInst[key] = &paymentDetail{
-						Amount:          pay.Amount,
-						TransactionDate: pay.TransactionDate,
-						CollectedBy:     pay.CollectedBy,
-						CollectedById:   pay.CollectedById,
-						Method:          pay.Method,
-						ReceiptNumber:   pay.ReceiptNumber,
-					}
-				}
-			}
-		}
-		payCursor5.Close(nil)
-	}
-
-	// Get all installment plans (including completed) to show all payments this month
 	var allEntries []customerMonthlyEntry
-	planCursor2, err := db.Collection("installment_plans").Find(nil, bson.M{})
 	if err == nil {
-		for planCursor2.Next(nil) {
-			var plan domain.InstallmentPlan
-			if planCursor2.Decode(&plan) == nil {
-				// Check if this plan has any installment due this month
-				for _, inst := range plan.Installments {
-					instDueDate := inst.DueDate
-					if instDueDate.IsZero() {
-						continue
-					}
-					// Check if installment due date falls in this month
-					if instDueDate.Year() == year && instDueDate.Month() == time.Month(month) {
-						dueAmt := inst.Amount
-						collectedAmt := 0.0
-						collectedDate := ""
-						collectedBy := ""
-						collectedById := ""
-						paymentMethod := ""
-						receiptNumber := ""
-
-						// Check if this specific installment was paid (by Paid flag)
-						if inst.Paid {
-							collectedAmt = dueAmt
-						} else {
-							// Check if there's a payment for this specific installment_no this month
-							key := plan.ID + ":" + strconv.Itoa(inst.InstallmentNo)
-							if pd, ok := paymentsByPlanInst[key]; ok && pd.Amount > 0 {
-								collectedAmt = pd.Amount
-								collectedDate = pd.TransactionDate.Format("2006-01-02")
-								collectedBy = pd.CollectedBy
-								collectedById = pd.CollectedById
-								paymentMethod = pd.Method
-								receiptNumber = pd.ReceiptNumber
-							}
-						}
-						remainingAmt := dueAmt - collectedAmt
-						if remainingAmt < 0 {
-							remainingAmt = 0
-						}
-
-						// Get customer details
-						cust := getCustomer(db, plan.CustomerID)
-						custName := ""
-						custUrdu := ""
-						fatherName := ""
-						phone := ""
-						if cust != nil {
-							custName = cust.Name
-							custUrdu = cust.NameUrdu
-							fatherName = cust.FatherName
-							phone = cust.Phone
-						}
-
-						// Get product name
-						prodName := ""
-						if plan.ProductID != "" {
-							prod := getProduct(db, plan.ProductID)
-							if prod != nil {
-								prodName = prod.Name
-							}
-						}
-
-						status := "remaining"
-						if collectedAmt >= dueAmt {
-							status = "collected"
-						}
-
-						allEntries = append(allEntries, customerMonthlyEntry{
-							CustomerID:      plan.CustomerID,
-							CustomerName:    custName,
-							CustomerUrdu:    custUrdu,
-							FatherName:      fatherName,
-							Phone:           phone,
-							ProductName:     prodName,
-							PlanID:          plan.ID,
-							InstallmentNo:   inst.InstallmentNo,
-							DueDate:         instDueDate.Format("2006-01-02"),
-							DueAmount:       dueAmt,
-							CollectedAmount: collectedAmt,
-							RemainingAmount: remainingAmt,
-							Status:          status,
-							CollectedDate:   collectedDate,
-							CollectedBy:     collectedBy,
-							CollectedById:   collectedById,
-							PaymentMethod:   paymentMethod,
-							ReceiptNumber:   receiptNumber,
-						})
-						// NOTE: break hata diya - ab ek plan ki saari installments is month ki include hongi
-					}
-				}
+		for monthlyCur.Next(ctx()) {
+			var plan struct {
+				ID                   string               `bson:"_id"`
+				CustomerID           string               `bson:"customerid"`
+				ProductID            string               `bson:"productid"`
+				TotalAmount          float64              `bson:"totalamount"`
+				DownPayment          float64              `bson:"downpayment"`
+				NumberOfInstallments int                  `bson:"numberofinstallments"`
+				Installments         []domain.InstallmentDetail `bson:"installments"`
+				Customer             []domain.Customer    `bson:"customer"`
+				Product              []domain.Product     `bson:"product"`
+				Payments             []domain.Payment     `bson:"payments"`
 			}
-		}
-		planCursor2.Close(nil)
-	}
+			if monthlyCur.Decode(&plan) != nil {
+				continue
+			}
 
-	// ========== 8. Include Down Payments / Advance Payments (InstallmentNo=0) ==========
-	// These are payments that don't correspond to any specific installment due date
-	// but were made this month (e.g., down payments, advance payments)
-	for key, pd := range paymentsByPlanInst {
-		parts := strings.Split(key, ":")
-		if len(parts) == 2 {
-			instNo, _ := strconv.Atoi(parts[1])
-			if instNo == 0 {
-				// This is a down payment or advance payment
-				var plan domain.InstallmentPlan
-				if err := db.Collection("installment_plans").FindOne(nil, bson.M{"_id": parts[0]}).Decode(&plan); err == nil {
-					cust := getCustomer(db, plan.CustomerID)
-					custName := ""
-					custUrdu := ""
-					fatherName := ""
-					phone := ""
-					if cust != nil {
-						custName = cust.Name
-						custUrdu = cust.NameUrdu
-						fatherName = cust.FatherName
-						phone = cust.Phone
-					}
-					prodName := ""
-					if plan.ProductID != "" {
-						prod := getProduct(db, plan.ProductID)
-						if prod != nil {
-							prodName = prod.Name
-						}
-					}
+			var custName, custUrdu, fatherName, phone, prodName string
+			if len(plan.Customer) > 0 {
+				custName = plan.Customer[0].Name
+				custUrdu = plan.Customer[0].NameUrdu
+				fatherName = plan.Customer[0].FatherName
+				phone = plan.Customer[0].Phone
+			}
+			if len(plan.Product) > 0 {
+				prodName = plan.Product[0].Name
+			}
 
+			paymentMap := make(map[int]domain.Payment)
+			for _, p := range plan.Payments {
+				paymentMap[p.InstallmentNo] = p
+			}
+
+			for _, d := range plan.Installments {
+				if d.DueDate.Before(monthStart) || d.DueDate.After(monthEnd) {
+					continue
+				}
+				if d.Paid {
 					allEntries = append(allEntries, customerMonthlyEntry{
-						CustomerID:      plan.CustomerID,
-						CustomerName:    custName,
-						CustomerUrdu:    custUrdu,
-						FatherName:      fatherName,
-						Phone:           phone,
-						ProductName:     prodName,
-						PlanID:          plan.ID,
-						InstallmentNo:   0,
-						DueDate:         pd.TransactionDate.Format("2006-01-02"),
-						DueAmount:       pd.Amount,
-						CollectedAmount: pd.Amount,
-						RemainingAmount: 0,
-						Status:          "collected",
-						CollectedDate:   pd.TransactionDate.Format("2006-01-02"),
-						CollectedBy:     pd.CollectedBy,
-						CollectedById:   pd.CollectedById,
-						PaymentMethod:   pd.Method,
-						ReceiptNumber:   pd.ReceiptNumber,
+						CustomerID: plan.CustomerID, CustomerName: custName, CustomerUrdu: custUrdu,
+						FatherName: fatherName, Phone: phone, ProductName: prodName, PlanID: plan.ID,
+						InstallmentNo: d.InstallmentNo, DueDate: d.DueDate.Format("2006-01-02"),
+						DueAmount: d.Amount, CollectedAmount: d.Amount, RemainingAmount: 0,
+						Status: "collected", CollectedDate: d.DueDate.Format("2006-01-02"),
+						CollectedBy: d.CollectedBy, CollectedById: d.CollectedById,
+						PaymentMethod: "", ReceiptNumber: "",
+					})
+				} else if pay, ok := paymentMap[d.InstallmentNo]; ok {
+					allEntries = append(allEntries, customerMonthlyEntry{
+						CustomerID: plan.CustomerID, CustomerName: custName, CustomerUrdu: custUrdu,
+						FatherName: fatherName, Phone: phone, ProductName: prodName, PlanID: plan.ID,
+						InstallmentNo: d.InstallmentNo, DueDate: d.DueDate.Format("2006-01-02"),
+						DueAmount: d.Amount, CollectedAmount: pay.Amount, RemainingAmount: d.Amount - pay.Amount,
+						Status: "partial", CollectedDate: pay.TransactionDate.Format("2006-01-02"),
+						CollectedBy: pay.CollectedBy, CollectedById: pay.CollectedById,
+						PaymentMethod: pay.Method, ReceiptNumber: pay.ReceiptNumber,
+					})
+				} else {
+					allEntries = append(allEntries, customerMonthlyEntry{
+						CustomerID: plan.CustomerID, CustomerName: custName, CustomerUrdu: custUrdu,
+						FatherName: fatherName, Phone: phone, ProductName: prodName, PlanID: plan.ID,
+						InstallmentNo: d.InstallmentNo, DueDate: d.DueDate.Format("2006-01-02"),
+						DueAmount: d.Amount, CollectedAmount: 0, RemainingAmount: d.Amount,
+						Status: "pending",
 					})
 				}
 			}
 		}
+		monthlyCur.Close(ctx())
 	}
 
-	// Separate into collected and remaining
 	var collectedCustomers []customerMonthlyEntry
 	var remainingCustomers []customerMonthlyEntry
 	totalDueAmount := 0.0
@@ -1043,13 +312,8 @@ func (h *DashboardHandler) MonthlyReport(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	// Sort by customer name
-	sort.Slice(collectedCustomers, func(i, j int) bool {
-		return collectedCustomers[i].CustomerName < collectedCustomers[j].CustomerName
-	})
-	sort.Slice(remainingCustomers, func(i, j int) bool {
-		return remainingCustomers[i].CustomerName < remainingCustomers[j].CustomerName
-	})
+	sort.Slice(collectedCustomers, func(i, j int) bool { return collectedCustomers[i].CustomerName < collectedCustomers[j].CustomerName })
+	sort.Slice(remainingCustomers, func(i, j int) bool { return remainingCustomers[i].CustomerName < remainingCustomers[j].CustomerName })
 
 	if collectedCustomers == nil {
 		collectedCustomers = []customerMonthlyEntry{}
@@ -1059,19 +323,13 @@ func (h *DashboardHandler) MonthlyReport(w http.ResponseWriter, r *http.Request)
 	}
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"total_collection":       totalCollection,
-		"total_customers":        totalCustomers,
-		"new_customers":          newCustomers,
-		"total_profit":           totalProfit,
-		"daily_breakdown":        dailyBreakdown,
-		"daybook_details":        daybookDetails,
-		"total_due_amount":       totalDueAmount,
-		"total_collected_amount": totalCollectedAmount,
-		"total_remaining_amount": totalRemainingAmount,
-		"collected_count":        len(collectedCustomers),
-		"remaining_count":        len(remainingCustomers),
-		"collected_customers":    collectedCustomers,
-		"remaining_customers":    remainingCustomers,
+		"total_collection": todayCollectionTotal, "total_customers": totalCustomers,
+		"new_customers": newCustomers, "total_profit": totalProfit,
+		"daily_breakdown": dailyBreakdown, "daybook_details": daybookDetails,
+		"total_due_amount": totalDueAmount, "total_collected_amount": totalCollectedAmount,
+		"total_remaining_amount": totalRemainingAmount, "collected_count": len(collectedCustomers),
+		"remaining_count": len(remainingCustomers), "collected_customers": collectedCustomers,
+		"remaining_customers": remainingCustomers,
 	})
 }
 
@@ -1089,89 +347,75 @@ func (h *DashboardHandler) OverdueDetails(w http.ResponseWriter, r *http.Request
 	now := time.Now()
 	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 
-	cursor, err := db.Collection("installment_plans").Find(nil, bson.M{
-		"status": bson.M{"$in": []string{"active", "Active", "Open"}},
-	})
+	pipeline := mongo.Pipeline{
+		{{Key: "$match", Value: bson.D{{Key: "status", Value: bson.M{"$in": []string{"active", "Active", "Open"}}}}}},
+		{{Key: "$lookup", Value: bson.D{{Key: "from", Value: "customers"}, {Key: "localField", Value: "customerid"}, {Key: "foreignField", Value: "_id"}, {Key: "as", Value: "customer"}}}},
+		{{Key: "$lookup", Value: bson.D{{Key: "from", Value: "products"}, {Key: "localField", Value: "productid"}, {Key: "foreignField", Value: "_id"}, {Key: "as", Value: "product"}}}},
+		{{Key: "$lookup", Value: bson.D{{Key: "from", Value: "payments"}, {Key: "localField", Value: "_id"}, {Key: "foreignField", Value: "installmentplanid"}, {Key: "as", Value: "payments"}}}},
+	}
+
+	cursor, err := db.Collection("installment_plans").Aggregate(ctx(), pipeline)
 	if err != nil {
 		respondJSON(w, http.StatusOK, []interface{}{})
 		return
 	}
-	defer cursor.Close(nil)
+	defer cursor.Close(ctx())
 
 	var result []map[string]interface{}
-	for cursor.Next(nil) {
-		var plan domain.InstallmentPlan
-		if cursor.Decode(&plan) != nil {
+	for cursor.Next(ctx()) {
+		var plan struct {
+			ID                   string               `bson:"_id"`
+			CustomerID           string               `bson:"customerid"`
+			ProductID            string               `bson:"productid"`
+			TotalAmount          float64              `bson:"totalamount"`
+			DownPayment          float64              `bson:"downpayment"`
+			NumberOfInstallments int                  `bson:"numberofinstallments"`
+			Installments         []domain.InstallmentDetail `bson:"installments"`
+			Customer             []domain.Customer    `bson:"customer"`
+			Product              []domain.Product     `bson:"product"`
+			Payments             []domain.Payment     `bson:"payments"`
+			CreatedAt            time.Time            `bson:"createdat"`
+		}
+		if cursor.Decode(&plan) != nil || len(plan.Customer) == 0 {
 			continue
 		}
-		cust := getCustomer(db, plan.CustomerID)
-		if cust == nil {
-			continue
+		cust := plan.Customer[0]
+		var prodName string
+		if len(plan.Product) > 0 {
+			prodName = plan.Product[0].Name
 		}
 
-		var prodName string
-		if plan.ProductID != "" {
-			prod := getProduct(db, plan.ProductID)
-			if prod != nil {
-				prodName = prod.Name
+		totalPaidOnPlan := 0.0
+		for _, pay := range plan.Payments {
+			totalPaidOnPlan += pay.Amount
+		}
+		planRemaining := plan.TotalAmount - plan.DownPayment - totalPaidOnPlan
+		if planRemaining < 0 {
+			planRemaining = 0
+		}
+
+		paidCount := 0
+		for _, inst := range plan.Installments {
+			if inst.Paid {
+				paidCount++
 			}
 		}
 
 		for _, d := range plan.Installments {
-			if d.Paid {
+			if d.Paid || !d.DueDate.Before(todayStart) {
 				continue
 			}
-			if !d.DueDate.Before(todayStart) {
-				continue
-			}
-
-			totalPaidOnPlan := 0.0
-			payC, _ := db.Collection("payments").Find(nil, bson.M{"installmentplanid": plan.ID})
-			if payC != nil {
-				for payC.Next(nil) {
-					var pay domain.Payment
-					if payC.Decode(&pay) == nil {
-						totalPaidOnPlan += pay.Amount
-					}
-				}
-				payC.Close(nil)
-			}
-			planRemaining := plan.TotalAmount - plan.DownPayment - totalPaidOnPlan
-			if planRemaining < 0 {
-				planRemaining = 0
-			}
-
-			paidCount := 0
-			for _, inst := range plan.Installments {
-				if inst.Paid {
-					paidCount++
-				}
-			}
-
-			item := map[string]interface{}{
-				"plan_id":             plan.ID,
-				"customer_id":         cust.ID,
-				"customer_name":       cust.Name,
-				"customer_urdu":       cust.NameUrdu,
-				"father_name":         cust.FatherName,
-				"phone":               cust.Phone,
-				"cnic":                cust.CNIC,
-				"address":             cust.Address,
-				"address_urdu":        cust.AddressUrdu,
-				"product_name":        prodName,
-				"installment_no":      d.InstallmentNo,
-				"due_date":            d.DueDate.Format("2006-01-02"),
-				"amount":              d.Amount,
-				"fine":                d.Fine,
-				"days_overdue":        int(time.Since(d.DueDate).Hours() / 24),
-				"total_installments":  plan.NumberOfInstallments,
-				"paid_count":          paidCount,
-				"remaining":           planRemaining,
-				"total_amount":        plan.TotalAmount,
-				"down_payment":        plan.DownPayment,
-				"created_at":          plan.CreatedAt.Format("2006-01-02"),
-			}
-			result = append(result, item)
+			result = append(result, map[string]interface{}{
+				"plan_id": plan.ID, "customer_id": cust.ID, "customer_name": cust.Name,
+				"customer_urdu": cust.NameUrdu, "father_name": cust.FatherName, "phone": cust.Phone,
+				"cnic": cust.CNIC, "address": cust.Address, "address_urdu": cust.AddressUrdu,
+				"product_name": prodName, "installment_no": d.InstallmentNo,
+				"due_date": d.DueDate.Format("2006-01-02"), "amount": d.Amount, "fine": d.Fine,
+				"days_overdue": int(time.Since(d.DueDate).Hours() / 24),
+				"total_installments": plan.NumberOfInstallments, "paid_count": paidCount,
+				"remaining": planRemaining, "total_amount": plan.TotalAmount,
+				"down_payment": plan.DownPayment, "created_at": plan.CreatedAt.Format("2006-01-02"),
+			})
 		}
 	}
 
@@ -1193,89 +437,74 @@ func (h *DashboardHandler) TodayDueDetails(w http.ResponseWriter, r *http.Reques
 	}
 
 	todayStart, todayEnd := todayRange()
+	pipeline := mongo.Pipeline{
+		{{Key: "$match", Value: bson.D{{Key: "status", Value: bson.M{"$in": []string{"active", "Active", "Open"}}}}}},
+		{{Key: "$lookup", Value: bson.D{{Key: "from", Value: "customers"}, {Key: "localField", Value: "customerid"}, {Key: "foreignField", Value: "_id"}, {Key: "as", Value: "customer"}}}},
+		{{Key: "$lookup", Value: bson.D{{Key: "from", Value: "products"}, {Key: "localField", Value: "productid"}, {Key: "foreignField", Value: "_id"}, {Key: "as", Value: "product"}}}},
+		{{Key: "$lookup", Value: bson.D{{Key: "from", Value: "payments"}, {Key: "localField", Value: "_id"}, {Key: "foreignField", Value: "installmentplanid"}, {Key: "as", Value: "payments"}}}},
+	}
 
-	cursor, err := db.Collection("installment_plans").Find(nil, bson.M{
-		"status": bson.M{"$in": []string{"active", "Active", "Open"}},
-	})
+	cursor, err := db.Collection("installment_plans").Aggregate(ctx(), pipeline)
 	if err != nil {
 		respondJSON(w, http.StatusOK, []interface{}{})
 		return
 	}
-	defer cursor.Close(nil)
+	defer cursor.Close(ctx())
 
 	var result []map[string]interface{}
-	for cursor.Next(nil) {
-		var plan domain.InstallmentPlan
-		if cursor.Decode(&plan) != nil {
+	for cursor.Next(ctx()) {
+		var plan struct {
+			ID                   string               `bson:"_id"`
+			CustomerID           string               `bson:"customerid"`
+			ProductID            string               `bson:"productid"`
+			TotalAmount          float64              `bson:"totalamount"`
+			DownPayment          float64              `bson:"downpayment"`
+			NumberOfInstallments int                  `bson:"numberofinstallments"`
+			Installments         []domain.InstallmentDetail `bson:"installments"`
+			Customer             []domain.Customer    `bson:"customer"`
+			Product              []domain.Product     `bson:"product"`
+			Payments             []domain.Payment     `bson:"payments"`
+			CreatedAt            time.Time            `bson:"createdat"`
+		}
+		if cursor.Decode(&plan) != nil || len(plan.Customer) == 0 {
 			continue
 		}
-		cust := getCustomer(db, plan.CustomerID)
-		if cust == nil {
-			continue
+		cust := plan.Customer[0]
+		var prodName string
+		if len(plan.Product) > 0 {
+			prodName = plan.Product[0].Name
 		}
 
-		var prodName string
-		if plan.ProductID != "" {
-			prod := getProduct(db, plan.ProductID)
-			if prod != nil {
-				prodName = prod.Name
+		totalPaidOnPlan := 0.0
+		for _, pay := range plan.Payments {
+			totalPaidOnPlan += pay.Amount
+		}
+		planRemaining := plan.TotalAmount - plan.DownPayment - totalPaidOnPlan
+		if planRemaining < 0 {
+			planRemaining = 0
+		}
+
+		paidCount := 0
+		for _, inst := range plan.Installments {
+			if inst.Paid {
+				paidCount++
 			}
 		}
 
 		for _, d := range plan.Installments {
-			if d.Paid {
+			if d.Paid || d.DueDate.Before(todayStart) || d.DueDate.After(todayEnd) {
 				continue
 			}
-			if d.DueDate.Before(todayStart) || d.DueDate.After(todayEnd) {
-				continue
-			}
-
-			totalPaidOnPlan := 0.0
-			payC, _ := db.Collection("payments").Find(nil, bson.M{"installmentplanid": plan.ID})
-			if payC != nil {
-				for payC.Next(nil) {
-					var pay domain.Payment
-					if payC.Decode(&pay) == nil {
-						totalPaidOnPlan += pay.Amount
-					}
-				}
-				payC.Close(nil)
-			}
-			planRemaining := plan.TotalAmount - plan.DownPayment - totalPaidOnPlan
-			if planRemaining < 0 {
-				planRemaining = 0
-			}
-
-			paidCount := 0
-			for _, inst := range plan.Installments {
-				if inst.Paid {
-					paidCount++
-				}
-			}
-
-			item := map[string]interface{}{
-				"plan_id":             plan.ID,
-				"customer_id":         cust.ID,
-				"customer_name":       cust.Name,
-				"customer_urdu":       cust.NameUrdu,
-				"father_name":         cust.FatherName,
-				"phone":               cust.Phone,
-				"cnic":                cust.CNIC,
-				"address":             cust.Address,
-				"address_urdu":        cust.AddressUrdu,
-				"product_name":        prodName,
-				"installment_no":      d.InstallmentNo,
-				"due_date":            d.DueDate.Format("2006-01-02"),
-				"amount":              d.Amount,
-				"fine":                d.Fine,
-				"total_installments":  plan.NumberOfInstallments,
-				"paid_count":          paidCount,
-				"remaining":           planRemaining,
-				"total_amount":        plan.TotalAmount,
-				"down_payment":        plan.DownPayment,
-				"created_at":          plan.CreatedAt.Format("2006-01-02"),
-			}
-			result = append(result, item)
+			result = append(result, map[string]interface{}{
+				"plan_id": plan.ID, "customer_id": cust.ID, "customer_name": cust.Name,
+				"customer_urdu": cust.NameUrdu, "father_name": cust.FatherName, "phone": cust.Phone,
+				"cnic": cust.CNIC, "address": cust.Address, "address_urdu": cust.AddressUrdu,
+				"product_name": prodName, "installment_no": d.InstallmentNo,
+				"due_date": d.DueDate.Format("2006-01-02"), "amount": d.Amount, "fine": d.Fine,
+				"total_installments": plan.NumberOfInstallments, "paid_count": paidCount,
+				"remaining": planRemaining, "total_amount": plan.TotalAmount,
+				"down_payment": plan.DownPayment, "created_at": plan.CreatedAt.Format("2006-01-02"),
+			})
 		}
 	}
 
@@ -1296,32 +525,23 @@ func (h *DashboardHandler) LowStockDetails(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	cursor, err := db.Collection("products").Find(nil, bson.M{})
+	cursor, err := db.Collection("products").Find(ctx(), bson.M{"stockcount": bson.M{"$lte": 5}})
 	if err != nil {
 		respondJSON(w, http.StatusOK, []interface{}{})
 		return
 	}
-	defer cursor.Close(nil)
+	defer cursor.Close(ctx())
 
 	var result []map[string]interface{}
-	for cursor.Next(nil) {
+	for cursor.Next(ctx()) {
 		var prod domain.Product
 		if cursor.Decode(&prod) != nil {
 			continue
 		}
-		if prod.StockCount > 5 {
-			continue
-		}
-
 		result = append(result, map[string]interface{}{
-			"id":                 prod.ID,
-			"name":               prod.Name,
-			"name_urdu":          prod.NameUrdu,
-			"category":           prod.Category,
-			"stock_quantity":     prod.StockCount,
-			"low_stock_threshold": 5,
-			"purchase_price":     prod.PurchasePrice,
-			"price":              prod.Price,
+			"id": prod.ID, "name": prod.Name, "name_urdu": prod.NameUrdu,
+			"category": prod.Category, "stock_quantity": prod.StockCount,
+			"low_stock_threshold": 5, "purchase_price": prod.PurchasePrice, "price": prod.Price,
 		})
 	}
 
@@ -1343,89 +563,74 @@ func (h *DashboardHandler) MonthlyDueDetails(w http.ResponseWriter, r *http.Requ
 	}
 
 	monthStart, monthEnd := monthRange()
+	pipeline := mongo.Pipeline{
+		{{Key: "$match", Value: bson.D{{Key: "status", Value: bson.M{"$in": []string{"active", "Active", "Open"}}}}}},
+		{{Key: "$lookup", Value: bson.D{{Key: "from", Value: "customers"}, {Key: "localField", Value: "customerid"}, {Key: "foreignField", Value: "_id"}, {Key: "as", Value: "customer"}}}},
+		{{Key: "$lookup", Value: bson.D{{Key: "from", Value: "products"}, {Key: "localField", Value: "productid"}, {Key: "foreignField", Value: "_id"}, {Key: "as", Value: "product"}}}},
+		{{Key: "$lookup", Value: bson.D{{Key: "from", Value: "payments"}, {Key: "localField", Value: "_id"}, {Key: "foreignField", Value: "installmentplanid"}, {Key: "as", Value: "payments"}}}},
+	}
 
-	cursor, err := db.Collection("installment_plans").Find(nil, bson.M{
-		"status": bson.M{"$in": []string{"active", "Active", "Open"}},
-	})
+	cursor, err := db.Collection("installment_plans").Aggregate(ctx(), pipeline)
 	if err != nil {
 		respondJSON(w, http.StatusOK, []interface{}{})
 		return
 	}
-	defer cursor.Close(nil)
+	defer cursor.Close(ctx())
 
 	var result []map[string]interface{}
-	for cursor.Next(nil) {
-		var plan domain.InstallmentPlan
-		if cursor.Decode(&plan) != nil {
+	for cursor.Next(ctx()) {
+		var plan struct {
+			ID                   string               `bson:"_id"`
+			CustomerID           string               `bson:"customerid"`
+			ProductID            string               `bson:"productid"`
+			TotalAmount          float64              `bson:"totalamount"`
+			DownPayment          float64              `bson:"downpayment"`
+			NumberOfInstallments int                  `bson:"numberofinstallments"`
+			Installments         []domain.InstallmentDetail `bson:"installments"`
+			Customer             []domain.Customer    `bson:"customer"`
+			Product              []domain.Product     `bson:"product"`
+			Payments             []domain.Payment     `bson:"payments"`
+			CreatedAt            time.Time            `bson:"createdat"`
+		}
+		if cursor.Decode(&plan) != nil || len(plan.Customer) == 0 {
 			continue
 		}
-		cust := getCustomer(db, plan.CustomerID)
-		if cust == nil {
-			continue
+		cust := plan.Customer[0]
+		var prodName string
+		if len(plan.Product) > 0 {
+			prodName = plan.Product[0].Name
 		}
 
-		var prodName string
-		if plan.ProductID != "" {
-			prod := getProduct(db, plan.ProductID)
-			if prod != nil {
-				prodName = prod.Name
+		totalPaidOnPlan := 0.0
+		for _, pay := range plan.Payments {
+			totalPaidOnPlan += pay.Amount
+		}
+		planRemaining := plan.TotalAmount - plan.DownPayment - totalPaidOnPlan
+		if planRemaining < 0 {
+			planRemaining = 0
+		}
+
+		paidCount := 0
+		for _, inst := range plan.Installments {
+			if inst.Paid {
+				paidCount++
 			}
 		}
 
 		for _, d := range plan.Installments {
-			if d.Paid {
+			if d.Paid || d.DueDate.Before(monthStart) || d.DueDate.After(monthEnd) {
 				continue
 			}
-			if d.DueDate.Before(monthStart) || d.DueDate.After(monthEnd) {
-				continue
-			}
-
-			totalPaidOnPlan := 0.0
-			payC, _ := db.Collection("payments").Find(nil, bson.M{"installmentplanid": plan.ID})
-			if payC != nil {
-				for payC.Next(nil) {
-					var pay domain.Payment
-					if payC.Decode(&pay) == nil {
-						totalPaidOnPlan += pay.Amount
-					}
-				}
-				payC.Close(nil)
-			}
-			planRemaining := plan.TotalAmount - plan.DownPayment - totalPaidOnPlan
-			if planRemaining < 0 {
-				planRemaining = 0
-			}
-
-			paidCount := 0
-			for _, inst := range plan.Installments {
-				if inst.Paid {
-					paidCount++
-				}
-			}
-
-			item := map[string]interface{}{
-				"plan_id":             plan.ID,
-				"customer_id":         cust.ID,
-				"customer_name":       cust.Name,
-				"customer_urdu":       cust.NameUrdu,
-				"father_name":         cust.FatherName,
-				"phone":               cust.Phone,
-				"cnic":                cust.CNIC,
-				"address":             cust.Address,
-				"address_urdu":        cust.AddressUrdu,
-				"product_name":        prodName,
-				"installment_no":      d.InstallmentNo,
-				"due_date":            d.DueDate.Format("2006-01-02"),
-				"amount":              d.Amount,
-				"fine":                d.Fine,
-				"total_installments":  plan.NumberOfInstallments,
-				"paid_count":          paidCount,
-				"remaining":           planRemaining,
-				"total_amount":        plan.TotalAmount,
-				"down_payment":        plan.DownPayment,
-				"created_at":          plan.CreatedAt.Format("2006-01-02"),
-			}
-			result = append(result, item)
+			result = append(result, map[string]interface{}{
+				"plan_id": plan.ID, "customer_id": cust.ID, "customer_name": cust.Name,
+				"customer_urdu": cust.NameUrdu, "father_name": cust.FatherName, "phone": cust.Phone,
+				"cnic": cust.CNIC, "address": cust.Address, "address_urdu": cust.AddressUrdu,
+				"product_name": prodName, "installment_no": d.InstallmentNo,
+				"due_date": d.DueDate.Format("2006-01-02"), "amount": d.Amount, "fine": d.Fine,
+				"total_installments": plan.NumberOfInstallments, "paid_count": paidCount,
+				"remaining": planRemaining, "total_amount": plan.TotalAmount,
+				"down_payment": plan.DownPayment, "created_at": plan.CreatedAt.Format("2006-01-02"),
+			})
 		}
 	}
 
@@ -1446,44 +651,48 @@ func (h *DashboardHandler) ActiveInstallments(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	cursor, err := db.Collection("installment_plans").Find(nil, bson.M{
-		"status": bson.M{"$in": []string{"active", "Active", "Open"}},
-	})
+	pipeline := mongo.Pipeline{
+		{{Key: "$match", Value: bson.D{{Key: "status", Value: bson.M{"$in": []string{"active", "Active", "Open"}}}}}},
+		{{Key: "$lookup", Value: bson.D{{Key: "from", Value: "customers"}, {Key: "localField", Value: "customerid"}, {Key: "foreignField", Value: "_id"}, {Key: "as", Value: "customer"}}}},
+		{{Key: "$lookup", Value: bson.D{{Key: "from", Value: "products"}, {Key: "localField", Value: "productid"}, {Key: "foreignField", Value: "_id"}, {Key: "as", Value: "product"}}}},
+		{{Key: "$lookup", Value: bson.D{{Key: "from", Value: "payments"}, {Key: "localField", Value: "_id"}, {Key: "foreignField", Value: "installmentplanid"}, {Key: "as", Value: "payments"}}}},
+	}
+
+	cursor, err := db.Collection("installment_plans").Aggregate(ctx(), pipeline)
 	if err != nil {
 		respondJSON(w, http.StatusOK, []interface{}{})
 		return
 	}
-	defer cursor.Close(nil)
+	defer cursor.Close(ctx())
 
 	var result []map[string]interface{}
-	for cursor.Next(nil) {
-		var plan domain.InstallmentPlan
-		if cursor.Decode(&plan) != nil {
+	for cursor.Next(ctx()) {
+		var plan struct {
+			ID                   string               `bson:"_id"`
+			CustomerID           string               `bson:"customerid"`
+			ProductID            string               `bson:"productid"`
+			TotalAmount          float64              `bson:"totalamount"`
+			DownPayment          float64              `bson:"downpayment"`
+			NumberOfInstallments int                  `bson:"numberofinstallments"`
+			Installments         []domain.InstallmentDetail `bson:"installments"`
+			Customer             []domain.Customer    `bson:"customer"`
+			Product              []domain.Product     `bson:"product"`
+			Payments             []domain.Payment     `bson:"payments"`
+			CreatedAt            time.Time            `bson:"createdat"`
+			Status               string               `bson:"status"`
+		}
+		if cursor.Decode(&plan) != nil || len(plan.Customer) == 0 {
 			continue
 		}
-		cust := getCustomer(db, plan.CustomerID)
-		if cust == nil {
-			continue
-		}
-
+		cust := plan.Customer[0]
 		var prodName string
-		if plan.ProductID != "" {
-			prod := getProduct(db, plan.ProductID)
-			if prod != nil {
-				prodName = prod.Name
-			}
+		if len(plan.Product) > 0 {
+			prodName = plan.Product[0].Name
 		}
 
 		totalPaidOnPlan := 0.0
-		payC, _ := db.Collection("payments").Find(nil, bson.M{"installmentplanid": plan.ID})
-		if payC != nil {
-			for payC.Next(nil) {
-				var pay domain.Payment
-				if payC.Decode(&pay) == nil {
-					totalPaidOnPlan += pay.Amount
-				}
-			}
-			payC.Close(nil)
+		for _, pay := range plan.Payments {
+			totalPaidOnPlan += pay.Amount
 		}
 		planRemaining := plan.TotalAmount - plan.DownPayment - totalPaidOnPlan
 		if planRemaining < 0 {
@@ -1503,26 +712,14 @@ func (h *DashboardHandler) ActiveInstallments(w http.ResponseWriter, r *http.Req
 		}
 
 		result = append(result, map[string]interface{}{
-			"plan_id":              plan.ID,
-			"customer_id":          cust.ID,
-			"customer_name":        cust.Name,
-			"customer_urdu":        cust.NameUrdu,
-			"father_name":          cust.FatherName,
-			"phone":                cust.Phone,
-			"cnic":                 cust.CNIC,
-			"address":              cust.Address,
-			"address_urdu":         cust.AddressUrdu,
-			"product_name":         prodName,
-			"total_amount":         plan.TotalAmount,
-			"down_payment":         plan.DownPayment,
-			"paid_amount":          totalPaidOnPlan,
-			"remaining":            planRemaining,
-			"total_installments":   plan.NumberOfInstallments,
-			"paid_installments":    paidCount,
-			"overdue_installments": overdueCount,
-			"status":               plan.Status,
-			"created_at":           plan.CreatedAt.Format("2006-01-02"),
-			"created_by":           plan.CreatedBy,
+			"plan_id": plan.ID, "customer_id": cust.ID, "customer_name": cust.Name,
+			"customer_urdu": cust.NameUrdu, "father_name": cust.FatherName, "phone": cust.Phone,
+			"cnic": cust.CNIC, "address": cust.Address, "address_urdu": cust.AddressUrdu,
+			"product_name": prodName, "total_amount": plan.TotalAmount, "down_payment": plan.DownPayment,
+			"paid_amount": totalPaidOnPlan, "remaining": planRemaining,
+			"total_installments": plan.NumberOfInstallments, "paid_installments": paidCount,
+			"overdue_installments": overdueCount, "status": plan.Status,
+			"created_at": plan.CreatedAt.Format("2006-01-02"),
 		})
 	}
 
@@ -1543,44 +740,50 @@ func (h *DashboardHandler) CompletedInstallments(w http.ResponseWriter, r *http.
 		return
 	}
 
-	cursor, err := db.Collection("installment_plans").Find(nil, bson.M{
-		"status": bson.M{"$in": []string{"completed", "Completed", "Closed", "paid"}},
-	})
+	pipeline := mongo.Pipeline{
+		{{Key: "$match", Value: bson.D{{Key: "status", Value: bson.M{"$in": []string{"completed", "Completed", "Closed", "paid"}}}}}},
+		{{Key: "$lookup", Value: bson.D{{Key: "from", Value: "customers"}, {Key: "localField", Value: "customerid"}, {Key: "foreignField", Value: "_id"}, {Key: "as", Value: "customer"}}}},
+		{{Key: "$lookup", Value: bson.D{{Key: "from", Value: "products"}, {Key: "localField", Value: "productid"}, {Key: "foreignField", Value: "_id"}, {Key: "as", Value: "product"}}}},
+		{{Key: "$lookup", Value: bson.D{{Key: "from", Value: "payments"}, {Key: "localField", Value: "_id"}, {Key: "foreignField", Value: "installmentplanid"}, {Key: "as", Value: "payments"}}}},
+	}
+
+	cursor, err := db.Collection("installment_plans").Aggregate(ctx(), pipeline)
 	if err != nil {
 		respondJSON(w, http.StatusOK, []interface{}{})
 		return
 	}
-	defer cursor.Close(nil)
+	defer cursor.Close(ctx())
 
 	var result []map[string]interface{}
-	for cursor.Next(nil) {
-		var plan domain.InstallmentPlan
-		if cursor.Decode(&plan) != nil {
+	for cursor.Next(ctx()) {
+		var plan struct {
+			ID                   string               `bson:"_id"`
+			CustomerID           string               `bson:"customerid"`
+			ProductID            string               `bson:"productid"`
+			TotalAmount          float64              `bson:"totalamount"`
+			DownPayment          float64              `bson:"downpayment"`
+			NumberOfInstallments int                  `bson:"numberofinstallments"`
+			Installments         []domain.InstallmentDetail `bson:"installments"`
+			Customer             []domain.Customer    `bson:"customer"`
+			Product              []domain.Product     `bson:"product"`
+			Payments             []domain.Payment     `bson:"payments"`
+			CreatedAt            time.Time            `bson:"createdat"`
+			UpdatedAt            time.Time            `bson:"updatedat"`
+			CompletedDate        *time.Time           `bson:"completeddate"`
+			Status               string               `bson:"status"`
+		}
+		if cursor.Decode(&plan) != nil || len(plan.Customer) == 0 {
 			continue
 		}
-		cust := getCustomer(db, plan.CustomerID)
-		if cust == nil {
-			continue
-		}
-
+		cust := plan.Customer[0]
 		var prodName string
-		if plan.ProductID != "" {
-			prod := getProduct(db, plan.ProductID)
-			if prod != nil {
-				prodName = prod.Name
-			}
+		if len(plan.Product) > 0 {
+			prodName = plan.Product[0].Name
 		}
 
 		totalPaidOnPlan := 0.0
-		payC, _ := db.Collection("payments").Find(nil, bson.M{"installmentplanid": plan.ID})
-		if payC != nil {
-			for payC.Next(nil) {
-				var pay domain.Payment
-				if payC.Decode(&pay) == nil {
-					totalPaidOnPlan += pay.Amount
-				}
-			}
-			payC.Close(nil)
+		for _, pay := range plan.Payments {
+			totalPaidOnPlan += pay.Amount
 		}
 
 		paidCount := 0
@@ -1598,25 +801,13 @@ func (h *DashboardHandler) CompletedInstallments(w http.ResponseWriter, r *http.
 		}
 
 		result = append(result, map[string]interface{}{
-			"plan_id":             plan.ID,
-			"customer_id":         cust.ID,
-			"customer_name":       cust.Name,
-			"customer_urdu":       cust.NameUrdu,
-			"father_name":         cust.FatherName,
-			"phone":               cust.Phone,
-			"cnic":                cust.CNIC,
-			"address":             cust.Address,
-			"address_urdu":        cust.AddressUrdu,
-			"product_name":        prodName,
-			"total_amount":        plan.TotalAmount,
-			"down_payment":        plan.DownPayment,
-			"paid_amount":         totalPaidOnPlan,
-			"total_installments":  plan.NumberOfInstallments,
-			"paid_installments":   paidCount,
-			"status":              plan.Status,
-			"created_at":          plan.CreatedAt.Format("2006-01-02"),
-			"completed_at":        completedAt,
-			"created_by":          plan.CreatedBy,
+			"plan_id": plan.ID, "customer_id": cust.ID, "customer_name": cust.Name,
+			"customer_urdu": cust.NameUrdu, "father_name": cust.FatherName, "phone": cust.Phone,
+			"cnic": cust.CNIC, "address": cust.Address, "address_urdu": cust.AddressUrdu,
+			"product_name": prodName, "total_amount": plan.TotalAmount, "down_payment": plan.DownPayment,
+			"paid_amount": totalPaidOnPlan, "total_installments": plan.NumberOfInstallments,
+			"paid_installments": paidCount, "status": plan.Status,
+			"created_at": plan.CreatedAt.Format("2006-01-02"), "completed_at": completedAt,
 		})
 	}
 
@@ -1637,74 +828,295 @@ func (h *DashboardHandler) CustomersWithFinance(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	cursor, err := db.Collection("installment_plans").Find(nil, bson.M{
-		"status": bson.M{"$in": []string{"active", "Active", "Open"}},
-	})
+	pipeline := mongo.Pipeline{
+		{{Key: "$match", Value: bson.D{{Key: "status", Value: bson.M{"$in": []string{"active", "Active", "Open"}}}}}},
+		{{Key: "$lookup", Value: bson.D{{Key: "from", Value: "customers"}, {Key: "localField", Value: "customerid"}, {Key: "foreignField", Value: "_id"}, {Key: "as", Value: "customer"}}}},
+		{{Key: "$lookup", Value: bson.D{{Key: "from", Value: "payments"}, {Key: "localField", Value: "_id"}, {Key: "foreignField", Value: "installmentplanid"}, {Key: "as", Value: "payments"}}}},
+		{{Key: "$group", Value: bson.D{
+			{Key: "_id", Value: "$customerid"},
+			{Key: "customer", Value: bson.D{{Key: "$first", Value: bson.D{{Key: "$arrayElemAt", Value: []interface{}{"$customer", 0}}}}}},
+			{Key: "total_plans", Value: bson.D{{Key: "$sum", Value: 1}}},
+			{Key: "total_amount", Value: bson.D{{Key: "$sum", Value: "$totalamount"}}},
+			{Key: "total_downpayment", Value: bson.D{{Key: "$sum", Value: "$downpayment"}}},
+			{Key: "all_payments", Value: bson.D{{Key: "$push", Value: "$payments"}}},
+		}}},
+	}
+
+	cursor, err := db.Collection("installment_plans").Aggregate(ctx(), pipeline)
 	if err != nil {
 		respondJSON(w, http.StatusOK, []interface{}{})
 		return
 	}
-	defer cursor.Close(nil)
+	defer cursor.Close(ctx())
 
-	custMap := make(map[string]map[string]interface{})
-	for cursor.Next(nil) {
-		var plan domain.InstallmentPlan
-		if cursor.Decode(&plan) != nil {
+	var result []map[string]interface{}
+	for cursor.Next(ctx()) {
+		var group struct {
+			CustomerID  string             `bson:"_id"`
+			Customer    domain.Customer    `bson:"customer"`
+			TotalPlans  int                `bson:"total_plans"`
+			TotalAmount float64            `bson:"total_amount"`
+			TotalDown   float64            `bson:"total_downpayment"`
+			AllPayments [][]domain.Payment `bson:"all_payments"`
+		}
+		if cursor.Decode(&group) != nil {
 			continue
 		}
 
-		if _, ok := custMap[plan.CustomerID]; !ok {
-			cust := getCustomer(db, plan.CustomerID)
-			if cust == nil {
-				continue
-			}
-			custMap[plan.CustomerID] = map[string]interface{}{
-				"customer_id":        cust.ID,
-				"customer_name":      cust.Name,
-				"customer_name_urdu": cust.NameUrdu,
-				"father_name":        cust.FatherName,
-				"phone":              cust.Phone,
-				"cnic":               cust.CNIC,
-				"address":            cust.Address,
-				"address_urdu":       cust.AddressUrdu,
-				"total_plans":        0,
-				"total_amount":       0.0,
-				"paid_amount":        0.0,
-				"remaining_amount":   0.0,
+		totalPaid := 0.0
+		for _, planPayments := range group.AllPayments {
+			for _, pay := range planPayments {
+				totalPaid += pay.Amount
 			}
 		}
 
-		entry := custMap[plan.CustomerID]
-		entry["total_plans"] = entry["total_plans"].(int) + 1
-		entry["total_amount"] = entry["total_amount"].(float64) + plan.TotalAmount
-
-		totalPaidOnPlan := 0.0
-		payC, _ := db.Collection("payments").Find(nil, bson.M{"installmentplanid": plan.ID})
-		if payC != nil {
-			for payC.Next(nil) {
-				var pay domain.Payment
-				if payC.Decode(&pay) == nil {
-					totalPaidOnPlan += pay.Amount
-				}
-			}
-			payC.Close(nil)
-		}
-		entry["paid_amount"] = entry["paid_amount"].(float64) + totalPaidOnPlan
-		remaining := plan.TotalAmount - plan.DownPayment - totalPaidOnPlan
+		remaining := group.TotalAmount - group.TotalDown - totalPaid
 		if remaining < 0 {
 			remaining = 0
 		}
-		entry["remaining_amount"] = entry["remaining_amount"].(float64) + remaining
+
+		result = append(result, map[string]interface{}{
+			"customer_id": group.Customer.ID, "customer_name": group.Customer.Name,
+			"customer_name_urdu": group.Customer.NameUrdu, "father_name": group.Customer.FatherName,
+			"phone": group.Customer.Phone, "cnic": group.Customer.CNIC,
+			"address": group.Customer.Address, "address_urdu": group.Customer.AddressUrdu,
+			"total_plans": group.TotalPlans, "total_amount": group.TotalAmount,
+			"paid_amount": totalPaid, "remaining_amount": remaining,
+		})
 	}
 
-	var result []map[string]interface{}
-	for _, v := range custMap {
-		result = append(result, v)
-	}
 	if result == nil {
 		result = []map[string]interface{}{}
 	}
 	respondJSON(w, http.StatusOK, result)
 }
 
+// ═══════════════════════════════════════════════════════════════
+// TODAY INSTALLMENTS
+// ═══════════════════════════════════════════════════════════════
 
+func (h *DashboardHandler) TodayInstallments(w http.ResponseWriter, r *http.Request) {
+	db := getDB()
+	if db == nil {
+		respondJSON(w, http.StatusOK, []interface{}{})
+		return
+	}
+
+	todayStart, todayEnd := todayRange()
+	pipeline := mongo.Pipeline{
+		{{Key: "$match", Value: bson.D{{Key: "status", Value: bson.M{"$in": []string{"active", "Active", "Open"}}}}}},
+		{{Key: "$lookup", Value: bson.D{{Key: "from", Value: "customers"}, {Key: "localField", Value: "customerid"}, {Key: "foreignField", Value: "_id"}, {Key: "as", Value: "customer"}}}},
+		{{Key: "$lookup", Value: bson.D{{Key: "from", Value: "products"}, {Key: "localField", Value: "productid"}, {Key: "foreignField", Value: "_id"}, {Key: "as", Value: "product"}}}},
+		{{Key: "$lookup", Value: bson.D{{Key: "from", Value: "payments"}, {Key: "localField", Value: "_id"}, {Key: "foreignField", Value: "installmentplanid"}, {Key: "as", Value: "payments"}}}},
+	}
+
+	cursor, err := db.Collection("installment_plans").Aggregate(ctx(), pipeline)
+	if err != nil {
+		respondJSON(w, http.StatusOK, []interface{}{})
+		return
+	}
+	defer cursor.Close(ctx())
+
+	var result []map[string]interface{}
+	for cursor.Next(ctx()) {
+		var plan struct {
+			ID                   string               `bson:"_id"`
+			CustomerID           string               `bson:"customerid"`
+			ProductID            string               `bson:"productid"`
+			TotalAmount          float64              `bson:"totalamount"`
+			DownPayment          float64              `bson:"downpayment"`
+			NumberOfInstallments int                  `bson:"numberofinstallments"`
+			Installments         []domain.InstallmentDetail `bson:"installments"`
+			Customer             []domain.Customer    `bson:"customer"`
+			Product              []domain.Product     `bson:"product"`
+			Payments             []domain.Payment     `bson:"payments"`
+			CreatedAt            time.Time            `bson:"createdat"`
+		}
+		if cursor.Decode(&plan) != nil || len(plan.Customer) == 0 {
+			continue
+		}
+		cust := plan.Customer[0]
+		var prodName string
+		if len(plan.Product) > 0 {
+			prodName = plan.Product[0].Name
+		}
+
+		totalPaidOnPlan := 0.0
+		for _, pay := range plan.Payments {
+			totalPaidOnPlan += pay.Amount
+		}
+		planRemaining := plan.TotalAmount - plan.DownPayment - totalPaidOnPlan
+		if planRemaining < 0 {
+			planRemaining = 0
+		}
+
+		paidCount := 0
+		for _, inst := range plan.Installments {
+			if inst.Paid {
+				paidCount++
+			}
+		}
+
+		for _, d := range plan.Installments {
+			if d.Paid || d.DueDate.Before(todayStart) || d.DueDate.After(todayEnd) {
+				continue
+			}
+			result = append(result, map[string]interface{}{
+				"plan_id": plan.ID, "customer_id": cust.ID, "customer_name": cust.Name,
+				"customer_urdu": cust.NameUrdu, "father_name": cust.FatherName, "phone": cust.Phone,
+				"cnic": cust.CNIC, "address": cust.Address, "address_urdu": cust.AddressUrdu,
+				"product_name": prodName, "installment_no": d.InstallmentNo,
+				"due_date": d.DueDate.Format("2006-01-02"), "amount": d.Amount, "fine": d.Fine,
+				"total_installments": plan.NumberOfInstallments, "paid_count": paidCount,
+				"remaining": planRemaining, "total_amount": plan.TotalAmount,
+				"down_payment": plan.DownPayment, "created_at": plan.CreatedAt.Format("2006-01-02"),
+			})
+		}
+	}
+
+	if result == nil {
+		result = []map[string]interface{}{}
+	}
+	respondJSON(w, http.StatusOK, result)
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TODAY INSTALLMENT STATS
+// ═══════════════════════════════════════════════════════════════
+
+func (h *DashboardHandler) TodayInstallmentStats(w http.ResponseWriter, r *http.Request) {
+	db := getDB()
+	if db == nil {
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"total_due": 0, "total_collected": 0, "total_pending": 0,
+			"collected_count": 0, "pending_count": 0,
+		})
+		return
+	}
+
+	todayStart, todayEnd := todayRange()
+	pipeline := mongo.Pipeline{
+		{{Key: "$match", Value: bson.D{{Key: "status", Value: bson.M{"$in": []string{"active", "Active", "Open"}}}}}},
+		{{Key: "$unwind", Value: "$installments"}},
+		{{Key: "$match", Value: bson.D{{Key: "installments.duedate", Value: bson.D{{Key: "$gte", Value: todayStart}, {Key: "$lt", Value: todayEnd}}}}}},
+		{{Key: "$group", Value: bson.D{
+			{Key: "_id", Value: bson.D{{Key: "$cond", Value: []interface{}{"$installments.paid", "collected", "pending"}}}},
+			{Key: "total", Value: bson.D{{Key: "$sum", Value: "$installments.amount"}}},
+			{Key: "count", Value: bson.D{{Key: "$sum", Value: 1}}},
+		}}},
+	}
+
+	cursor, err := db.Collection("installment_plans").Aggregate(ctx(), pipeline)
+	totalDue := 0.0
+	totalCollected := 0.0
+	totalPending := 0.0
+	collectedCount := 0
+	pendingCount := 0
+
+	if err == nil {
+		for cursor.Next(ctx()) {
+			var res struct {
+				ID    string  `bson:"_id"`
+				Total float64 `bson:"total"`
+				Count int     `bson:"count"`
+			}
+			if cursor.Decode(&res) == nil {
+				totalDue += res.Total
+				if res.ID == "collected" {
+					totalCollected = res.Total
+					collectedCount = res.Count
+				} else {
+					totalPending = res.Total
+					pendingCount = res.Count
+				}
+			}
+		}
+		cursor.Close(ctx())
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"total_due": totalDue, "total_collected": totalCollected,
+		"total_pending": totalPending, "collected_count": collectedCount,
+		"pending_count": pendingCount,
+	})
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MONTHLY REPORT
+// ═══════════════════════════════════════════════════════════════
+
+func (h *DashboardHandler) MonthlyReport(w http.ResponseWriter, r *http.Request) {
+	db := getDB()
+	if db == nil {
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"total_collection": 0, "total_expenses": 0, "net_profit": 0,
+			"daily_data": []interface{}{},
+		})
+		return
+	}
+
+	monthStart, monthEnd := monthRange()
+
+	dailyPipe := mongo.Pipeline{
+		{{Key: "$match", Value: bson.D{{Key: "transactiondate", Value: bson.D{{Key: "$gte", Value: monthStart}, {Key: "$lt", Value: monthEnd}}}}}},
+		{{Key: "$group", Value: bson.D{
+			{Key: "_id", Value: bson.D{{Key: "$dateToString", Value: bson.D{{Key: "format", Value: "%Y-%m-%d"}, {Key: "date", Value: "$transactiondate"}}}}},
+			{Key: "total", Value: bson.D{{Key: "$sum", Value: "$amount"}}},
+			{Key: "profit", Value: bson.D{{Key: "$sum", Value: "$profit"}}},
+			{Key: "count", Value: bson.D{{Key: "$sum", Value: 1}}},
+		}}},
+		{{Key: "$sort", Value: bson.D{{Key: "_id", Value: 1}}}},
+	}
+
+	dailyCur, err := db.Collection("payments").Aggregate(ctx(), dailyPipe)
+	dailyData := []map[string]interface{}{}
+	totalCollection := 0.0
+	totalProfit := 0.0
+
+	if err == nil {
+		for dailyCur.Next(ctx()) {
+			var res struct {
+				Date   string  `bson:"_id"`
+				Total  float64 `bson:"total"`
+				Profit float64 `bson:"profit"`
+				Count  int     `bson:"count"`
+			}
+			if dailyCur.Decode(&res) == nil {
+				totalCollection += res.Total
+				totalProfit += res.Profit
+				dailyData = append(dailyData, map[string]interface{}{
+					"date": res.Date, "total": res.Total,
+					"profit": res.Profit, "count": res.Count,
+				})
+			}
+		}
+		dailyCur.Close(ctx())
+	}
+
+	totalExpenses := 0.0
+	expensePipe := mongo.Pipeline{
+		{{Key: "$match", Value: bson.D{{Key: "date", Value: bson.D{{Key: "$gte", Value: monthStart}, {Key: "$lt", Value: monthEnd}}}}}},
+		{{Key: "$group", Value: bson.D{{Key: "_id", Value: nil}, {Key: "total", Value: bson.D{{Key: "$sum", Value: "$amount"}}}}}},
+	}
+	expenseCur, err := db.Collection("expenses").Aggregate(ctx(), expensePipe)
+	if err == nil {
+		if expenseCur.Next(ctx()) {
+			var res struct{ Total float64 `bson:"total"` }
+			if expenseCur.Decode(&res) == nil {
+				totalExpenses = res.Total
+			}
+		}
+		expenseCur.Close(ctx())
+	}
+
+	if dailyData == nil {
+		dailyData = []map[string]interface{}{}
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"total_collection": totalCollection,
+		"total_expenses":   totalExpenses,
+		"net_profit":       totalProfit - totalExpenses,
+		"daily_data":       dailyData,
+	})
+}
