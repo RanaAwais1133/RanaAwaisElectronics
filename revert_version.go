@@ -94,9 +94,10 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 	todayCollectionCount := 0
 	todayProfit := 0.0
 	_ = todayCollectionCount
+	_ = todayProfit
 	payPipe := mongo.Pipeline{
 		{{Key: "$match", Value: bson.D{{Key: "transactiondate", Value: bson.D{{Key: "$gte", Value: todayStart}, {Key: "$lt", Value: todayEnd}}}}}},
-		{{Key: "$group", Value: bson.D{{Key: "_id", Value: nil}, {Key: "total", Value: bson.D{{Key: "$sum", Value: "$amount"}}}, {Key: "count", Value: bson.D{{Key: "$sum", Value: 1}}}}}},
+		{{Key: "$group", Value: bson.D{{Key: "_id", Value: nil}, {Key: "total", Value: bson.D{{Key: "$sum", Value: "$amount"}}}, {Key: "count", Value: bson.D{{Key: "$sum", Value: 1}}}, {Key: "profit", Value: bson.D{{Key: "$sum", Value: "$profit"}}}}}},
 	}
 	payCur, err := db.Collection("payments").Aggregate(ctx(), payPipe)
 	if err == nil {
@@ -104,18 +105,16 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 			var res struct {
 				Total  float64 `bson:"total"`
 				Count  int     `bson:"count"`
+				Profit float64 `bson:"profit"`
 			}
 			if payCur.Decode(&res) == nil {
 				todayCollectionTotal = res.Total
 				todayCollectionCount = res.Count
+				todayProfit = res.Profit
 			}
 		}
 		payCur.Close(ctx())
 	}
-
-	// Calculate today's profit using the accounting handler's method
-	// This properly looks up purchase prices from products
-	todayProfit = calculateTodayProfitFromPayments(db, todayStart, todayEnd)
 
 	// PIPELINE 2: Total customers
 	totalCustomers := int64(0)
@@ -129,18 +128,18 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 		newCustomers = count
 	}
 
-	// PIPELINE 4: Total profit - calculated properly using calculatePaymentProfit
+	// PIPELINE 4: Total profit
 	totalProfit := 0.0
-	// Get all payments and calculate profit for each
-	allPayCur, err := db.Collection("payments").Find(ctx(), bson.M{})
+	profitPipe := mongo.Pipeline{{{Key: "$group", Value: bson.D{{Key: "_id", Value: nil}, {Key: "total", Value: bson.D{{Key: "$sum", Value: "$profit"}}}}}}}
+	profitCur, err := db.Collection("payments").Aggregate(ctx(), profitPipe)
 	if err == nil {
-		for allPayCur.Next(ctx()) {
-			var pay domain.Payment
-			if allPayCur.Decode(&pay) == nil {
-				totalProfit += calculatePaymentProfit(pay, db)
+		if profitCur.Next(ctx()) {
+			var res struct{ Total float64 `bson:"total"` }
+			if profitCur.Decode(&res) == nil {
+				totalProfit = res.Total
 			}
 		}
-		allPayCur.Close(ctx())
+		profitCur.Close(ctx())
 	}
 
 	// PIPELINE 5: Daily breakdown (last 7 days)
@@ -358,22 +357,22 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 	monthProfit := 0.0
 	monthPayPipe := mongo.Pipeline{
 		{{Key: "$match", Value: bson.D{{Key: "transactiondate", Value: bson.D{{Key: "$gte", Value: monthStart}, {Key: "$lt", Value: monthEnd}}}}}},
-		{{Key: "$group", Value: bson.D{{Key: "_id", Value: nil}, {Key: "total", Value: bson.D{{Key: "$sum", Value: "$amount"}}}}}},
+		{{Key: "$group", Value: bson.D{{Key: "_id", Value: nil}, {Key: "total", Value: bson.D{{Key: "$sum", Value: "$amount"}}}, {Key: "profit", Value: bson.D{{Key: "$sum", Value: "$profit"}}}}}},
 	}
 	monthPayCur, err := db.Collection("payments").Aggregate(ctx(), monthPayPipe)
 	if err == nil {
 		if monthPayCur.Next(ctx()) {
 			var res struct {
 				Total  float64 `bson:"total"`
+				Profit float64 `bson:"profit"`
 			}
 			if monthPayCur.Decode(&res) == nil {
 				monthRevenue = res.Total
+				monthProfit = res.Profit
 			}
 		}
 		monthPayCur.Close(ctx())
 	}
-	// Calculate month profit properly using calculatePaymentProfit
-	monthProfit = calculateTodayProfitFromPayments(db, monthStart, monthEnd)
 
 	// Active & completed installments count
 	activeInstallments := int64(0)
@@ -490,32 +489,6 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 		"lowStock":          lowStock,
 		"monthlyDueCount":   monthlyDueCount,
 	})
-}
-
-// ═══════════════════════════════════════════════════════════════
-// calculateTodayProfitFromPayments - properly calculates profit
-// by looking up each payment's installment plan and product purchase price
-// ═══════════════════════════════════════════════════════════════
-
-func calculateTodayProfitFromPayments(db *mongo.Database, start, end time.Time) float64 {
-	totalProfit := 0.0
-	cursor, err := db.Collection("payments").Find(ctx(), bson.M{
-		"transactiondate": bson.M{"$gte": start, "$lt": end},
-	})
-	if err != nil {
-		return 0
-	}
-	defer cursor.Close(ctx())
-
-	for cursor.Next(ctx()) {
-		var pay domain.Payment
-		if cursor.Decode(&pay) != nil {
-			continue
-		}
-		profit := calculatePaymentProfit(pay, db)
-		totalProfit += profit
-	}
-	return totalProfit
 }
 
 // ═══════════════════════════════════════════════════════════════

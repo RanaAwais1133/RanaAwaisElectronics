@@ -60,9 +60,34 @@ func calculatePaymentProfit(pay domain.Payment, db *mongo.Database) float64 {
 			}
 		}
 	}
-	// If purchase price is 0 or not found, cannot determine profit
+	// If purchase price is 0 or not found, use product price as fallback
 	if purchasePrice <= 0 {
-		return 0 // Cannot determine profit without purchase price
+		// Try to use product's selling price (price field) as a fallback
+		// If we can't find any cost basis, return 0
+		var prod domain.Product
+		if plan.ProductID != "" {
+			if err := db.Collection("products").FindOne(nil, bson.M{"_id": plan.ProductID}).Decode(&prod); err == nil {
+				if prod.Price > 0 {
+					// Use 70% of selling price as estimated cost if no purchase price
+					purchasePrice = prod.Price * 0.7
+				}
+			}
+		}
+		// If still no purchase price, check if there's an inventory item with cost
+		if purchasePrice <= 0 {
+			var inventoryItem struct {
+				PurchasePrice float64 `bson:"purchaseprice"`
+			}
+			if err := db.Collection("inventory_items").FindOne(nil, bson.M{"_id": plan.InventoryItemID}).Decode(&inventoryItem); err == nil {
+				if inventoryItem.PurchasePrice > 0 {
+					purchasePrice = inventoryItem.PurchasePrice
+				}
+			}
+		}
+		// If still no purchase price, we cannot determine profit
+		if purchasePrice <= 0 {
+			return 0
+		}
 	}
 	if plan.TotalAmount <= purchasePrice {
 		return 0 // No profit if selling price <= purchase price
@@ -78,14 +103,10 @@ func getPaymentDetailsWithProfit(db *mongo.Database, start, end time.Time) ([]ma
 	totalProfit := 0.0
 
 	// Query payments with transactiondate in range
-	// Use $or to handle both camelCase and lowercase field names
+	// Use ONLY transactiondate field to avoid pulling in payments from other dates
+	// The $or with createdat was causing payments from other days to be included
 	cursor, err := db.Collection("payments").Find(nil, bson.M{
-		"$or": []interface{}{
-			bson.M{"transactiondate": bson.M{"$gte": start, "$lt": end}},
-			bson.M{"transactionDate": bson.M{"$gte": start, "$lt": end}},
-			bson.M{"paymentdate": bson.M{"$gte": start, "$lt": end}},
-			bson.M{"createdat": bson.M{"$gte": start, "$lt": end}},
-		},
+		"transactiondate": bson.M{"$gte": start, "$lt": end},
 	})
 	if err != nil {
 		return details, totalRevenue, totalProfit
