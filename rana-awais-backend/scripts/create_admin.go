@@ -67,7 +67,7 @@ func main() {
 	}
 
 	_, err = usersColl.InsertOne(ctx, map[string]interface{}{
-		"id":           "admin-default-id",
+		"_id":          "admin-default-id",
 		"username":     username,
 		"passwordhash": string(hash),
 		"role":         "admin",

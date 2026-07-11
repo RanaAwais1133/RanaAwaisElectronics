@@ -125,30 +125,20 @@ func SetupRouter(
 			if err := cursor.Decode(&logEntry); err != nil {
 				continue
 			}
-			// Lookup user name - try MongoDB first, then SQLite
+			// Lookup user name from MongoDB users collection
 			if userID, ok := logEntry["user_id"].(string); ok && userID != "" {
 				var userName string
-				// Try MongoDB users collection
-				var user domain.User
-				err := db.Collection("users").FindOne(r.Context(), bson.M{"_id": userID}).Decode(&user)
-				if err == nil {
-					if user.DisplayName != "" {
-						userName = user.DisplayName
-					} else {
-						userName = user.Username
-					}
-				}
-				// Fallback to SQLite
-				if userName == "" && config.DB != nil {
-					row := config.DB.QueryRowContext(r.Context(),
-						"SELECT display_name, username FROM users WHERE id = ?", userID)
-					var displayName, username string
-					if err2 := row.Scan(&displayName, &username); err2 == nil {
-						if displayName != "" {
-							userName = displayName
+				// Try lookup by _id first, then by "id" (legacy)
+				for _, field := range []string{"_id", "id"} {
+					var user domain.User
+					err := db.Collection("users").FindOne(r.Context(), bson.M{field: userID}).Decode(&user)
+					if err == nil {
+						if user.DisplayName != "" {
+							userName = user.DisplayName
 						} else {
-							userName = username
+							userName = user.Username
 						}
+						break
 					}
 				}
 				if userName != "" {

@@ -312,7 +312,7 @@ func runMongoFirstTimeSetup(ctx context.Context, cfg *Config) {
 		log.Println("👤 No users found in MongoDB. Creating default admin user...")
 		hashedPassword := hashPassword(cfg.AdminPassword)
 		_, err := usersColl.InsertOne(ctx, map[string]interface{}{
-			"id":           "admin-default-id",
+			"_id":          "admin-default-id",
 			"username":     cfg.AdminUsername,
 			"passwordhash": hashedPassword,
 			"role":         "admin",
