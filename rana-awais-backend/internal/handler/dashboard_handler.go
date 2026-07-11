@@ -323,21 +323,33 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// ─────────────────────────────────────────────────────────────
-	// NEW: Calculate pendingCustomers, pendingTotal, monthRevenue, monthProfit
+	// PENDING CALCULATION: Sab active plans ki sab unpaid installments
 	// ─────────────────────────────────────────────────────────────
-
-	// Pending: total remaining amount from all active plans (not just this month)
 	pendingTotal := 0.0
 	pendingCustomersCount := 0
 	pendingCustSet := make(map[string]bool)
-	for _, entry := range allEntries {
-		if entry.Status != "collected" {
-			pendingTotal += entry.RemainingAmount
-			if !pendingCustSet[entry.CustomerID] {
-				pendingCustSet[entry.CustomerID] = true
-				pendingCustomersCount++
+
+	// Fetch all active plans again for pending calculation (sab months ki)
+	pendingCur, err := db.Collection("installment_plans").Find(ctx(), bson.M{"status": bson.M{"$in": []string{"active", "Active", "Open"}}})
+	if err == nil {
+		for pendingCur.Next(ctx()) {
+			var plan domain.InstallmentPlan
+			if pendingCur.Decode(&plan) != nil {
+				continue
+			}
+			for _, d := range plan.Installments {
+				if d.Paid {
+					continue
+				}
+				due := d.Amount + d.Fine - d.PartialPaid
+				pendingTotal += due
+				if !pendingCustSet[plan.CustomerID] {
+					pendingCustSet[plan.CustomerID] = true
+					pendingCustomersCount++
+				}
 			}
 		}
+		pendingCur.Close(ctx())
 	}
 
 	// Month revenue & profit: sum payments in this month
