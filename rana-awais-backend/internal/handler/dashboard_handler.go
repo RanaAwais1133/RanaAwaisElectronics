@@ -95,7 +95,13 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 	todayProfit := 0.0
 	_ = todayCollectionCount
 	payPipe := mongo.Pipeline{
-		{{Key: "$match", Value: bson.D{{Key: "transactiondate", Value: bson.D{{Key: "$gte", Value: todayStart}, {Key: "$lt", Value: todayEnd}}}}}},
+		{{Key: "$match", Value: bson.D{
+			{Key: "$or", Value: []bson.D{
+				{{Key: "transactiondate", Value: bson.D{{Key: "$gte", Value: todayStart}, {Key: "$lt", Value: todayEnd}}}},
+				{{Key: "transactionDate", Value: bson.D{{Key: "$gte", Value: todayStart}, {Key: "$lt", Value: todayEnd}}}},
+				{{Key: "paymentdate", Value: bson.D{{Key: "$gte", Value: todayStart}, {Key: "$lt", Value: todayEnd}}}},
+			}},
+		}}},
 		{{Key: "$group", Value: bson.D{{Key: "_id", Value: nil}, {Key: "total", Value: bson.D{{Key: "$sum", Value: "$amount"}}}, {Key: "count", Value: bson.D{{Key: "$sum", Value: 1}}}}}},
 	}
 	payCur, err := db.Collection("payments").Aggregate(ctx(), payPipe)

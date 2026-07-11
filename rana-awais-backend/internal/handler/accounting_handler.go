@@ -103,10 +103,15 @@ func getPaymentDetailsWithProfit(db *mongo.Database, start, end time.Time) ([]ma
 	totalProfit := 0.0
 
 	// Query payments with transactiondate in range
-	// Use ONLY transactiondate field to avoid pulling in payments from other dates
-	// The $or with createdat was causing payments from other days to be included
+	// Use $or to handle both camelCase and lowercase field names
+	// IMPORTANT: Do NOT include createdat in this query - that was causing
+	// payments from other dates to be included in today's collection
 	cursor, err := db.Collection("payments").Find(nil, bson.M{
-		"transactiondate": bson.M{"$gte": start, "$lt": end},
+		"$or": []interface{}{
+			bson.M{"transactiondate": bson.M{"$gte": start, "$lt": end}},
+			bson.M{"transactionDate": bson.M{"$gte": start, "$lt": end}},
+			bson.M{"paymentdate": bson.M{"$gte": start, "$lt": end}},
+		},
 	})
 	if err != nil {
 		return details, totalRevenue, totalProfit
