@@ -1247,6 +1247,17 @@ func (h *DashboardHandler) ActiveInstallments(w http.ResponseWriter, r *http.Req
 				paidCount++
 			}
 		}
+		// Count payments as installments paid (exclude down payment installment_no=0)
+		installmentPayments := 0
+		for _, pay := range plan.Payments {
+			if pay.InstallmentNo > 0 {
+				installmentPayments++
+			}
+		}
+		// Use max of paid installments vs payment count for accurate display
+		if installmentPayments > paidCount {
+			paidCount = installmentPayments
+		}
 
 		result = append(result, map[string]interface{}{
 			"plan_id": plan.ID, "customer_id": cust.ID, "customer_name": cust.Name,
