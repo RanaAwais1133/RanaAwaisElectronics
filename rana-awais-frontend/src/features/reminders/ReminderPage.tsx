@@ -236,9 +236,31 @@ const ReminderPage: React.FC = () => {
 
     const companyName = isUrdu ? (clientInfo.nameUr || clientInfo.name) : clientInfo.name;
 
+    const remainingAmt = item.remaining || (item.remaining_amount || 0);
+    const totalPaid = (item.total_amount || item.amount || 0) - remainingAmt;
+    const dueDateStr = due.toLocaleDateString(isUrdu ? 'ur-PK' : 'en-PK', { year: 'numeric', month: 'long', day: 'numeric' });
+    
     const msg = isUrdu
-      ? `${urgencyText}محترم ${item.customer_name || ''} صاحب،\n\nآپ کی قسط نمبر ${item.installment_no} (کل ${item.total_installments || '?'} میں سے) بمبلغ Rs. ${item.amount} مورخہ ${due.toLocaleDateString('ur-PK', { year: 'numeric', month: 'long', day: 'numeric' })} کو واجب الادا ہے۔\n\nباقی ماندہ اقساط: ${item.remaining_installments || '?'}\n\nبراہ کرم بروقت ادائیگی کریں تاکہ جرمانے سے بچ سکیں۔\n\nشکریہ\n${companyName}`
-      : `${urgencyText}Dear ${item.customer_name || ''},\n\nYour installment #${item.installment_no} of Rs. ${item.amount} (out of ${item.total_installments || '?'}) is due on ${due.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}.\n\nRemaining installments: ${item.remaining_installments || '?'}\n\nPlease pay on time to avoid fine.\n\nThank you,\n${companyName}`;
+      ? `${urgencyText}*محترم ${item.customer_name || ''} صاحب*،\n\n` +
+        `*${item.product_name || ''}* کی قسط نمبر *${item.installment_no}/${item.total_installments || '?'}* بمبلغ *Rs. ${Number(item.amount || 0).toLocaleString()}* مورخہ *${dueDateStr}* کو واجب الادا ہے۔\n\n` +
+        `📋 *تفصیلات:*\n` +
+        `• کل رقم: Rs. ${Number(item.total_amount || 0).toLocaleString()}\n` +
+        `• اب تک ادا شدہ: Rs. ${Number(totalPaid || 0).toLocaleString()}\n` +
+        `• بقایا رقم: Rs. ${Number(remainingAmt || 0).toLocaleString()}\n` +
+        `• بقیہ اقساط: ${item.remaining_installments || '?'}\n\n` +
+        `${diffDays <= 1 ? '⚠️ آج آخری تاریخ ہے، براہ کرم فوری ادائیگی کریں۔\n\n' : `⏳ ${diffDays} دن باقی ہیں۔\n\n`}` +
+        `براہ کرم بروقت ادائیگی کریں تاکہ جرمانے سے بچ سکیں۔\n\n` +
+        `🙏 شکریہ\n${companyName}\n📞 ${(clientInfo as any).phone || ''}`
+      : `${urgencyText}*Dear ${item.customer_name || ''}*,\n\n` +
+        `Installment *${item.installment_no}/${item.total_installments || '?'}* of *Rs. ${Number(item.amount || 0).toLocaleString()}* for *${item.product_name || ''}* is due on *${dueDateStr}*.\n\n` +
+        `📋 *Details:*\n` +
+        `• Total: Rs. ${Number(item.total_amount || 0).toLocaleString()}\n` +
+        `• Paid: Rs. ${Number(totalPaid || 0).toLocaleString()}\n` +
+        `• Remaining: Rs. ${Number(remainingAmt || 0).toLocaleString()}\n` +
+        `• Pending installments: ${item.remaining_installments || '?'}\n\n` +
+        `${diffDays <= 1 ? '⚠️ Today is the last date, please pay immediately.\n\n' : `⏳ ${diffDays} days remaining.\n\n`}` +
+        `Please pay on time to avoid penalty.\n\n` +
+        `🙏 Thank you,\n${companyName}\n📞 ${(clientInfo as any).phone || ''}`;
 
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
   }, [isUrdu]);

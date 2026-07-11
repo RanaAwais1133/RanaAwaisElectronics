@@ -479,25 +479,20 @@ const AuditLogsPage: React.FC = () => {
                 </p>
                 <div className="bg-gray-50 dark:bg-gray-900/50 rounded-xl p-4">
                   {detailModal.details ? (
-                    <div className="space-y-2">
-                      {parseDetails(detailModal.details).map((item, i) => (
-                        <div key={i} className="flex items-start gap-2 text-sm">
-                          {item.key ? (
-                            <>
-                              <span className="font-bold text-gray-700 dark:text-gray-200 whitespace-nowrap min-w-[100px]">
-                                {item.key}:
-                              </span>
-                              <span className="text-gray-800 dark:text-gray-100 font-medium break-words">
-                                {item.value}
-                              </span>
-                            </>
-                          ) : (
-                            <span className="text-gray-800 dark:text-gray-100 font-mono break-words">
-                              {item.value}
-                            </span>
-                          )}
+                    <div className="divide-y divide-gray-200 dark:divide-gray-700">
+                      {parseDetails(detailModal.details).map((item, i) => {
+                        const k = item.key.toLowerCase();
+                        const isAmount = k.includes('amount') || k.includes('price') || k.includes('total') || k.includes('paid') || k.includes('down');
+                        const isDate = k.includes('date');
+                        return (
+                        <div key={i} className="flex items-center justify-between py-2 text-sm gap-3">
+                          <span className="font-semibold text-gray-600 dark:text-gray-300 text-xs whitespace-nowrap">{item.key || (isUrdu ? 'نوٹ' : 'Note')}</span>
+                          <span className={`text-gray-800 dark:text-gray-100 font-medium text-right break-words ${isAmount ? 'text-emerald-600 dark:text-emerald-400 font-bold' : ''} ${isDate ? 'text-blue-600 dark:text-blue-400' : ''}`}>
+                            {isAmount && item.value && !isNaN(Number(item.value.replace(/,/g,''))) ? `Rs. ${Number(item.value.replace(/,/g,'')).toLocaleString()}` : item.value}
+                          </span>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   ) : (
                     <p className="text-sm text-gray-400 italic">
