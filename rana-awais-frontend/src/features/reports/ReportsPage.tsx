@@ -18,7 +18,7 @@ const ReportsPage: React.FC = () => {
   }, [t]);
 
   const tabs: { key: ReportTab; label: string; icon: string }[] = [
-    { key: 'daily', label: isUrdu ? 'یومیہ رپورٹ' : 'Daily Report', icon: '📅' },
+    { key: 'daily', label: isUrdu ? 'رپورٹس' : 'Reports', icon: '📅' },
     { key: 'profit-loss', label: isUrdu ? 'منافع اور نقصان' : 'Profit & Loss', icon: '📊' },
     { key: 'inventory', label: isUrdu ? 'انوینٹری رپورٹ' : 'Inventory Report', icon: '📦' },
     { key: 'pending', label: isUrdu ? 'زیر التواء رپورٹ' : 'Pending Report', icon: '⏳' },

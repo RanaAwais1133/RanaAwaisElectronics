@@ -93,6 +93,13 @@ func (h *ReportHandler) DailyReport(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		paymentType := "Installment"
+		if pay.InstallmentNo == 0 {
+			paymentType = "Down Payment"
+		}
+		if pay.IsFullPayment {
+			paymentType = "Full Payment"
+		}
 		item := map[string]interface{}{
 			"id":                 pay.ID,
 			"customer_name":      custName,
@@ -106,6 +113,7 @@ func (h *ReportHandler) DailyReport(w http.ResponseWriter, r *http.Request) {
 			"product_name_urdu":  prodNameUrdu,
 			"amount":             pay.Amount,
 			"method":             pay.Method,
+			"type":               paymentType,
 			"status":             "paid",
 			"date":               pay.TransactionDate.Format("2006-01-02"),
 			"installment_no":     pay.InstallmentNo,
