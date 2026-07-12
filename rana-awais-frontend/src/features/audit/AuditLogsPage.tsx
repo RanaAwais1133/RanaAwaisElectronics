@@ -78,8 +78,10 @@ const AuditLogsPage: React.FC = () => {
         setTotalLogs(res.data.total || 0);
         setPage(res.data.page || 1);
       })
-      .catch(() => {
-        toast.error(t('error_loading_audit'));
+      .catch((err) => {
+        console.error('❌ Failed to load audit logs:', err);
+        const errorMsg = err.response?.data?.error || err.message || 'Unknown error';
+        toast.error(`${t('error_loading_audit')}: ${errorMsg}`);
         setError(true);
       })
       .finally(() => setLoading(false));

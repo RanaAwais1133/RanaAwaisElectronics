@@ -94,7 +94,7 @@ func SetupRouter(
 	protected.HandleFunc("/audit-logs", func(w http.ResponseWriter, r *http.Request) {
 		db := config.MongoDatabase
 		if db == nil {
-			respondJSON(w, http.StatusOK, map[string]interface{}{"logs": []interface{}{}, "total": 0, "page": 1, "limit": 50})
+			respondJSON(w, http.StatusOK, map[string]interface{}{"logs": []interface{}{}, "total": 0, "page": 1, "limit": 50, "message": "Database not connected"})
 			return
 		}
 
@@ -109,16 +109,39 @@ func SetupRouter(
 			limit = 50
 		}
 
+		// Check if collection exists
+		collections, err := db.ListCollectionNames(r.Context(), bson.M{"name": "audit_logs"})
+		if err != nil {
+			respondJSON(w, http.StatusOK, map[string]interface{}{
+				"logs": []interface{}{}, "total": 0, "page": page, "limit": limit,
+				"error": "Failed to check collections",
+			})
+			return
+		}
+		
+		if len(collections) == 0 {
+			// Collection doesn't exist yet, return empty result
+			respondJSON(w, http.StatusOK, map[string]interface{}{
+				"logs": []interface{}{}, "total": 0, "page": page, "limit": limit,
+				"message": "Audit logs collection not initialized",
+			})
+			return
+		}
+
 		total, err := db.Collection("audit_logs").CountDocuments(r.Context(), bson.M{})
 		if err != nil {
-			total = 0
+			respondJSON(w, http.StatusInternalServerError, map[string]interface{}{
+				"logs": []interface{}{}, "total": 0, "page": page, "limit": limit,
+				"error": "Failed to count documents",
+			})
+			return
 		}
 
 		skip := int64((page - 1) * limit)
 		opts := options.Find().SetSkip(skip).SetLimit(int64(limit)).SetSort(bson.D{{Key: "timestamp", Value: -1}})
 		cursor, err := db.Collection("audit_logs").Find(r.Context(), bson.M{}, opts)
 		if err != nil {
-			respondJSON(w, http.StatusOK, map[string]interface{}{"logs": []interface{}{}, "total": total, "page": page, "limit": limit})
+			respondJSON(w, http.StatusOK, map[string]interface{}{"logs": []interface{}{}, "total": total, "page": page, "limit": limit, "error": "Query failed"})
 			return
 		}
 		defer cursor.Close(r.Context())
