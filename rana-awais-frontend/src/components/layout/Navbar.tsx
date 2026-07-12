@@ -82,6 +82,6 @@ const Navbar = React.memo(({ onMenuToggle }: NavbarProps) => {
       </div>
     </nav>
   );
-};
+});
 
 export default Navbar;
