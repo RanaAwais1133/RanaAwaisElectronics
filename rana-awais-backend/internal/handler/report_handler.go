@@ -32,13 +32,13 @@ func (h *ReportHandler) DailyReport(w http.ResponseWriter, r *http.Request) {
 	if dateStr == "" {
 		dateStr = time.Now().Format("2006-01-02")
 	}
-	date, err := time.Parse("2006-01-02", dateStr)
+	date, err := time.ParseInLocation("2006-01-02", dateStr, pkLoc)
 	if err != nil {
 		respondError(w, r, http.StatusBadRequest, "Invalid date format", "غلط تاریخ")
 		return
 	}
 
-	todayStart := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, date.Location())
+	todayStart := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, pkLoc)
 	todayEnd := todayStart.Add(24 * time.Hour)
 
 	// Get payments for this date

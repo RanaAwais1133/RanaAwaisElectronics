@@ -12,6 +12,8 @@ import (
 	"github.com/google/uuid"
 )
 
+var pkLoc = time.FixedZone("PKT", 5*60*60) // Pakistan Standard Time UTC+5
+
 type BulkPaymentItem struct {
 	InstallmentNo int     `json:"installment_no"`
 	Amount        float64 `json:"amount"`
@@ -224,13 +226,18 @@ func (s *InstallmentService) generateSchedule(plan *domain.InstallmentPlan) []do
 	totalUsingPerMonth := amountPerInstallment * float64(plan.NumberOfInstallments)
 	adjustment := mathutil.RoundMoney(plan.RemainingAmount - totalUsingPerMonth)
 
-	installmentDay := plan.StartDate.Day()
+	// Ensure StartDate is in PKT for correct day-of-month extraction
+	pktStart := plan.StartDate
+	if pktStart.Location() != pkLoc {
+		pktStart = pktStart.In(pkLoc)
+	}
+	installmentDay := pktStart.Day()
 	if plan.InstallmentDate >= 1 && plan.InstallmentDate <= 31 {
 		installmentDay = plan.InstallmentDate
 	}
 
 	for i := 1; i <= plan.NumberOfInstallments; i++ {
-		dueDate := time.Date(plan.StartDate.Year(), plan.StartDate.Month(), installmentDay, 0, 0, 0, 0, plan.StartDate.Location())
+		dueDate := time.Date(pktStart.Year(), pktStart.Month(), installmentDay, 0, 0, 0, 0, pkLoc)
 		dueDate = dueDate.AddDate(0, i, 0)
 		for dueDate.Day() != installmentDay && installmentDay > 28 {
 			dueDate = dueDate.AddDate(0, 0, -1)
@@ -290,16 +297,16 @@ func (s *InstallmentService) RecordPayment(
 
 	var payTime time.Time
 	if paymentDate != "" {
-		payTime, err = time.Parse("2006-01-02", paymentDate)
+		payTime, err = time.ParseInLocation("2006-01-02", paymentDate, pkLoc)
 		if err != nil {
-			payTime = time.Now()
+			payTime = time.Now().In(pkLoc)
 		}
 	} else {
 		payTime = time.Now()
 	}
 
 	if dueDate != "" {
-		parsedDueDate, parseErr := time.Parse("2006-01-02", dueDate)
+		parsedDueDate, parseErr := time.ParseInLocation("2006-01-02", dueDate, pkLoc)
 		if parseErr == nil {
 			plan.Installments[instIdx].DueDate = parsedDueDate
 		}
@@ -470,9 +477,9 @@ func (s *InstallmentService) BulkPayment(
 
 	var payTime time.Time
 	if paymentDate != "" {
-		payTime, err = time.Parse("2006-01-02", paymentDate)
+		payTime, err = time.ParseInLocation("2006-01-02", paymentDate, pkLoc)
 		if err != nil {
-			payTime = time.Now()
+			payTime = time.Now().In(pkLoc)
 		}
 	} else {
 		payTime = time.Now()
@@ -607,9 +614,9 @@ func (s *InstallmentService) AdvancePayment(
 
 	var payTime time.Time
 	if paymentDate != "" {
-		payTime, err = time.Parse("2006-01-02", paymentDate)
+		payTime, err = time.ParseInLocation("2006-01-02", paymentDate, pkLoc)
 		if err != nil {
-			payTime = time.Now()
+			payTime = time.Now().In(pkLoc)
 		}
 	} else {
 		payTime = time.Now()
@@ -847,7 +854,7 @@ func (s *InstallmentService) ReschedulePlan(ctx context.Context, planID string, 
 	if remainingBalance <= 0 {
 		return errors.New("no remaining balance to reschedule")
 	}
-	startDate, err := time.Parse("2006-01-02", newStartDate)
+	startDate, err := time.ParseInLocation("2006-01-02", newStartDate, pkLoc)
 	if err != nil {
 		return errors.New("invalid start date format, use YYYY-MM-DD")
 	}

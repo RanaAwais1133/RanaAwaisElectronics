@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/config"
@@ -46,7 +47,7 @@ func (h *PromiseHandler) Create(w http.ResponseWriter, r *http.Request) {
 			"2006/01/02",
 		}
 		for _, f := range formats {
-			if t, err := time.Parse(f, pd); err == nil {
+			if t, err := time.ParseInLocation(f, pd, pkLoc); err == nil {
 				promiseDate = t
 				break
 			}
@@ -101,6 +102,22 @@ func (h *PromiseHandler) Create(w http.ResponseWriter, r *http.Request) {
 // ListAll returns all promises (for offline sync)
 func (h *PromiseHandler) ListAll(w http.ResponseWriter, r *http.Request) {
 	db := config.DB
+
+	pageStr := r.URL.Query().Get("page")
+	limitStr := r.URL.Query().Get("limit")
+	page, _ := strconv.Atoi(pageStr)
+	limit, _ := strconv.Atoi(limitStr)
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 || limit > 500 {
+		limit = 100
+	}
+	offset := (page - 1) * limit
+
+	var totalCount int64
+	db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM promises").Scan(&totalCount)
+
 	rows, err := db.QueryContext(r.Context(), `
 		SELECT pr.id, pr.customer_id, pr.plan_id, pr.installment_no, pr.promise_date, pr.amount,
 			pr.status, COALESCE(pr.remarks, ''), COALESCE(pr.created_by, ''),
@@ -114,7 +131,8 @@ func (h *PromiseHandler) ListAll(w http.ResponseWriter, r *http.Request) {
 		LEFT JOIN products prod ON p.product_id = prod.id
 		LEFT JOIN installment_details d ON d.plan_id = pr.plan_id AND d.installment_no = pr.installment_no
 		ORDER BY pr.promise_date DESC
-	`)
+		LIMIT ? OFFSET ?
+	`, limit, offset)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "Failed to list promises", "وعدے نہیں آسکے")
 		return
@@ -137,7 +155,9 @@ func (h *PromiseHandler) ListAll(w http.ResponseWriter, r *http.Request) {
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"promises": promises,
-		"total":    len(promises),
+		"total":    totalCount,
+		"page":     page,
+		"limit":    limit,
 	})
 }
 

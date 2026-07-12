@@ -118,7 +118,7 @@ func (h *ExpenseHandler) Create(w http.ResponseWriter, r *http.Request) {
 		paidBy = input.PaidByAlt
 	}
 
-	expenseDate, err := time.Parse("2006-01-02", input.Date)
+	expenseDate, err := time.ParseInLocation("2006-01-02", input.Date, pkLoc)
 	if err != nil {
 		expenseDate = time.Now()
 	}

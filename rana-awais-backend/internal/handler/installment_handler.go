@@ -76,7 +76,7 @@ func (h *InstallmentHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	startDate, err := time.Parse("2006-01-02", payload.StartDate)
+	startDate, err := time.ParseInLocation("2006-01-02", payload.StartDate, pkLoc)
 	if err != nil {
 		respondError(w, r, http.StatusBadRequest, "Invalid start date", "غلط تاریخ")
 		return

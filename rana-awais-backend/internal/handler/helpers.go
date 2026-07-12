@@ -59,20 +59,24 @@ func parseInt64(s string, defaultVal int64) int64 {
 	return v
 }
 
+var pkLoc = time.FixedZone("PKT", 5*60*60) // Pakistan Standard Time UTC+5
+
 func parseDateRange(r *http.Request) (time.Time, time.Time, error) {
 	startStr := r.URL.Query().Get("start")
 	endStr := r.URL.Query().Get("end")
 	if startStr == "" || endStr == "" {
 		return time.Time{}, time.Time{}, errors.New("start and end required")
 	}
-	start, err := time.Parse("2006-01-02", startStr)
+	start, err := time.ParseInLocation("2006-01-02", startStr, pkLoc)
 	if err != nil {
 		return time.Time{}, time.Time{}, errors.New("invalid start date")
 	}
-	end, err := time.Parse("2006-01-02", endStr)
+	end, err := time.ParseInLocation("2006-01-02", endStr, pkLoc)
 	if err != nil {
 		return time.Time{}, time.Time{}, errors.New("invalid end date")
 	}
+	// End date should represent end of day (23:59:59) for inclusive filtering
+	end = time.Date(end.Year(), end.Month(), end.Day(), 23, 59, 59, 0, pkLoc)
 	return start, end, nil
 }
 
