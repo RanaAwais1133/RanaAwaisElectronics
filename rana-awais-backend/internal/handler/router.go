@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"time"
@@ -90,13 +91,17 @@ func SetupRouter(
 	// Password change
 	protected.HandleFunc("/auth/change-password", userH.ChangePassword).Methods("POST", "PUT")
 
-	// Audit logs (MongoDB-based)
+	// Audit logs (MongoDB-based) - optimized with batch user lookup
 	protected.HandleFunc("/audit-logs", func(w http.ResponseWriter, r *http.Request) {
 		db := config.MongoDatabase
 		if db == nil {
-			respondJSON(w, http.StatusOK, map[string]interface{}{"logs": []interface{}{}, "total": 0, "page": 1, "limit": 50, "message": "Database not connected"})
+			respondJSON(w, http.StatusOK, map[string]interface{}{"logs": []interface{}{}, "total": 0, "page": 1, "limit": 25, "message": "Database not connected"})
 			return
 		}
+
+		// Use a timeout context to prevent hanging
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
 
 		pageStr := r.URL.Query().Get("page")
 		limitStr := r.URL.Query().Get("limit")
@@ -106,11 +111,11 @@ func SetupRouter(
 			page = 1
 		}
 		if limit < 1 || limit > 100 {
-			limit = 50
+			limit = 25
 		}
 
 		// Check if collection exists
-		collections, err := db.ListCollectionNames(r.Context(), bson.M{"name": "audit_logs"})
+		collections, err := db.ListCollectionNames(ctx, bson.M{"name": "audit_logs"})
 		if err != nil {
 			respondJSON(w, http.StatusOK, map[string]interface{}{
 				"logs": []interface{}{}, "total": 0, "page": page, "limit": limit,
@@ -120,7 +125,6 @@ func SetupRouter(
 		}
 		
 		if len(collections) == 0 {
-			// Collection doesn't exist yet, return empty result
 			respondJSON(w, http.StatusOK, map[string]interface{}{
 				"logs": []interface{}{}, "total": 0, "page": page, "limit": limit,
 				"message": "Audit logs collection not initialized",
@@ -128,7 +132,7 @@ func SetupRouter(
 			return
 		}
 
-		total, err := db.Collection("audit_logs").CountDocuments(r.Context(), bson.M{})
+		total, err := db.Collection("audit_logs").CountDocuments(ctx, bson.M{})
 		if err != nil {
 			respondJSON(w, http.StatusInternalServerError, map[string]interface{}{
 				"logs": []interface{}{}, "total": 0, "page": page, "limit": limit,
@@ -139,43 +143,71 @@ func SetupRouter(
 
 		skip := int64((page - 1) * limit)
 		opts := options.Find().SetSkip(skip).SetLimit(int64(limit)).SetSort(bson.D{{Key: "timestamp", Value: -1}})
-		cursor, err := db.Collection("audit_logs").Find(r.Context(), bson.M{}, opts)
+		cursor, err := db.Collection("audit_logs").Find(ctx, bson.M{}, opts)
 		if err != nil {
 			respondJSON(w, http.StatusOK, map[string]interface{}{"logs": []interface{}{}, "total": total, "page": page, "limit": limit, "error": "Query failed"})
 			return
 		}
-		defer cursor.Close(r.Context())
+		defer cursor.Close(ctx)
 
+		// ✅ Pass 1: Collect logs and gather unique user IDs
 		var logs []map[string]interface{}
-		for cursor.Next(r.Context()) {
+		userIDs := make(map[string]bool)
+		for cursor.Next(ctx) {
 			var logEntry map[string]interface{}
 			if err := cursor.Decode(&logEntry); err != nil {
 				continue
 			}
-			// Lookup user name from MongoDB users collection
-			if userID, ok := logEntry["user_id"].(string); ok && userID != "" {
-				var userName string
-				// Try lookup by _id first, then by "id" (legacy)
-				for _, field := range []string{"_id", "id"} {
-					var user domain.User
-					err := db.Collection("users").FindOne(r.Context(), bson.M{field: userID}).Decode(&user)
-					if err == nil {
-						if user.DisplayName != "" {
-							userName = user.DisplayName
-						} else {
-							userName = user.Username
-						}
-						break
-					}
-				}
-				if userName != "" {
-					logEntry["user_name"] = userName
-				}
-			}
 			logs = append(logs, logEntry)
+			if uid, ok := logEntry["user_id"].(string); ok && uid != "" {
+				userIDs[uid] = true
+			}
 		}
 		if logs == nil {
 			logs = []map[string]interface{}{}
+		}
+
+		// ✅ Pass 2: Batch lookup all users in ONE query (fixes N+1 timeout)
+		if len(userIDs) > 0 {
+			uidList := make([]string, 0, len(userIDs))
+			for uid := range userIDs {
+				uidList = append(uidList, uid)
+			}
+			// Try to find users by _id or id field
+			userCursor, err := db.Collection("users").Find(ctx, bson.M{
+				"$or": []bson.M{
+					{"_id": bson.M{"$in": uidList}},
+					{"id": bson.M{"$in": uidList}},
+				},
+			})
+			if err == nil {
+				defer userCursor.Close(ctx)
+				userNameMap := make(map[string]string)
+				for userCursor.Next(ctx) {
+					var user domain.User
+					if userCursor.Decode(&user) == nil {
+						name := user.DisplayName
+						if name == "" {
+							name = user.Username
+						}
+						if user.ID != "" {
+							userNameMap[user.ID] = name
+						}
+						// Also map by _id if different
+						if user.ID != "" {
+							userNameMap[user.ID] = name
+						}
+					}
+				}
+				// Apply user names to logs
+				for _, logEntry := range logs {
+					if uid, ok := logEntry["user_id"].(string); ok && uid != "" {
+						if name, found := userNameMap[uid]; found {
+							logEntry["user_name"] = name
+						}
+					}
+				}
+			}
 		}
 
 		respondJSON(w, http.StatusOK, map[string]interface{}{

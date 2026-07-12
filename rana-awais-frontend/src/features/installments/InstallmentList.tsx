@@ -1138,8 +1138,8 @@ const InstallmentList: React.FC = () => {
                       planId: plan.id,
                       installmentNo: inst.installmentNo,
                       dueAmount: inst.remaining > 0 && inst.remaining < instAmt ? inst.remaining : instAmt,
-                      finePerDay: plan.finePerDay || 10,
-                      graceDays: plan.gracePeriodDays || 2,
+                      finePerDay: plan.finePerDay ?? 0,
+                      graceDays: plan.gracePeriodDays ?? 0,
                       dueDate: inst.dueDate,
                       fineAmount: fineAmt,
                       fineType: plan.fineType || 'per_day',
@@ -1265,12 +1265,12 @@ const InstallmentList: React.FC = () => {
                               planId: plan.id,
                               installmentNo: inst.installmentNo,
                               dueAmount: inst.remaining > 0 && inst.remaining < instAmt ? inst.remaining : instAmt,
-                              finePerDay: plan.finePerDay || 10,
-                              graceDays: plan.gracePeriodDays || 2,
+                              finePerDay: plan.finePerDay ?? 0,
+                              graceDays: plan.gracePeriodDays ?? 0,
                               dueDate: inst.dueDate,
                               fineAmount: fineAmt,
                               fineType: plan.fineType || 'per_day',
-                              fixedFineAmount: plan.fixedFineAmount || 0
+                              fixedFineAmount: plan.fixedFineAmount ?? 0
                             })}
                             className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded-lg text-xs transition-colors"
                           >
