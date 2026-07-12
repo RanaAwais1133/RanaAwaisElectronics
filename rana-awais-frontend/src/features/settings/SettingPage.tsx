@@ -6,6 +6,7 @@ import UserManagement from '../users/userManagement';
 import ClientInfoSettings from './ClientInfoSettings';
 import { useClientStore } from '../../store/useClientStore';
 import { useAuthStore } from '../../store/useAuthStore';
+import logger from '../../utils/logger';
 
 const SettingsPage: React.FC = () => {
   const { t, i18n } = useTranslation();
@@ -171,7 +172,7 @@ const SettingsPage: React.FC = () => {
     const handler = (e: Event) => {
       e.preventDefault();
       setDeferredPrompt(e);
-      console.log('📲 beforeinstallprompt fired!');
+      logger.log('📲 beforeinstallprompt fired!');
     };
     window.addEventListener('beforeinstallprompt', handler);
     

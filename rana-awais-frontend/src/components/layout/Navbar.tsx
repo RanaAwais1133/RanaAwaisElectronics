@@ -5,6 +5,7 @@ import ThemeToggle from '../bilingual/ThemeToggle';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useClientStore } from '../../store/useClientStore';
+import logger from '../../utils/logger';
 
 interface NavbarProps {
   onMenuToggle: () => void;
@@ -25,7 +26,7 @@ const Navbar = React.memo(({ onMenuToggle }: NavbarProps) => {
       await logout();
       navigate('/login');
     } catch (error) {
-      console.error('Logout failed:', error);
+      logger.error('Logout failed:', error);
     } finally {
       setIsLoggingOut(false);
     }

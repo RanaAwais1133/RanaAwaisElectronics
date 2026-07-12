@@ -30,28 +30,13 @@ const LoginPage: React.FC = () => {
     
     setLoading(true);
     try {
-      console.log("🔐 LoginPage: Sending login request...");
-      console.log("   username:", username);
-      console.log("   password length:", password.length);
-      
       const data = await login(username, password);
-      
-      console.log("✅ LoginPage: Login response received:", data);
       
       setAuth(data.token, data.user);
       
       toast.success(isUrdu ? 'خوش آمدید! لاگ ان کامیاب' : t('login_success'));
       navigate('/');
     } catch (err: any) {
-      console.error("❌ LoginPage: Login failed!");
-      console.error("   Error object:", err);
-      console.error("   Error message:", err.message);
-      console.error("   Error response:", err.response);
-      console.error("   Error response status:", err.response?.status);
-      console.error("   Error response data:", JSON.stringify(err.response?.data));
-      console.error("   Error response headers:", JSON.stringify(err.response?.headers));
-      console.error("   Error config:", JSON.stringify(err.config));
-      
       const errorMsg = err.response?.data?.error || err.response?.data?.message || 
                        (isUrdu ? 'لاگ ان ناکام' : t('login_failed'));
       toast.error(errorMsg);

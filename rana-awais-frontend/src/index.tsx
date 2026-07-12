@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import './index.css';
 import App from './App';
 import { APP_CONFIG } from './config/app';
+import logger from './utils/logger';
 
 // ✅ Set initial theme before rendering
 const initializeTheme = (): void => {
@@ -55,7 +56,7 @@ try {
     </React.StrictMode>
   );
 } catch (error) {
-  console.error('Failed to render app:', error);
+  logger.error('Failed to render app:', error);
   
   // ✅ Show fallback UI if app fails to render
   const rootElement = document.getElementById('root');
@@ -80,7 +81,7 @@ try {
 if (process.env.NODE_ENV === 'production') {
   import('web-vitals').then(({ onCLS, onFCP, onLCP, onTTFB, onINP }) => {
     const reportMetric = (metric: any) => {
-      console.log(metric);
+      logger.log(metric);
     };
     onCLS(reportMetric);
     onFCP(reportMetric);

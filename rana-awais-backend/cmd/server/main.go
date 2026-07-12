@@ -175,6 +175,7 @@ func main() {
 	r := handler.SetupRouter(cfg, custSvc, guarSvc, prodSvc, invSvc, planSvc, paySvc, accSvc, notifSvc, recSvc, userSvc, expenseSvc, settingsRepo)
 	r.Use(middleware.LanguageMiddleware)
 	r.Use(middleware.LoggerMiddleware)
+	r.Use(middleware.SecurityHeaders)
 
 	// ═══════════════════════════════════════
 	// 🗜️ GZIP COMPRESSION

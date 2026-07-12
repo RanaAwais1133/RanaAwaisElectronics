@@ -56,10 +56,14 @@ func SetupRouter(
 	api.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		respondJSON(w, http.StatusOK, map[string]interface{}{"status": "ok", "message": "Server is running"})
 	}).Methods("GET")
-	api.HandleFunc("/auth/login", authH.Login).Methods("POST")
+	
+	// Rate-limited auth routes (prevent brute force attacks)
+	authLimiter := middleware.NewRateLimiter(5, 1*time.Minute) // 5 attempts per minute
+	api.Handle("/auth/login", authLimiter.RateLimit(http.HandlerFunc(authH.Login))).Methods("POST")
+	api.Handle("/auth/debug", authLimiter.RateLimit(http.HandlerFunc(authH.LoginDebug))).Methods("POST")
+	
 	api.HandleFunc("/license/validate", adminH.ValidateLicenseAPI).Methods("POST")
 	api.HandleFunc("/license/status", adminH.GetLicenseStatus).Methods("GET")
-	api.HandleFunc("/auth/debug", authH.LoginDebug).Methods("POST")
 
 	// ========== PROTECTED ROUTES ==========
 	protected := api.NewRoute().Subrouter()

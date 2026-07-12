@@ -12,6 +12,7 @@ import { syncEngine } from './utils/sync';
 import { realtime } from './utils/realtime';
 import { useClientStore } from './store/useClientStore';
 import { updatePWAManifest } from './utils/setupPWA';
+import logger from './utils/logger';
 
 // ✅ Loading Spinner Component
 const PageLoader = () => (
@@ -45,7 +46,7 @@ const PWAInstallPrompt: React.FC = () => {
     deferredPrompt.prompt();
     const result = await deferredPrompt.userChoice;
     if (result.outcome === 'accepted') {
-      console.log('✅ User installed PWA');
+      logger.log('✅ User installed PWA');
     }
     setDeferredPrompt(null);
     setShowPrompt(false);
@@ -119,14 +120,14 @@ const AppContent: React.FC = () => {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/service-worker.js')
         .then((registration) => {
-          console.log('✅ Service Worker registered:', registration.scope);
+          logger.log('✅ Service Worker registered:', registration.scope);
           
           // ✅ Register Background Sync for offline queue
           const swReg = registration as any;
           if ('sync' in swReg) {
             // Register sync when app starts
             swReg.sync.register('sync-data').catch((err: any) => {
-              console.log('⚠️ Background Sync registration failed:', err);
+              logger.warn('⚠️ Background Sync registration failed:', err);
             });
             
             // Also register periodic sync if available
@@ -135,7 +136,7 @@ const AppContent: React.FC = () => {
                 swReg.periodicSync.register('periodic-sync', {
                   minInterval: 30 * 60 * 1000, // 30 minutes
                 }).catch((err: any) => {
-                  console.log('⚠️ Periodic Sync not available:', err);
+                  logger.warn('⚠️ Periodic Sync not available:', err);
                 });
               } catch (e) {
                 // Periodic sync not supported
@@ -161,7 +162,7 @@ const AppContent: React.FC = () => {
           });
         })
         .catch((error) => {
-          console.error('❌ Service Worker registration failed:', error);
+          logger.error('❌ Service Worker registration failed:', error);
         });
     }
 
