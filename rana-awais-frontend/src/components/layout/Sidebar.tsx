@@ -118,6 +118,6 @@ const Sidebar = React.memo<SidebarProps>(({ isOpen, onClose }) => {
       </aside>
     </>
   );
-};
+});
 
 export default Sidebar;
