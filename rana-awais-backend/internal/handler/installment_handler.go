@@ -9,6 +9,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/domain"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/middleware"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/service"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/pkg/audit"
 )
@@ -184,6 +185,8 @@ func (h *InstallmentHandler) RecordPayment(w http.ResponseWriter, r *http.Reques
 		respondError(w, r, http.StatusInternalServerError, err.Error(), "ادائیگی ناکام")
 		return
 	}
+	// ✅ Invalidate dashboard cache so today's collection updates immediately
+	middleware.DashboardCache.Invalidate("/dashboard/summary")
 	audit.Log(r.Context(), "PAYMENT", "installment", payload.PlanID, fmt.Sprintf("installment_no=%d amount=%.2f", payload.InstallmentNo, payload.Amount), getUserID(r))
 	respondJSON(w, http.StatusOK, result)
 }
@@ -206,6 +209,8 @@ func (h *InstallmentHandler) BulkPayment(w http.ResponseWriter, r *http.Request)
 		respondError(w, r, http.StatusInternalServerError, err.Error(), "ادائیگی ناکام")
 		return
 	}
+	// ✅ Invalidate dashboard cache so today's collection updates immediately
+	middleware.DashboardCache.Invalidate("/dashboard/summary")
 	audit.Log(r.Context(), "BULK_PAYMENT", "installment", payload.PlanID, "", getUserID(r))
 	respondJSON(w, http.StatusOK, map[string]string{"message": "Payments recorded"})
 }
@@ -227,6 +232,8 @@ func (h *InstallmentHandler) AdvancePayment(w http.ResponseWriter, r *http.Reque
 		respondError(w, r, http.StatusInternalServerError, err.Error(), "ایڈوانس ادائیگی ناکام")
 		return
 	}
+	// ✅ Invalidate dashboard cache so today's collection updates immediately
+	middleware.DashboardCache.Invalidate("/dashboard/summary")
 	audit.Log(r.Context(), "ADVANCE_PAYMENT", "installment", payload.PlanID, "", getUserID(r))
 	respondJSON(w, http.StatusOK, map[string]string{"message": "Advance payment recorded"})
 }
@@ -261,6 +268,8 @@ func (h *InstallmentHandler) UndoPayment(w http.ResponseWriter, r *http.Request)
 		respondError(w, r, http.StatusInternalServerError, err.Error(), "واپسی ناکام")
 		return
 	}
+	// ✅ Invalidate dashboard cache since payment was reversed
+	middleware.DashboardCache.Invalidate("/dashboard/summary")
 	audit.Log(r.Context(), "UNDO_PAYMENT", "installment", payload.PlanID, "", getUserID(r))
 	respondJSON(w, http.StatusOK, map[string]string{"message": "Payment undone"})
 }

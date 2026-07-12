@@ -64,6 +64,7 @@ const ClientInfoSettings: React.FC = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const saveToBackend = useClientStore((s) => s.saveToBackend);
+  const loadFromBackend = useClientStore((s) => s.loadFromBackend);
   const [info, setInfo] = useState<ClientInfo>({
     name: APP_CONFIG.companyName,
     nameUr: APP_CONFIG.companyNameUr,
@@ -123,6 +124,9 @@ const ClientInfoSettings: React.FC = () => {
 
       // ✅ Update document title
       document.title = `${info.name} - ERP System`;
+
+      // ✅ Reload from backend so all users see the update immediately
+      loadFromBackend();
 
       toast.success(isUrdu ? '✅ کلائنٹ کی معلومات آن لائن محفوظ ہو گئیں' : '✅ Client information saved online');
       setIsEditing(false);

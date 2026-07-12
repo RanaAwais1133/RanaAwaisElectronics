@@ -420,7 +420,7 @@ export const createUser = (data: any) =>
 // ═══════════════════════════════════════════════════════════════
 
 export const backupDatabase = () =>
-  api.post('/admin/backup').then(res => res.data);
+  api.get('/admin/backup', { responseType: 'blob' }).then(res => res.data);
 
 export const restoreDatabase = (data: any) =>
   api.post('/admin/restore', data).then(res => res.data);

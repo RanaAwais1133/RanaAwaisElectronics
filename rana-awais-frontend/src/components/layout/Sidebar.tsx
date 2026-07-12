@@ -25,7 +25,7 @@ const baseLinks = [
 ];
 
 
-const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
+const Sidebar = React.memo<SidebarProps>(({ isOpen, onClose }) => {
   const { t } = useTranslation();
   const location = useLocation();
   const user = useAuthStore((s) => s.user);

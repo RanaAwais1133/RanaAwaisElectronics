@@ -1,4 +1,4 @@
-import React, { useState, useEffect, Suspense, lazy } from 'react';
+import React, { useState, useEffect, Suspense, lazy, ReactNode, ComponentType } from 'react';
 import { Routes, Route, useLocation, Navigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import Navbar from './Navbar';
@@ -9,20 +9,73 @@ import { APP_CONFIG } from '../../config/app';
 import { useAuthStore } from '../../store/useAuthStore';
 import { SyncStatus } from '../common/SyncStatus';
 
-// ✅ Lazy load all page components for code splitting
-const DashboardPage = lazy(() => import('../../features/dashboard/DashboardPage'));
-const CustomerList = lazy(() => import('../../features/customers/CustomerList'));
-const ProductList = lazy(() => import('../../features/products/ProductList'));
-const InstallmentList = lazy(() => import('../../features/installments/InstallmentList'));
-const InstallmentCreate = lazy(() => import('../../features/installments/InstallmentCreate'));
-const GuarantorList = lazy(() => import('../../features/guarantors/GuarantorList'));
-const ReportsPage = lazy(() => import('../../features/reports/ReportsPage'));
-const NotificationPage = lazy(() => import('../../features/notifications/NotificationPage'));
-const ReminderPage = lazy(() => import('../../features/reminders/ReminderPage'));
-const SettingsPage = lazy(() => import('../../features/settings/SettingPage'));
-const BackupPage = lazy(() => import('../../features/settings/BackupPage'));
-const AuditLogsPage = lazy(() => import('../../features/audit/AuditLogsPage'));
-const NotFoundPage = lazy(() => import('../../pages/NotFoundPage'));
+// ═══════════════════════════════════════════════════════════════
+// ✅ PERFORMANCE: Preload all page chunks immediately after mount
+// ✅ No loading spinner on navigation - pages are already loaded
+// ═══════════════════════════════════════════════════════════════
+
+// Store preloaded components
+const pageCache = new Map<string, ComponentType<any>>();
+const preloadFns: (() => void)[] = [];
+
+// Register a page for preloading
+function preloadPage(name: string, importFn: () => Promise<{ default: ComponentType<any> }>) {
+  preloadFns.push(() => {
+    importFn().then(mod => {
+      pageCache.set(name, mod.default);
+    }).catch(() => {});
+  });
+}
+
+// Start preloading all pages (called once)
+let preloaded = false;
+function startPreloading() {
+  if (preloaded) return;
+  preloaded = true;
+  // Use setTimeout to avoid blocking initial render
+  setTimeout(() => {
+    preloadFns.forEach(fn => fn());
+  }, 500);
+}
+
+// ✅ Lazy load + auto-preload
+function lazyWithPreload(name: string, importFn: () => Promise<{ default: ComponentType<any> }>) {
+  preloadPage(name, importFn);
+  return lazy(importFn);
+}
+
+// Register all pages for preloading
+const DashboardPage = lazyWithPreload('dashboard', () => import('../../features/dashboard/DashboardPage'));
+const CustomerList = lazyWithPreload('customers', () => import('../../features/customers/CustomerList'));
+const ProductList = lazyWithPreload('products', () => import('../../features/products/ProductList'));
+const InstallmentList = lazyWithPreload('installments', () => import('../../features/installments/InstallmentList'));
+const InstallmentCreate = lazyWithPreload('installments-new', () => import('../../features/installments/InstallmentCreate'));
+const GuarantorList = lazyWithPreload('guarantors', () => import('../../features/guarantors/GuarantorList'));
+const ReportsPage = lazyWithPreload('reports', () => import('../../features/reports/ReportsPage'));
+const NotificationPage = lazyWithPreload('notifications', () => import('../../features/notifications/NotificationPage'));
+const ReminderPage = lazyWithPreload('reminders', () => import('../../features/reminders/ReminderPage'));
+const SettingsPage = lazyWithPreload('settings', () => import('../../features/settings/SettingPage'));
+const BackupPage = lazyWithPreload('backup', () => import('../../features/settings/BackupPage'));
+const AuditLogsPage = lazyWithPreload('audit-logs', () => import('../../features/audit/AuditLogsPage'));
+const NotFoundPage = lazyWithPreload('not-found', () => import('../../pages/NotFoundPage'));
+
+// ✅ Keep-Alive wrapper: shows previous page while new one loads
+interface KeepAliveProps {
+  current: ReactNode;
+  fallback?: ReactNode;
+}
+
+const KeepAliveSurface: React.FC<KeepAliveProps> = ({ current, fallback }) => {
+  const [alive, setAlive] = useState<ReactNode>(current);
+  const prevPath = useLocation().pathname;
+  
+  useEffect(() => {
+    // Show new page immediately when it changes
+    setAlive(current);
+  }, [current]);
+
+  return <>{alive || fallback}</>;
+};
 
 const MainLayout: React.FC = () => {
   useShortcuts();
@@ -57,6 +110,11 @@ const MainLayout: React.FC = () => {
     }
   }, [location.pathname, isMobile]);
 
+  // ✅ Start preloading all pages after first render
+  useEffect(() => {
+    startPreloading();
+  }, []);
+
   const toggleSidebar = () => setSidebarOpen(prev => !prev);
   const closeSidebar = () => setSidebarOpen(false);
 
@@ -64,7 +122,6 @@ const MainLayout: React.FC = () => {
   useEffect(() => {
     const path = location.pathname;
     
-    // Build page title using dynamic translation keys
     const pageNames: Record<string, string> = {
       '/': t('dashboard'),
       '/customers': t('customers'),
@@ -91,6 +148,13 @@ const MainLayout: React.FC = () => {
     document.title = pageTitle;
   }, [location.pathname, t]);
 
+  // ✅ Minimal fallback - just a subtle loader at top, not full page spinner
+  const PageFallback = () => (
+    <div className="w-full h-1 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+      <div className="h-full bg-blue-500 rounded-full animate-pulse" style={{ width: '30%' }}></div>
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-gray-50/50 dark:bg-gray-900 flex flex-col">
       <SyncStatus />
@@ -98,81 +162,66 @@ const MainLayout: React.FC = () => {
       <div className="flex flex-1">
         <Sidebar isOpen={sidebarOpen} onClose={closeSidebar} />
         <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-screen-2xl mx-auto w-full overflow-x-hidden">
-          <Suspense fallback={
-            <div className="flex items-center justify-center h-64">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-            </div>
-          }>
+          <Suspense fallback={<PageFallback />}>
           <Routes>
             <Route path="/" element={<DashboardPage />} />
             
-            {/* ✅ Customers - Staff can VIEW only, Manager/Admin can manage */}
             <Route path="/customers" element={
               <RequireRole roles={['admin', 'manager', 'staff']}>
                 <CustomerList />
               </RequireRole>
             } />
             
-            {/* ✅ Products - Manager/Admin only */}
             <Route path="/products" element={
               <RequireRole roles={['admin', 'manager']}>
                 <ProductList />
               </RequireRole>
             } />
             
-            {/* ✅ Installments - All roles can view */}
             <Route path="/installments" element={<InstallmentList />} />
             
-            {/* ✅ New Installment - All roles can create (Staff included) */}
             <Route path="/installments/new" element={
               <RequireRole roles={['admin', 'manager', 'staff']}>
                 <InstallmentCreate />
               </RequireRole>
             } />
             
-            {/* ✅ Guarantors - Manager/Admin only */}
             <Route path="/guarantors" element={
               <RequireRole roles={['admin', 'manager']}>
                 <GuarantorList />
               </RequireRole>
             } />
             
-            {/* ✅ Reports - Manager/Admin only */}
             <Route path="/reports" element={
               <RequireRole roles={['admin', 'manager']}>
                 <ReportsPage />
               </RequireRole>
             } />
             
-            {/* ✅ Reminders - Manager/Admin only */}
             <Route path="/reminders" element={
               <RequireRole roles={['admin', 'manager']}>
                 <ReminderPage />
               </RequireRole>
             } />
             
-            {/* ✅ Notifications - Manager/Admin only */}
             <Route path="/notifications" element={
               <RequireRole roles={['admin', 'manager']}>
                 <NotificationPage />
               </RequireRole>
             } />
             
-            {/* ✅ Audit Logs - Manager/Admin only */}
             <Route path="/audit-logs" element={
               <RequireRole roles={['admin', 'manager']}>
                 <AuditLogsPage />
               </RequireRole>
             } />
             
-            {/* ✅ Settings - Admin only */}
             <Route path="/settings" element={
               <RequireRole roles={['admin']}>
                 <SettingsPage />
               </RequireRole>
             } />
             
-            {/* ✅ Backup - Admin only */}
             <Route path="/backup" element={
               <RequireRole roles={['admin']}>
                 <BackupPage />

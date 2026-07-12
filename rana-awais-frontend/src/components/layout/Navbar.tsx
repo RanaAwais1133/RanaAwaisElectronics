@@ -10,7 +10,7 @@ interface NavbarProps {
   onMenuToggle: () => void;
 }
 
-const Navbar: React.FC<NavbarProps> = ({ onMenuToggle }) => {
+const Navbar = React.memo<NavbarProps>(({ onMenuToggle }) => {
   const { t } = useTranslation();
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);

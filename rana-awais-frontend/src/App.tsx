@@ -10,6 +10,8 @@ import ErrorBoundary from './components/common/ErrorBoundary';
 import { APP_CONFIG } from './config/app';
 import { syncEngine } from './utils/sync';
 import { realtime } from './utils/realtime';
+import { useClientStore } from './store/useClientStore';
+import { updatePWAManifest } from './utils/setupPWA';
 
 // ✅ Loading Spinner Component
 const PageLoader = () => (
@@ -91,13 +93,21 @@ const PWAInstallPrompt: React.FC = () => {
 const AppContent: React.FC = () => {
   const { i18n: i18nInstance } = useTranslation();
   const [isReady, setIsReady] = React.useState(false);
+  const clientInfo = useClientStore((s) => s.info);
+
+  // ✅ Update PWA manifest when client info loads/changes (dynamic company name)
+  useEffect(() => {
+    if (clientInfo?.name) {
+      updatePWAManifest(clientInfo);
+    }
+  }, [clientInfo]);
 
   // ✅ Initialize once on mount
   useEffect(() => {
     const lang = i18nInstance.language || 'ur';
     document.documentElement.dir = lang === 'ur' ? 'rtl' : 'ltr';
     document.documentElement.lang = lang;
-    document.title = `${APP_CONFIG.companyName} - ERP System`;
+    document.title = `${clientInfo?.name || APP_CONFIG.companyName} - ERP System`;
     
     // ✅ Start sync engine
     syncEngine.start();

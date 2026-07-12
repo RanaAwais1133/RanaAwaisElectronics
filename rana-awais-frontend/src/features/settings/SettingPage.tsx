@@ -13,6 +13,7 @@ const SettingsPage: React.FC = () => {
   const currentUser = useAuthStore((state) => state.user);
   const clientInfo = useClientStore((s) => s.info);
   const loadFromBackend = useClientStore((s) => s.loadFromBackend);
+  const updateClientStore = useClientStore((s) => s.update);
   
   const [showUserManagement, setShowUserManagement] = useState(false);
   const [isBackingUp, setIsBackingUp] = useState(false);

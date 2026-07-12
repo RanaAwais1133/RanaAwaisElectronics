@@ -205,25 +205,25 @@ const PaymentReceipt: React.FC<Props> = ({ planId, onClose }) => {
         </tbody>
       </table>
 
-      {/* Totals */}
+      {/* Totals - Total, Down Payment, Paid, Remaining */}
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '12px' }}>
         <table style={{ width: '55%', borderCollapse: 'collapse' }}>
           <tbody>
             <tr>
-              <td style={{ padding: '3px 10px', textAlign: 'right', fontWeight: 'bold' }}>{L('Total Price :', 'کل قیمت:')}</td>
-              <td style={{ padding: '3px 10px', textAlign: 'right', fontWeight: 'bold' }}>{fc(ta)}</td>
+              <td style={{ padding: '4px 10px', textAlign: 'right', fontWeight: 'bold', borderBottom: '1px solid #000' }}>{L('Total Price :', 'کل قیمت:')}</td>
+              <td style={{ padding: '4px 10px', textAlign: 'right', fontWeight: 'bold', borderBottom: '1px solid #000' }}>{fc(ta)}</td>
             </tr>
             <tr>
-              <td style={{ padding: '3px 10px', textAlign: 'right', fontWeight: 'bold' }}>{L('Advance :', 'ایڈوانس:')}</td>
-              <td style={{ padding: '3px 10px', textAlign: 'right', fontWeight: 'bold' }}>{fc(dp)}</td>
+              <td style={{ padding: '4px 10px', textAlign: 'right', fontWeight: 'bold' }}>{L('Down Payment :', 'بیعانہ:')}</td>
+              <td style={{ padding: '4px 10px', textAlign: 'right', fontWeight: 'bold' }}>{fc(dp)}</td>
             </tr>
             <tr>
-              <td style={{ padding: '3px 10px', textAlign: 'right', fontWeight: 'bold', borderTop: '1px solid #000' }}>{L('Balance :', 'باقی:')}</td>
-              <td style={{ padding: '3px 10px', textAlign: 'right', fontWeight: 'bold', borderTop: '1px solid #000' }}>{fc(rm)}</td>
+              <td style={{ padding: '4px 10px', textAlign: 'right', fontWeight: 'bold' }}>{L('Total Paid :', 'کل ادا شدہ:')}</td>
+              <td style={{ padding: '4px 10px', textAlign: 'right', fontWeight: 'bold', color: '#15803d' }}>{fc(tp)}</td>
             </tr>
             <tr>
-              <td style={{ padding: '3px 10px', textAlign: 'right', fontWeight: 'bold' }}>{L('Paid :', 'ادا:')}</td>
-              <td style={{ padding: '3px 10px', textAlign: 'right', fontWeight: 'bold', color: '#15803d' }}>{fc(tp)}</td>
+              <td style={{ padding: '4px 10px', textAlign: 'right', fontWeight: 'bold', borderTop: '1px solid #000', borderBottom: '2px double #000' }}>{L('Remaining :', 'باقی:')}</td>
+              <td style={{ padding: '4px 10px', textAlign: 'right', fontWeight: 'bold', borderTop: '1px solid #000', borderBottom: '2px double #000', color: '#dc2626' }}>{fc(rm - tp + dp)}</td>
             </tr>
           </tbody>
         </table>
