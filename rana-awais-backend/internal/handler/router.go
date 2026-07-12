@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -167,36 +168,35 @@ func SetupRouter(
 			logs = []map[string]interface{}{}
 		}
 
-		// ✅ Pass 2: Batch lookup all users in ONE query (fixes N+1 timeout)
+		// ✅ Pass 2: Fetch ALL users (typically < 50) and match by ID
+		// This handles both string _id and ObjectID _id formats
 		if len(userIDs) > 0 {
-			uidList := make([]string, 0, len(userIDs))
-			for uid := range userIDs {
-				uidList = append(uidList, uid)
-			}
-			// Try to find users by _id or id field
-			userCursor, err := db.Collection("users").Find(ctx, bson.M{
-				"$or": []bson.M{
-					{"_id": bson.M{"$in": uidList}},
-					{"id": bson.M{"$in": uidList}},
-				},
-			})
+			userCursor, err := db.Collection("users").Find(ctx, bson.M{})
 			if err == nil {
 				defer userCursor.Close(ctx)
 				userNameMap := make(map[string]string)
 				for userCursor.Next(ctx) {
-					var user domain.User
-					if userCursor.Decode(&user) == nil {
-						name := user.DisplayName
-						if name == "" {
-							name = user.Username
-						}
-						if user.ID != "" {
-							userNameMap[user.ID] = name
-						}
-						// Also map by _id if different
-						if user.ID != "" {
-							userNameMap[user.ID] = name
-						}
+					var rawUser map[string]interface{}
+					if userCursor.Decode(&rawUser) != nil {
+						continue
+					}
+					// Get user ID in string format (handles both string and ObjectID _id)
+					userIDStr := ""
+					switch v := rawUser["_id"].(type) {
+					case string:
+						userIDStr = v
+					default:
+						userIDStr = fmt.Sprintf("%v", v)
+					}
+					// Get display name
+					name := ""
+					if dn, ok := rawUser["displayname"].(string); ok && dn != "" {
+						name = dn
+					} else if un, ok := rawUser["username"].(string); ok {
+						name = un
+					}
+					if userIDStr != "" && name != "" {
+						userNameMap[userIDStr] = name
 					}
 				}
 				// Apply user names to logs
