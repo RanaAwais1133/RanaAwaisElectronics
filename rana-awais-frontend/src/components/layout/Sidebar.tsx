@@ -11,7 +11,7 @@ interface SidebarProps {
 
 // ✅ Define links with icons - Updated for 3 roles
 const baseLinks = [
-  { to: '/', labelKey: 'dashboard', shortcut: 'Alt+D', icon: '📊', roles: ['admin', 'manager', 'staff'] },
+  { to: '/', labelKey: 'dashboard', shortcut: 'Alt+D', icon: '📊', roles: ['admin', 'manager'] },
   { to: '/customers', labelKey: 'customers', shortcut: 'Alt+C', icon: '👤', roles: ['admin', 'manager', 'staff'] },
   { to: '/products', labelKey: 'products', shortcut: 'Alt+P', icon: '📦', roles: ['admin', 'manager'] },
   { to: '/installments', labelKey: 'installments', shortcut: 'Alt+I', icon: '📋', roles: ['admin', 'manager', 'staff'] },
