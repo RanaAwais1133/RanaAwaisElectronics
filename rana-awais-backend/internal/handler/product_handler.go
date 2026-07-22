@@ -108,7 +108,7 @@ func (h *ProductHandler) Search(w http.ResponseWriter, r *http.Request) {
 	}
 	skip, _ := strconv.ParseInt(r.URL.Query().Get("skip"), 10, 64)
 	limit, _ := strconv.ParseInt(r.URL.Query().Get("limit"), 10, 64)
-	if limit == 0 { limit = 50 }
+	if limit == 0 { limit = 10000 }
 
 	prods, err := h.svc.Search(r.Context(), query, skip, limit)
 	if err != nil {
