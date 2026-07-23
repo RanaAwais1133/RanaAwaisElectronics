@@ -221,14 +221,14 @@ export const useProductStore = create<ProductState>()((set, get) => {
     searchQuery: '',
     selectedCategory: 'all',
     selectedProductId: null,
-    pagination: { page: 1, limit: 50, total: 0, totalPages: 0 },
+    pagination: { page: 1, limit: 10000, total: 0, totalPages: 0 },
     selectedIds: new Set(),
     isBulkMode: false,
     lowStockProducts: [],
     lowStockThreshold: 5,
     isRealtimeConnected: false,
 
-    // ✅ Fetch products with pagination
+    // ✅ Fetch products with pagination (limit=10000 for all products)
     fetchProducts: async (force = false) => {
       const state = get();
 
