@@ -36,14 +36,14 @@ const SupplierList: React.FC = () => {
     setDeleteConfirm(null);
   }, [deleteSupplier, isUrdu]);
 
-  if (loading) return (
-    <div className="flex justify-center py-20">
-      <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
-    </div>
-  );
-
   return (
     <div className="max-w-7xl mx-auto px-3 sm:px-4 pb-10">
+      {loading && suppliers.length === 0 && (
+        <div className="flex justify-center py-20">
+          <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+        </div>
+      )}
+      {(!loading || suppliers.length > 0) && (<>
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
         <div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-800 dark:text-white">{t('suppliers') || 'Suppliers'}</h1>
@@ -121,6 +121,7 @@ const SupplierList: React.FC = () => {
       {selectedSupplier && <SupplierReport supplierId={selectedSupplier.id} onClose={() => setSelectedSupplier(null)} />}
       {showBulkPurchase && <BulkPurchase onClose={() => setShowBulkPurchase(false)} onSuccess={() => { fetchSuppliers(); setShowBulkPurchase(false); }} />}
 
+      </>)}
       {deleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
           <div className="bg-white dark:bg-gray-800 rounded-3xl p-6 max-w-sm w-full shadow-2xl">

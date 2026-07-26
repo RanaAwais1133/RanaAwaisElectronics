@@ -39,7 +39,10 @@ const BulkPurchase: React.FC<Props> = ({ onClose, onSuccess }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  useEffect(() => { fetchSuppliers(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // ✅ Load suppliers when popup opens (parent already has data, but safety reload)
+  useEffect(() => {
+    if (suppliers.length === 0) fetchSuppliers();
+  }, []); // eslint-disable-line
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
