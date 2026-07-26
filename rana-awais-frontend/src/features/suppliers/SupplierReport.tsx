@@ -1,8 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 import { useSupplierStore } from '../../store/useSupplierStore';
-import { APP_CONFIG } from '../../config/app';
 import api from '../../utils/api';
 
 interface Props {
@@ -18,34 +17,39 @@ const SupplierReport: React.FC<Props> = ({ supplierId, onClose }) => {
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [showPayModal, setShowPayModal] = useState(false);
   const [payLoading, setPayLoading] = useState(false);
+  const [payErr, setPayErr] = useState('');
 
   const supplier = suppliers.find(s => s.id === supplierId);
+  const supplierPromises = promises.filter(p => p.supplierId === supplierId);
+  const supplierPurchases = purchases.filter(p => p.supplierId === supplierId);
+  const supplierPayments = payments.filter(p => p.supplierId === supplierId);
 
-  useEffect(() => {
+  const loadData = useCallback(() => {
     if (supplierId) {
       fetchPurchases(supplierId);
       fetchPayments(supplierId);
-      fetchPromises();
+      fetchPromises(supplierId);
     }
   }, [supplierId, fetchPurchases, fetchPayments, fetchPromises]);
 
-  const totalPurchased = purchases.reduce((s, p) => s + p.totalAmount, 0);
-  const totalPaid = purchases.reduce((s, p) => s + p.paidAmount, 0);
+  useEffect(() => { loadData(); }, [loadData]);
+
+  const totalPurchased = supplierPurchases.reduce((s, p) => s + (p.totalAmount || 0), 0);
+  const totalPaid = supplierPurchases.reduce((s, p) => s + (p.paidAmount || 0), 0);
   const totalRemaining = totalPurchased - totalPaid;
 
   const handlePayment = async () => {
-    if (!parseFloat(paidAmount)) return;
-    setPayLoading(true);
+    const amt = parseFloat(paidAmount);
+    if (!amt || amt <= 0) { setPayErr(isUrdu ? 'رقم درج کریں' : 'Enter amount'); return; }
+    setPayLoading(true); setPayErr('');
     try {
       await api.post('/supplier-payments', {
-        supplierId, amount: parseFloat(paidAmount), method: paymentMethod,
+        supplierId, amount: amt, method: paymentMethod,
         paymentDate: new Date().toISOString().split('T')[0],
       });
       toast.success(isUrdu ? 'ادائیگی محفوظ' : 'Payment saved');
-      fetchPayments(supplierId);
-      fetchPurchases(supplierId);
-      setShowPayModal(false);
-      setPaidAmount('');
+      loadData();
+      setShowPayModal(false); setPaidAmount('');
     } catch { toast.error(isUrdu ? 'ناکام' : 'Failed'); }
     finally { setPayLoading(false); }
   };
@@ -56,105 +60,173 @@ const SupplierReport: React.FC<Props> = ({ supplierId, onClose }) => {
     try {
       await api.put(`/supplier-promises/${promiseId}`, { status: 'paid', paidAmount: pr.amount });
       toast.success(isUrdu ? 'ادا شدہ' : 'Marked paid');
-      fetchPromises();
-      fetchPurchases(supplierId);
+      loadData();
     } catch { toast.error(isUrdu ? 'ناکام' : 'Failed'); }
   };
 
   if (!supplier) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 bg-black/50 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl w-full max-w-4xl max-h-[95vh] overflow-y-auto mx-2" onClick={e => e.stopPropagation()}>
-        <div className="sticky top-0 bg-white dark:bg-gray-800 flex justify-between items-center px-6 py-4 border-b rounded-t-3xl z-10">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/50 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl w-full max-w-5xl max-h-[95vh] overflow-y-auto mx-2" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="sticky top-0 bg-white dark:bg-gray-800 flex justify-between items-center px-5 py-3 border-b rounded-t-3xl z-10">
           <div>
-            <h2 className="text-xl font-bold">{supplier.name}</h2>
-            <p className="text-xs text-gray-500">{supplier.phone} | {supplier.company || '—'}</p>
+            <h2 className="text-lg font-bold text-gray-800 dark:text-white">{supplier.name}</h2>
+            <p className="text-xs text-gray-500">{supplier.phone} {supplier.company ? `| ${supplier.company}` : ''}</p>
           </div>
-          <button onClick={onClose} className="p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700 text-xl">&times;</button>
-        </div>
-
-        <div className="p-6 space-y-6">
-          {/* Summary Cards */}
-          <div className="grid grid-cols-3 gap-4">
-            <div className="bg-blue-50 dark:bg-blue-900/20 rounded-2xl p-4 text-center">
-              <p className="text-xs text-gray-500">{isUrdu ? 'کل خریداری' : 'Total Purchased'}</p>
-              <p className="text-xl font-bold text-blue-600">Rs. {totalPurchased.toLocaleString()}</p>
-            </div>
-            <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-2xl p-4 text-center">
-              <p className="text-xs text-gray-500">{isUrdu ? 'ادا شدہ' : 'Total Paid'}</p>
-              <p className="text-xl font-bold text-emerald-600">Rs. {totalPaid.toLocaleString()}</p>
-            </div>
-            <div className="bg-red-50 dark:bg-red-900/20 rounded-2xl p-4 text-center">
-              <p className="text-xs text-gray-500">{isUrdu ? 'بقایا' : 'Remaining'}</p>
-              <p className="text-xl font-bold text-red-600">Rs. {totalRemaining.toLocaleString()}</p>
-            </div>
-          </div>
-
-          {/* Purchases */}
-          <div>
-            <h3 className="text-sm font-bold mb-2">{isUrdu ? 'خریداریاں' : 'Purchases'}</h3>
-            <div className="overflow-x-auto border rounded-xl">
-              <table className="w-full text-xs">
-                <thead className="bg-gray-50 dark:bg-gray-700"><tr><th className="px-3 py-2 text-start">Date</th><th className="px-3 py-2">Total</th><th className="px-3 py-2">Paid</th><th className="px-3 py-2">Remaining</th><th className="px-3 py-2">Mode</th><th className="px-3 py-2">Status</th></tr></thead>
-                <tbody className="divide-y">
-                  {purchases.map(p => (
-                    <tr key={p.id}><td className="px-3 py-2">{new Date(p.createdAt).toLocaleDateString()}</td><td className="px-3 py-2 text-right">{p.totalAmount.toLocaleString()}</td><td className="px-3 py-2 text-right">{p.paidAmount.toLocaleString()}</td><td className="px-3 py-2 text-right">{p.remainingAmount.toLocaleString()}</td><td className="px-3 py-2 capitalize">{p.paymentMode}</td><td className="px-3 py-2 capitalize">{p.status}</td></tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Promises */}
-          <div>
-            <h3 className="text-sm font-bold mb-2">{isUrdu ? 'وعدے' : 'Promises'}</h3>
-            <div className="overflow-x-auto border rounded-xl">
-              <table className="w-full text-xs">
-                <thead className="bg-gray-50 dark:bg-gray-700"><tr><th className="px-3 py-2 text-start">Due Date</th><th className="px-3 py-2">Amount</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Action</th></tr></thead>
-                <tbody className="divide-y">
-                  {promises.filter(p => p.supplierId === supplierId).map(p => (
-                    <tr key={p.id}><td className="px-3 py-2">{new Date(p.dueDate).toLocaleDateString()}</td><td className="px-3 py-2 text-right">{p.amount.toLocaleString()}</td><td className="px-3 py-2 capitalize">{p.status}</td><td className="px-3 py-2">{p.status === 'pending' && <button onClick={() => handlePayPromise(p.id)} className="text-xs bg-emerald-600 text-white px-2 py-0.5 rounded">{isUrdu ? 'ادا کریں' : 'Pay'}</button>}</td></tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Payments History */}
-          <div>
-            <h3 className="text-sm font-bold mb-2">{isUrdu ? 'ادائیگی کی تاریخ' : 'Payment History'}</h3>
-            <div className="overflow-x-auto border rounded-xl">
-              <table className="w-full text-xs">
-                <thead className="bg-gray-50 dark:bg-gray-700"><tr><th className="px-3 py-2 text-start">Date</th><th className="px-3 py-2">Amount</th><th className="px-3 py-2">Method</th></tr></thead>
-                <tbody className="divide-y">
-                  {payments.map(p => (
-                    <tr key={p.id}><td className="px-3 py-2">{new Date(p.paymentDate).toLocaleDateString()}</td><td className="px-3 py-2 text-right">{p.amount.toLocaleString()}</td><td className="px-3 py-2 capitalize">{p.method}</td></tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Add Payment Button */}
-          <div className="flex justify-end">
-            <button onClick={() => setShowPayModal(true)} className="px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-emerald-700 text-white rounded-xl text-sm font-semibold">
+          <div className="flex items-center gap-3">
+            <button onClick={() => setShowPayModal(true)} className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-medium hover:bg-emerald-700">
               + {isUrdu ? 'ادائیگی' : 'Add Payment'}
             </button>
+            <button onClick={onClose} className="p-1.5 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700 text-xl">&times;</button>
           </div>
         </div>
 
-        {/* Payment Modal */}
+        <div className="p-5 space-y-5">
+          {/* Summary Cards */}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-3 text-center">
+              <p className="text-xs text-gray-500 dark:text-gray-400">{isUrdu ? 'کل خریداری' : 'Total Purchased'}</p>
+              <p className="text-lg font-bold text-blue-600 dark:text-blue-400">Rs. {totalPurchased.toLocaleString()}</p>
+            </div>
+            <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-xl p-3 text-center">
+              <p className="text-xs text-gray-500 dark:text-gray-400">{isUrdu ? 'ادا شدہ' : 'Total Paid'}</p>
+              <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400">Rs. {totalPaid.toLocaleString()}</p>
+            </div>
+            <div className={`rounded-xl p-3 text-center ${totalRemaining > 0 ? 'bg-red-50 dark:bg-red-900/20' : 'bg-gray-50 dark:bg-gray-700/30'}`}>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{isUrdu ? 'بقایا' : 'Remaining'}</p>
+              <p className={`text-lg font-bold ${totalRemaining > 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-600'}`}>Rs. {totalRemaining.toLocaleString()}</p>
+            </div>
+          </div>
+
+          {/* Purchases Table */}
+          <div>
+            <h3 className="text-sm font-bold mb-2 text-gray-700 dark:text-gray-200">{isUrdu ? 'خریداریاں' : 'Purchases'}</h3>
+            <div className="overflow-x-auto border rounded-xl">
+              <table className="w-full text-xs min-w-[700px]">
+                <thead className="bg-gray-50 dark:bg-gray-700 text-gray-500 dark:text-gray-400 uppercase">
+                  <tr>
+                    <th className="px-3 py-2.5 text-start">{isUrdu ? 'تاریخ' : 'Date'}</th>
+                    <th className="px-3 py-2.5 text-end">{isUrdu ? 'ٹوٹل' : 'Total'}</th>
+                    <th className="px-3 py-2.5 text-end">{isUrdu ? 'ادا' : 'Paid'}</th>
+                    <th className="px-3 py-2.5 text-end">{isUrdu ? 'بقایا' : 'Left'}</th>
+                    <th className="px-3 py-2.5 text-center">{isUrdu ? 'موڈ' : 'Mode'}</th>
+                    <th className="px-3 py-2.5 text-center">{isUrdu ? 'سٹیٹس' : 'Status'}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50 bg-white dark:bg-gray-800">
+                  {supplierPurchases.length === 0 ? (
+                    <tr><td colSpan={6} className="px-3 py-6 text-center text-gray-400 text-xs">{isUrdu ? 'کوئی خریداری نہیں' : 'No purchases yet'}</td></tr>
+                  ) : supplierPurchases.map(p => (
+                    <tr key={p.id} className="hover:bg-blue-50/30 dark:hover:bg-blue-900/10">
+                      <td className="px-3 py-2.5 font-medium whitespace-nowrap">{new Date(p.createdAt).toLocaleDateString()}</td>
+                      <td className="px-3 py-2.5 text-end whitespace-nowrap">{p.totalAmount?.toLocaleString()}</td>
+                      <td className="px-3 py-2.5 text-end whitespace-nowrap text-emerald-600">{p.paidAmount?.toLocaleString()}</td>
+                      <td className="px-3 py-2.5 text-end whitespace-nowrap text-red-500">{p.remainingAmount?.toLocaleString()}</td>
+                      <td className="px-3 py-2.5 text-center capitalize">{p.paymentMode}</td>
+                      <td className="px-3 py-2.5 text-center">
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${p.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : p.status === 'partial' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
+                          {p.status || 'pending'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Promises Table */}
+          <div>
+            <h3 className="text-sm font-bold mb-2 text-gray-700 dark:text-gray-200">{isUrdu ? 'وعدے' : 'Payment Promises'}</h3>
+            <div className="overflow-x-auto border rounded-xl">
+              <table className="w-full text-xs min-w-[500px]">
+                <thead className="bg-gray-50 dark:bg-gray-700 text-gray-500 dark:text-gray-400 uppercase">
+                  <tr>
+                    <th className="px-3 py-2.5 text-start">{isUrdu ? 'آخری تاریخ' : 'Due Date'}</th>
+                    <th className="px-3 py-2.5 text-end">{isUrdu ? 'رقم' : 'Amount'}</th>
+                    <th className="px-3 py-2.5 text-center">{isUrdu ? 'سٹیٹس' : 'Status'}</th>
+                    <th className="px-3 py-2.5 text-center">{isUrdu ? 'ایکشن' : 'Action'}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50 bg-white dark:bg-gray-800">
+                  {supplierPromises.length === 0 ? (
+                    <tr><td colSpan={4} className="px-3 py-6 text-center text-gray-400 text-xs">{isUrdu ? 'کوئی وعدہ نہیں' : 'No promises'}</td></tr>
+                  ) : supplierPromises.map(pr => (
+                    <tr key={pr.id} className="hover:bg-blue-50/30 dark:hover:bg-blue-900/10">
+                      <td className="px-3 py-2.5 font-medium whitespace-nowrap">{new Date(pr.dueDate).toLocaleDateString()}</td>
+                      <td className="px-3 py-2.5 text-end whitespace-nowrap">{pr.amount?.toLocaleString()}</td>
+                      <td className="px-3 py-2.5 text-center">
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${pr.status === 'paid' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                          {pr.status || 'pending'}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5 text-center">
+                        {pr.status !== 'paid' && (
+                          <button onClick={() => handlePayPromise(pr.id)} className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-medium transition-colors">
+                            {isUrdu ? 'ادا کریں' : 'Pay Now'}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Payment History Table */}
+          <div>
+            <h3 className="text-sm font-bold mb-2 text-gray-700 dark:text-gray-200">{isUrdu ? 'ادائیگی کی ہسٹری' : 'Payment History'}</h3>
+            <div className="overflow-x-auto border rounded-xl">
+              <table className="w-full text-xs min-w-[400px]">
+                <thead className="bg-gray-50 dark:bg-gray-700 text-gray-500 dark:text-gray-400 uppercase">
+                  <tr>
+                    <th className="px-3 py-2.5 text-start">{isUrdu ? 'تاریخ' : 'Date'}</th>
+                    <th className="px-3 py-2.5 text-end">{isUrdu ? 'رقم' : 'Amount'}</th>
+                    <th className="px-3 py-2.5 text-center">{isUrdu ? 'طریقہ' : 'Method'}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50 bg-white dark:bg-gray-800">
+                  {supplierPayments.length === 0 ? (
+                    <tr><td colSpan={3} className="px-3 py-6 text-center text-gray-400 text-xs">{isUrdu ? 'کوئی ادائیگی نہیں' : 'No payments yet'}</td></tr>
+                  ) : supplierPayments.map(pay => (
+                    <tr key={pay.id} className="hover:bg-blue-50/30 dark:hover:bg-blue-900/10">
+                      <td className="px-3 py-2.5 font-medium whitespace-nowrap">{new Date(pay.paymentDate).toLocaleDateString()}</td>
+                      <td className="px-3 py-2.5 text-end whitespace-nowrap text-emerald-600 font-medium">{pay.amount?.toLocaleString()}</td>
+                      <td className="px-3 py-2.5 text-center capitalize">{pay.method || 'cash'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        {/* Add Payment Modal */}
         {showPayModal && (
           <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/40 rounded-3xl" onClick={() => setShowPayModal(false)}>
-            <div className="bg-white dark:bg-gray-700 rounded-2xl p-6 w-80 shadow-2xl" onClick={e => e.stopPropagation()}>
-              <h3 className="font-bold mb-4">{isUrdu ? 'ادائیگی شامل کریں' : 'Add Payment'}</h3>
+            <div className="bg-white dark:bg-gray-700 rounded-2xl p-5 w-80 shadow-2xl" onClick={e => e.stopPropagation()}>
+              <h3 className="font-bold text-gray-800 dark:text-white mb-3">{isUrdu ? 'ادائیگی شامل کریں' : 'Add Payment'}</h3>
               <div className="space-y-3">
-                <input type="number" placeholder={isUrdu ? 'رقم' : 'Amount'} value={paidAmount} onChange={e => setPaidAmount(e.target.value)} className="w-full border rounded-xl px-3 py-2 text-sm" />
-                <select value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)} className="w-full border rounded-xl px-3 py-2 text-sm"><option value="cash">{isUrdu ? 'نقد' : 'Cash'}</option><option value="bank">{isUrdu ? 'بینک' : 'Bank'}</option></select>
-                <div className="flex gap-2">
-                  <button onClick={() => setShowPayModal(false)} className="flex-1 py-2 bg-gray-100 dark:bg-gray-600 rounded-xl text-sm">{isUrdu ? 'منسوخ' : 'Cancel'}</button>
-                  <button onClick={handlePayment} disabled={payLoading} className="flex-1 py-2 bg-emerald-600 text-white rounded-xl text-sm">{payLoading ? '...' : isUrdu ? 'ادا کریں' : 'Pay'}</button>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">{isUrdu ? 'رقم' : 'Amount'} *</label>
+                  <input type="number" placeholder="0" value={paidAmount} onChange={e => setPaidAmount(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-600" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">{isUrdu ? 'طریقہ' : 'Method'}</label>
+                  <select value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-600">
+                    <option value="cash">{isUrdu ? 'نقد' : 'Cash'}</option>
+                    <option value="bank">{isUrdu ? 'بینک' : 'Bank'}</option>
+                  </select>
+                </div>
+                {payErr && <p className="text-red-500 text-xs">{payErr}</p>}
+                <div className="flex gap-2 pt-1">
+                  <button onClick={() => { setShowPayModal(false); setPayErr(''); }} className="flex-1 py-2 bg-gray-100 dark:bg-gray-600 rounded-lg text-sm font-medium">{isUrdu ? 'منسوخ' : 'Cancel'}</button>
+                  <button onClick={handlePayment} disabled={payLoading} className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white rounded-lg text-sm font-medium">
+                    {payLoading ? '...' : isUrdu ? 'ادا کریں' : 'Pay'}
+                  </button>
                 </div>
               </div>
             </div>
