@@ -26,28 +26,28 @@ func NewSupplierHandler(repo *sqlite.SupplierRepository) *SupplierHandler {
 	}
 }
 
-func (h *SupplierHandler) addToInventory(name, serial, imei, chassis, engine, model, color string, price float64) {
+func (h *SupplierHandler) addToInventory(name, serial, imei, chassis, engine, model, color string, purchasePrice, salePrice float64) {
 	db := config.MongoDatabase
 	if db == nil {
 		db2 := config.GetSQLiteDB()
 		if db2 != nil {
 			db2.Exec(`INSERT INTO products (id, name, name_urdu, category, price, purchase_price, serial_number, imei, chassis_no, engine_no, model, color, in_stock, stock_count, created_at, updated_at)
 				VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-				uuid.New().String(), name, name, "Purchase", price, price, serial, imei, chassis, engine, model, color, 1, 1, time.Now(), time.Now())
+				uuid.New().String(), name, name, "Purchase", salePrice, purchasePrice, serial, imei, chassis, engine, model, color, 1, 1, time.Now(), time.Now())
 		}
 		return
 	}
 	coll := db.Collection("products")
 	coll.InsertOne(context.Background(), domain.Product{
-		ID:           uuid.New().String(),
-		Name:         name,
-		NameUrdu:     name,
-		Category:     "Purchase",
-		Price:        price,
-		PurchasePrice: price,
-		SerialNumber: serial,
-		IMEI:         imei,
-		ChassisNo:    chassis,
+		ID:            uuid.New().String(),
+		Name:          name,
+		NameUrdu:      name,
+		Category:      "Purchase",
+		Price:         salePrice,
+		PurchasePrice: purchasePrice,
+		SerialNumber:  serial,
+		IMEI:          imei,
+		ChassisNo:     chassis,
 		EngineNo:      engine,
 		Model:         model,
 		Color:         color,
@@ -155,7 +155,7 @@ func (h *SupplierHandler) CreatePurchase(w http.ResponseWriter, r *http.Request)
 	// ✅ Add each item as a product in inventory  
 	for _, item := range p.Items {
 		_ = h.repo.CreateProductFromPurchase(r.Context(), item)
-		h.addToInventory(item.ProductName, item.SerialNumber, item.IMEI, item.ChassisNo, item.EngineNo, item.Model, item.Color, item.Price)
+		h.addToInventory(item.ProductName, item.SerialNumber, item.IMEI, item.ChassisNo, item.EngineNo, item.Model, item.Color, item.Price, item.SalePrice)
 	}
 	// Auto-create promise for hybrid/credit
 	if p.PaymentMode != "cash" && p.RemainingAmount > 0 && p.DueDate != nil {

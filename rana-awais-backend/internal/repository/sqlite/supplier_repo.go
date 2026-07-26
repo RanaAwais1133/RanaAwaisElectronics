@@ -112,9 +112,9 @@ func (r *SupplierRepository) CreatePurchase(ctx context.Context, p *domain.Purch
 		item.PurchaseID = p.ID
 		item.CreatedAt = time.Now()
 		_, err := r.db.ExecContext(ctx,
-			`INSERT INTO purchase_items (id, purchase_id, product_name, serial_number, imei, chassis_no, engine_no, model, color, price, created_at)
-			 VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-			item.ID, item.PurchaseID, item.ProductName, item.SerialNumber, item.IMEI, item.ChassisNo, item.EngineNo, item.Model, item.Color, item.Price, item.CreatedAt)
+			`INSERT INTO purchase_items (id, purchase_id, product_name, serial_number, imei, chassis_no, engine_no, model, color, price, sale_price, created_at)
+			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+			item.ID, item.PurchaseID, item.ProductName, item.SerialNumber, item.IMEI, item.ChassisNo, item.EngineNo, item.Model, item.Color, item.Price, item.SalePrice, item.CreatedAt)
 		if err != nil {
 			return err
 		}
@@ -302,4 +302,9 @@ func (r *SupplierRepository) UpdatePromise(ctx context.Context, id string, pr *d
 		`UPDATE supplier_promises SET paid_amount=?, status=?, remarks=?, updated_at=? WHERE id=?`,
 		pr.PaidAmount, pr.Status, pr.Remarks, pr.UpdatedAt, id)
 	return err
+}
+
+// RunPurchaseItemsMigration ensures sale_price column exists
+func (r *SupplierRepository) RunPurchaseItemsMigration() {
+	r.db.Exec("ALTER TABLE purchase_items ADD COLUMN sale_price REAL DEFAULT 0")
 }

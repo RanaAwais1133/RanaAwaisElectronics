@@ -33,17 +33,18 @@ type Purchase struct {
 }
 
 type PurchaseItem struct {
-	ID           string  `json:"id" bson:"_id"`
-	PurchaseID   string  `json:"purchaseId" bson:"purchaseid"`
-	ProductName  string  `json:"productName" bson:"productname"`
-	SerialNumber string  `json:"serialNumber,omitempty" bson:"serialnumber,omitempty"`
-	IMEI         string  `json:"imei,omitempty" bson:"imei,omitempty"`
-	ChassisNo    string  `json:"chassisNo,omitempty" bson:"chassisno,omitempty"`
-	EngineNo     string  `json:"engineNo,omitempty" bson:"engineno,omitempty"`
-	Model        string  `json:"model,omitempty" bson:"model,omitempty"`
-	Color        string  `json:"color,omitempty" bson:"color,omitempty"`
-	Price        float64 `json:"price" bson:"price"`
-	CreatedAt    time.Time `json:"createdAt" bson:"createdat"`
+	ID            string    `json:"id" bson:"_id"`
+	PurchaseID    string    `json:"purchaseId" bson:"purchaseid"`
+	ProductName   string    `json:"productName" bson:"productname"`
+	SerialNumber  string    `json:"serialNumber,omitempty" bson:"serialnumber,omitempty"`
+	IMEI          string    `json:"imei,omitempty" bson:"imei,omitempty"`
+	ChassisNo     string    `json:"chassisNo,omitempty" bson:"chassisno,omitempty"`
+	EngineNo      string    `json:"engineNo,omitempty" bson:"engineno,omitempty"`
+	Model         string    `json:"model,omitempty" bson:"model,omitempty"`
+	Color         string    `json:"color,omitempty" bson:"color,omitempty"`
+	Price         float64   `json:"price" bson:"price"`
+	SalePrice     float64   `json:"salePrice" bson:"saleprice"`
+	CreatedAt     time.Time `json:"createdAt" bson:"createdat"`
 }
 
 type SupplierPayment struct {
