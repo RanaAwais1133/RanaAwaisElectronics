@@ -57,11 +57,22 @@ const SupplierReport: React.FC<Props> = ({ supplierId, onClose }) => {
   const handlePayPromise = async (promiseId: string) => {
     const pr = promises.find(p => p.id === promiseId);
     if (!pr) return;
+    setPayLoading(true);
     try {
+      // 1. Record the payment
+      await api.post('/supplier-payments', {
+        supplierId: pr.supplierId,
+        purchaseId: pr.purchaseId,
+        amount: pr.amount,
+        method: 'cash',
+        paymentDate: new Date().toISOString().split('T')[0],
+      });
+      // 2. Mark promise as paid
       await api.put(`/supplier-promises/${promiseId}`, { status: 'paid', paidAmount: pr.amount });
       toast.success(isUrdu ? 'ادا شدہ' : 'Marked paid');
       loadData();
     } catch { toast.error(isUrdu ? 'ناکام' : 'Failed'); }
+    finally { setPayLoading(false); }
   };
 
   if (!supplier) return null;

@@ -162,7 +162,12 @@ func (h *SupplierHandler) CreatePayment(w http.ResponseWriter, r *http.Request) 
 	h.repo.CreatePayment(r.Context(), &pay)
 	// Update purchase paid_amount
 	if pay.PurchaseID != "" {
-		if p, _ := h.repo.GetPurchase(r.Context(), pay.PurchaseID); p != nil {
+		// Try MongoDB first
+		var p *domain.Purchase
+		if h.useMongo() { p, _ = h.mongoRepo.GetPurchase(r.Context(), pay.PurchaseID) }
+		// Fallback to SQLite
+		if p == nil { p, _ = h.repo.GetPurchase(r.Context(), pay.PurchaseID) }
+		if p != nil {
 			newPaid := p.PaidAmount + pay.Amount
 			st := "partial"; if newPaid >= p.TotalAmount { st = "completed" }
 			h.repo.UpdatePurchasePaid(r.Context(), pay.PurchaseID, newPaid, p.TotalAmount-newPaid, st)
