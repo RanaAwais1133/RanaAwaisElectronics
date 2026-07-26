@@ -340,6 +340,7 @@ func InitSchema(db *sql.DB) error {
 		model TEXT DEFAULT '',
 		color TEXT DEFAULT '',
 		price REAL DEFAULT 0,
+		sale_price REAL DEFAULT 0,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		FOREIGN KEY (purchase_id) REFERENCES purchases(id)
 	);
