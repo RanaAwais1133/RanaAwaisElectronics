@@ -76,6 +76,13 @@ func InitSchema(db *sql.DB) error {
 		category TEXT DEFAULT '',
 		price REAL DEFAULT 0,
 		purchase_price REAL DEFAULT 0,
+		serial_number TEXT DEFAULT '',
+		imei TEXT DEFAULT '',
+		chassis_no TEXT DEFAULT '',
+		engine_no TEXT DEFAULT '',
+		model TEXT DEFAULT '',
+		color TEXT DEFAULT '',
+		supplier_id TEXT DEFAULT '',
 		description TEXT DEFAULT '',
 		in_stock INTEGER DEFAULT 1,
 		stock_count INTEGER DEFAULT 0,
@@ -290,6 +297,87 @@ func InitSchema(db *sql.DB) error {
 	CREATE INDEX IF NOT EXISTS idx_installment_plans_customer_id ON installment_plans(customer_id);
 	CREATE INDEX IF NOT EXISTS idx_installment_plans_status ON installment_plans(status);
 	CREATE INDEX IF NOT EXISTS idx_accounting_entries_date ON accounting_entries(date);
+
+	-- Supplier Management Tables
+	CREATE TABLE IF NOT EXISTS suppliers (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		name_urdu TEXT DEFAULT '',
+		phone TEXT DEFAULT '',
+		office_phone TEXT DEFAULT '',
+		cnic TEXT DEFAULT '',
+		address TEXT DEFAULT '',
+		company TEXT DEFAULT '',
+		remarks TEXT DEFAULT '',
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME
+	);
+
+	CREATE TABLE IF NOT EXISTS purchases (
+		id TEXT PRIMARY KEY,
+		supplier_id TEXT NOT NULL,
+		total_amount REAL DEFAULT 0,
+		paid_amount REAL DEFAULT 0,
+		remaining_amount REAL DEFAULT 0,
+		payment_mode TEXT DEFAULT 'cash',
+		due_date DATETIME,
+		status TEXT DEFAULT 'completed',
+		remarks TEXT DEFAULT '',
+		created_by TEXT DEFAULT '',
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME,
+		FOREIGN KEY (supplier_id) REFERENCES suppliers(id)
+	);
+
+	CREATE TABLE IF NOT EXISTS purchase_items (
+		id TEXT PRIMARY KEY,
+		purchase_id TEXT NOT NULL,
+		product_name TEXT NOT NULL,
+		serial_number TEXT DEFAULT '',
+		imei TEXT DEFAULT '',
+		chassis_no TEXT DEFAULT '',
+		engine_no TEXT DEFAULT '',
+		model TEXT DEFAULT '',
+		color TEXT DEFAULT '',
+		price REAL DEFAULT 0,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (purchase_id) REFERENCES purchases(id)
+	);
+
+	CREATE TABLE IF NOT EXISTS supplier_payments (
+		id TEXT PRIMARY KEY,
+		supplier_id TEXT NOT NULL,
+		purchase_id TEXT DEFAULT '',
+		amount REAL DEFAULT 0,
+		method TEXT DEFAULT 'cash',
+		payment_date DATETIME,
+		remarks TEXT DEFAULT '',
+		created_by TEXT DEFAULT '',
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (supplier_id) REFERENCES suppliers(id)
+	);
+
+	CREATE TABLE IF NOT EXISTS supplier_promises (
+		id TEXT PRIMARY KEY,
+		supplier_id TEXT NOT NULL,
+		purchase_id TEXT DEFAULT '',
+		amount REAL DEFAULT 0,
+		due_date DATETIME NOT NULL,
+		paid_amount REAL DEFAULT 0,
+		status TEXT DEFAULT 'pending',
+		remarks TEXT DEFAULT '',
+		created_by TEXT DEFAULT '',
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (supplier_id) REFERENCES suppliers(id)
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_purchases_supplier_id ON purchases(supplier_id);
+	CREATE INDEX IF NOT EXISTS idx_purchase_items_purchase_id ON purchase_items(purchase_id);
+	CREATE INDEX IF NOT EXISTS idx_supplier_payments_supplier_id ON supplier_payments(supplier_id);
+	CREATE INDEX IF NOT EXISTS idx_supplier_promises_supplier_id ON supplier_promises(supplier_id);
+	CREATE INDEX IF NOT EXISTS idx_supplier_promises_status ON supplier_promises(status);
+	CREATE INDEX IF NOT EXISTS idx_supplier_promises_due_date ON supplier_promises(due_date);
 	`
 
 	_, err := db.Exec(schema)
@@ -298,6 +386,21 @@ func InitSchema(db *sql.DB) error {
 		return err
 	}
 
+	// Migrate existing products table - add new columns
+	migrations := []string{
+		"ALTER TABLE products ADD COLUMN serial_number TEXT DEFAULT ''",
+		"ALTER TABLE products ADD COLUMN imei TEXT DEFAULT ''",
+		"ALTER TABLE products ADD COLUMN chassis_no TEXT DEFAULT ''",
+		"ALTER TABLE products ADD COLUMN engine_no TEXT DEFAULT ''",
+		"ALTER TABLE products ADD COLUMN model TEXT DEFAULT ''",
+		"ALTER TABLE products ADD COLUMN color TEXT DEFAULT ''",
+		"ALTER TABLE products ADD COLUMN supplier_id TEXT DEFAULT ''",
+	}
+	for _, m := range migrations {
+		db.Exec(m) // ignore error if column already exists
+	}
+
 	log.Println("Database schema initialized successfully")
 	return nil
 }
+

@@ -18,7 +18,7 @@ const ActionButtons: React.FC<{
   const isPending = guarantor.verificationStatus === 'pending';
 
   return (
-    <div className="flex justify-center gap-1.5">
+    <div className="flex justify-center items-center gap-1.5 flex-wrap">
       {isPending && (
         <>
           <button

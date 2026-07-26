@@ -57,6 +57,7 @@ const ReminderPage = lazyWithPreload('reminders', () => import('../../features/r
 const SettingsPage = lazyWithPreload('settings', () => import('../../features/settings/SettingPage'));
 const BackupPage = lazyWithPreload('backup', () => import('../../features/settings/BackupPage'));
 const AuditLogsPage = lazyWithPreload('audit-logs', () => import('../../features/audit/AuditLogsPage'));
+const SupplierList = lazyWithPreload('suppliers', () => import('../../features/suppliers/SupplierList'));
 const NotFoundPage = lazyWithPreload('not-found', () => import('../../pages/NotFoundPage'));
 
 // ✅ Keep-Alive wrapper: shows previous page while new one loads
@@ -134,6 +135,7 @@ const MainLayout: React.FC = () => {
       '/notifications': t('notifications'),
       '/audit-logs': t('audit_logs'),
       '/settings': t('settings'),
+      '/suppliers': t('suppliers') || 'Suppliers',
     };
     
     let pageTitle = APP_CONFIG.companyName;
@@ -213,6 +215,13 @@ const MainLayout: React.FC = () => {
             <Route path="/audit-logs" element={
               <RequireRole roles={['admin', 'manager']}>
                 <AuditLogsPage />
+              </RequireRole>
+            } />
+
+            {/* ✅ Supplier Management */}
+            <Route path="/suppliers" element={
+              <RequireRole roles={['admin', 'manager']}>
+                <SupplierList />
               </RequireRole>
             } />
             

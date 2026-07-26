@@ -154,6 +154,19 @@ const InstallmentCreate: React.FC = () => {
   const selectedProduct = products.find(p => p.id === productId);
   const selectedCustomer = customers.find(c => c.id === customerId);
 
+  // ✅ Auto-fill product details when product is selected
+  useEffect(() => {
+    if (selectedProduct) {
+      setSerialNumber(selectedProduct.serialNumber || '');
+      setImei(selectedProduct.imei || '');
+      setEngineNo(selectedProduct.engineNo || '');
+      setChassisNo(selectedProduct.chassisNo || '');
+      setModel(selectedProduct.model || '');
+      setColor(selectedProduct.color || '');
+      setCompany(selectedProduct.company || selectedProduct.companyUrdu || '');
+    }
+  }, [selectedProduct]);
+
   useEffect(() => {
     const total = parseFloat(totalAmount) || 0;
     const down = parseFloat(downPayment) || 0;

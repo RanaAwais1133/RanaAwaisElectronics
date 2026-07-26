@@ -13,10 +13,11 @@ interface SidebarProps {
 const baseLinks = [
   { to: '/', labelKey: 'dashboard', shortcut: 'Alt+D', icon: '📊', roles: ['admin', 'manager'] },
   { to: '/customers', labelKey: 'customers', shortcut: 'Alt+C', icon: '👤', roles: ['admin', 'manager', 'staff'] },
-  { to: '/products', labelKey: 'products', shortcut: 'Alt+P', icon: '📦', roles: ['admin', 'manager'] },
+  { to: '/products', labelKey: 'products', shortcut: 'Alt+P', icon: '📦', roles: ['admin', 'manager'], labelOverride: 'Inventory' },
   { to: '/installments', labelKey: 'installments', shortcut: 'Alt+I', icon: '📋', roles: ['admin', 'manager', 'staff'] },
   { to: '/installments/new', labelKey: 'new_installment', shortcut: 'Alt+N', icon: '➕', roles: ['admin', 'manager', 'staff'] },
   { to: '/guarantors', labelKey: 'guarantors', shortcut: 'Alt+G', icon: '🤝', roles: ['admin', 'manager'] },
+  { to: '/suppliers', labelKey: 'suppliers', shortcut: 'Alt+U', icon: '🏭', roles: ['admin', 'manager'] },
   { to: '/reports', labelKey: 'reports', shortcut: 'Alt+R', icon: '📄', roles: ['admin', 'manager'] },
   { to: '/reminders', labelKey: 'reminders', shortcut: 'Alt+M', icon: '🔔', roles: ['admin', 'manager'] },
   { to: '/audit-logs', labelKey: 'audit_logs', shortcut: 'Alt+L', icon: '📜', roles: ['admin', 'manager'] },
@@ -99,7 +100,7 @@ const Sidebar = React.memo<SidebarProps>(({ isOpen, onClose }) => {
               >
                 <span className="flex items-center gap-2.5 truncate">
                   <span className="text-base">{link.icon}</span>
-                  <span className="truncate">{t(link.labelKey)}</span>
+                  <span className="truncate">{(link as any).labelOverride || t(link.labelKey)}</span>
                 </span>
                 <kbd className="hidden sm:inline-block ml-2 px-1.5 py-0.5 text-xs font-mono text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-700 rounded-md border border-gray-200 dark:border-gray-600 group-hover:text-gray-600 dark:group-hover:text-gray-300 transition-colors">
                   {link.shortcut}

@@ -33,6 +33,12 @@ export interface Product {
   company?: string;
   companyUrdu?: string;
   sku?: string;
+  serialNumber?: string;
+  imei?: string;
+  chassisNo?: string;
+  engineNo?: string;
+  model?: string;
+  color?: string;
   createdAt?: string;
   updatedAt?: string;
 }

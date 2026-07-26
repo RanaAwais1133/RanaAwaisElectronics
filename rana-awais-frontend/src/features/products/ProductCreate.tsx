@@ -35,6 +35,12 @@ const ProductCreate: React.FC<Props> = ({ onClose, onSuccess, initialData }) => 
   const [description, setDescription] = useState(initialData?.description || '');
   const [quantity, setQuantity] = useState(initialData?.stockCount || 1);
   const [sku, setSku] = useState(initialData?.sku || '');
+  const [serialNumber, setSerialNumber] = useState(initialData?.serialNumber || '');
+  const [imei, setImei] = useState(initialData?.imei || '');
+  const [chassisNo, setChassisNo] = useState(initialData?.chassisNo || '');
+  const [engineNo, setEngineNo] = useState(initialData?.engineNo || '');
+  const [model, setModel] = useState(initialData?.model || '');
+  const [color, setColor] = useState(initialData?.color || '');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const isEditMode = !!initialData?.id;
@@ -92,6 +98,12 @@ const ProductCreate: React.FC<Props> = ({ onClose, onSuccess, initialData }) => 
       category: category || '',
       price: Math.round(parseFloat(sellingPrice) * 100) / 100,
       purchasePrice: purchasePrice ? Math.round(parseFloat(purchasePrice) * 100) / 100 : 0,
+      serialNumber: serialNumber || '',
+      imei: imei || '',
+      chassisNo: chassisNo || '',
+      engineNo: engineNo || '',
+      model: model || '',
+      color: color || '',
       description: description || '',
       sku: sku || '',
       stockCount: Number(quantity) || 0,
@@ -252,6 +264,21 @@ const ProductCreate: React.FC<Props> = ({ onClose, onSuccess, initialData }) => 
               placeholder="1"
             />
           )}
+
+          {/* Product Details Section */}
+          <div className="border-t border-gray-200 dark:border-gray-700 pt-3">
+            <h3 className="text-sm font-bold text-purple-700 dark:text-purple-300 mb-3">
+              {isUrdu ? 'پروڈکٹ کی تفصیلات' : 'Product Details'}
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <FormField label={isUrdu ? 'سیریل نمبر' : 'Serial Number'} name="serialNumber" value={serialNumber} onChange={e => setSerialNumber(e.target.value)} />
+              <FormField label="IMEI" name="imei" value={imei} onChange={e => setImei(e.target.value)} />
+              <FormField label={isUrdu ? 'چیسس نمبر' : 'Chassis No'} name="chassisNo" value={chassisNo} onChange={e => setChassisNo(e.target.value)} />
+              <FormField label={isUrdu ? 'انجن نمبر' : 'Engine No'} name="engineNo" value={engineNo} onChange={e => setEngineNo(e.target.value)} />
+              <FormField label={isUrdu ? 'ماڈل' : 'Model'} name="model" value={model} onChange={e => setModel(e.target.value)} />
+              <FormField label={isUrdu ? 'رنگ' : 'Color'} name="color" value={color} onChange={e => setColor(e.target.value)} />
+            </div>
+          </div>
 
           {/* Description */}
           <FormField

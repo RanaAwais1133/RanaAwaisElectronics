@@ -11,6 +11,7 @@ import (
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/domain"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/middleware"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/repository"
+	sqliterepo "github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/repository/sqlite"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/service"
 	"github.com/gorilla/mux"
 	"go.mongodb.org/mongo-driver/bson"
@@ -51,6 +52,9 @@ func SetupRouter(
 	dashboardH := NewDashboardHandler()
 	expenseH := NewExpenseHandler()
 	promiseH := NewPromiseHandler()
+
+	// Supplier handler (SQLite-based)
+	supplierH := NewSupplierHandler(sqliterepo.NewSupplierRepository(config.GetSQLiteDB()))
 
 	api := r.PathPrefix("/api").Subrouter()
 
@@ -926,6 +930,21 @@ func SetupRouter(
 
 	// Payments list
 	protected.HandleFunc("/payments/list", paymentH.ListAll).Methods("GET")
+
+	// ========== SUPPLIERS ==========
+	protected.HandleFunc("/suppliers", supplierH.List).Methods("GET")
+	protected.HandleFunc("/suppliers", supplierH.Create).Methods("POST")
+	protected.HandleFunc("/suppliers/{id}", supplierH.Get).Methods("GET")
+	protected.HandleFunc("/suppliers/{id}", supplierH.Update).Methods("PUT")
+	protected.HandleFunc("/suppliers/{id}", supplierH.Delete).Methods("DELETE")
+	protected.HandleFunc("/purchases", supplierH.CreatePurchase).Methods("POST")
+	protected.HandleFunc("/purchases", supplierH.ListPurchases).Methods("GET")
+	protected.HandleFunc("/purchases/{id}", supplierH.GetPurchase).Methods("GET")
+	protected.HandleFunc("/supplier-payments", supplierH.CreatePayment).Methods("POST")
+	protected.HandleFunc("/supplier-payments", supplierH.ListPayments).Methods("GET")
+	protected.HandleFunc("/supplier-promises", supplierH.CreatePromise).Methods("POST")
+	protected.HandleFunc("/supplier-promises", supplierH.ListPromises).Methods("GET")
+	protected.HandleFunc("/supplier-promises/{id}", supplierH.UpdatePromise).Methods("PUT")
 
 	// ========== PROMISES ==========
 	protected.HandleFunc("/promises", promiseH.Create).Methods("POST")

@@ -23,7 +23,7 @@ func (r *ProductRepository) Create(ctx context.Context, p *domain.Product) error
 	}
 	p.CreatedAt = time.Now()
 	p.UpdatedAt = time.Now()
-	
+
 	// Auto-set in_stock based on stock_count
 	if p.StockCount > 0 {
 		p.InStock = true
@@ -32,20 +32,20 @@ func (r *ProductRepository) Create(ctx context.Context, p *domain.Product) error
 	}
 
 	_, err := r.db.ExecContext(ctx, `
-		INSERT INTO products (id, name, name_urdu, company, company_urdu, category, price, purchase_price, description, in_stock, stock_count, sku, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		p.ID, p.Name, p.NameUrdu, p.Company, p.CompanyUrdu, p.Category, p.Price, p.PurchasePrice, p.Description, boolToInt(p.InStock), p.StockCount, p.SKU, p.CreatedAt, p.UpdatedAt)
+		INSERT INTO products (id, name, name_urdu, company, company_urdu, category, price, purchase_price, serial_number, imei, chassis_no, engine_no, model, color, supplier_id, description, in_stock, stock_count, sku, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		p.ID, p.Name, p.NameUrdu, p.Company, p.CompanyUrdu, p.Category, p.Price, p.PurchasePrice, p.SerialNumber, p.IMEI, p.ChassisNo, p.EngineNo, p.Model, p.Color, p.SupplierID, p.Description, boolToInt(p.InStock), p.StockCount, p.SKU, p.CreatedAt, p.UpdatedAt)
 	return err
 }
-
 
 func (r *ProductRepository) GetByID(ctx context.Context, id string) (*domain.Product, error) {
 	p := &domain.Product{}
 	var nameUrdu, company, companyUrdu, description, sku sql.NullString
+	var serialNumber, imei, chassisNo, engineNo, model, color, supplierID sql.NullString
 	err := r.db.QueryRowContext(ctx, `
-		SELECT id, name, name_urdu, company, company_urdu, category, price, purchase_price, description, in_stock, stock_count, sku, created_at, updated_at
+		SELECT id, name, name_urdu, company, company_urdu, category, price, purchase_price, serial_number, imei, chassis_no, engine_no, model, color, supplier_id, description, in_stock, stock_count, sku, created_at, updated_at
 		FROM products WHERE id = ?`, id).Scan(
-		&p.ID, &p.Name, &nameUrdu, &company, &companyUrdu, &p.Category, &p.Price, &p.PurchasePrice, &description, &p.InStock, &p.StockCount, &sku, &p.CreatedAt, &p.UpdatedAt)
+		&p.ID, &p.Name, &nameUrdu, &company, &companyUrdu, &p.Category, &p.Price, &p.PurchasePrice, &serialNumber, &imei, &chassisNo, &engineNo, &model, &color, &supplierID, &description, &p.InStock, &p.StockCount, &sku, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -57,6 +57,13 @@ func (r *ProductRepository) GetByID(ctx context.Context, id string) (*domain.Pro
 	p.CompanyUrdu = companyUrdu.String
 	p.Description = description.String
 	p.SKU = sku.String
+	p.SerialNumber = serialNumber.String
+	p.IMEI = imei.String
+	p.ChassisNo = chassisNo.String
+	p.EngineNo = engineNo.String
+	p.Model = model.String
+	p.Color = color.String
+	p.SupplierID = supplierID.String
 	return p, nil
 }
 
@@ -67,9 +74,9 @@ func (r *ProductRepository) GetByIDWithStock(ctx context.Context, id string) (*d
 func (r *ProductRepository) Update(ctx context.Context, id string, p *domain.Product) error {
 	p.UpdatedAt = time.Now()
 	_, err := r.db.ExecContext(ctx, `
-		UPDATE products SET name=?, name_urdu=?, company=?, company_urdu=?, category=?, price=?, purchase_price=?, description=?, in_stock=?, stock_count=?, sku=?, updated_at=?
+		UPDATE products SET name=?, name_urdu=?, company=?, company_urdu=?, category=?, price=?, purchase_price=?, serial_number=?, imei=?, chassis_no=?, engine_no=?, model=?, color=?, supplier_id=?, description=?, in_stock=?, stock_count=?, sku=?, updated_at=?
 		WHERE id=?`,
-		p.Name, p.NameUrdu, p.Company, p.CompanyUrdu, p.Category, p.Price, p.PurchasePrice, p.Description, boolToInt(p.InStock), p.StockCount, p.SKU, p.UpdatedAt, id)
+		p.Name, p.NameUrdu, p.Company, p.CompanyUrdu, p.Category, p.Price, p.PurchasePrice, p.SerialNumber, p.IMEI, p.ChassisNo, p.EngineNo, p.Model, p.Color, p.SupplierID, p.Description, boolToInt(p.InStock), p.StockCount, p.SKU, p.UpdatedAt, id)
 	return err
 }
 
@@ -80,7 +87,7 @@ func (r *ProductRepository) Delete(ctx context.Context, id string) error {
 
 func (r *ProductRepository) List(ctx context.Context, skip, limit int64) ([]domain.Product, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, name, name_urdu, company, company_urdu, category, price, purchase_price, description, in_stock, stock_count, sku, created_at, updated_at
+		SELECT id, name, name_urdu, company, company_urdu, category, price, purchase_price, serial_number, imei, chassis_no, engine_no, model, color, supplier_id, description, in_stock, stock_count, sku, created_at, updated_at
 		FROM products ORDER BY created_at DESC LIMIT ? OFFSET ?`, limit, skip)
 	if err != nil {
 		return nil, err
@@ -91,7 +98,8 @@ func (r *ProductRepository) List(ctx context.Context, skip, limit int64) ([]doma
 	for rows.Next() {
 		var p domain.Product
 		var nameUrdu, company, companyUrdu, description, sku sql.NullString
-		err := rows.Scan(&p.ID, &p.Name, &nameUrdu, &company, &companyUrdu, &p.Category, &p.Price, &p.PurchasePrice, &description, &p.InStock, &p.StockCount, &sku, &p.CreatedAt, &p.UpdatedAt)
+		var serialNumber, imei, chassisNo, engineNo, model, color, supplierID sql.NullString
+		err := rows.Scan(&p.ID, &p.Name, &nameUrdu, &company, &companyUrdu, &p.Category, &p.Price, &p.PurchasePrice, &serialNumber, &imei, &chassisNo, &engineNo, &model, &color, &supplierID, &description, &p.InStock, &p.StockCount, &sku, &p.CreatedAt, &p.UpdatedAt)
 		if err != nil {
 			return nil, err
 		}
@@ -100,6 +108,13 @@ func (r *ProductRepository) List(ctx context.Context, skip, limit int64) ([]doma
 		p.CompanyUrdu = companyUrdu.String
 		p.Description = description.String
 		p.SKU = sku.String
+		p.SerialNumber = serialNumber.String
+		p.IMEI = imei.String
+		p.ChassisNo = chassisNo.String
+		p.EngineNo = engineNo.String
+		p.Model = model.String
+		p.Color = color.String
+		p.SupplierID = supplierID.String
 		products = append(products, p)
 	}
 	return products, nil
@@ -107,7 +122,7 @@ func (r *ProductRepository) List(ctx context.Context, skip, limit int64) ([]doma
 
 func (r *ProductRepository) ListByCategory(ctx context.Context, category string) ([]domain.Product, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, name, name_urdu, company, company_urdu, category, price, purchase_price, description, in_stock, stock_count, sku, created_at, updated_at
+		SELECT id, name, name_urdu, company, company_urdu, category, price, purchase_price, serial_number, imei, chassis_no, engine_no, model, color, supplier_id, description, in_stock, stock_count, sku, created_at, updated_at
 		FROM products WHERE category = ? ORDER BY name`, category)
 	if err != nil {
 		return nil, err
@@ -118,7 +133,8 @@ func (r *ProductRepository) ListByCategory(ctx context.Context, category string)
 	for rows.Next() {
 		var p domain.Product
 		var nameUrdu, company, companyUrdu, description, sku sql.NullString
-		err := rows.Scan(&p.ID, &p.Name, &nameUrdu, &company, &companyUrdu, &p.Category, &p.Price, &p.PurchasePrice, &description, &p.InStock, &p.StockCount, &sku, &p.CreatedAt, &p.UpdatedAt)
+		var serialNumber, imei, chassisNo, engineNo, model, color, supplierID sql.NullString
+		err := rows.Scan(&p.ID, &p.Name, &nameUrdu, &company, &companyUrdu, &p.Category, &p.Price, &p.PurchasePrice, &serialNumber, &imei, &chassisNo, &engineNo, &model, &color, &supplierID, &description, &p.InStock, &p.StockCount, &sku, &p.CreatedAt, &p.UpdatedAt)
 		if err != nil {
 			return nil, err
 		}
@@ -127,6 +143,13 @@ func (r *ProductRepository) ListByCategory(ctx context.Context, category string)
 		p.CompanyUrdu = companyUrdu.String
 		p.Description = description.String
 		p.SKU = sku.String
+		p.SerialNumber = serialNumber.String
+		p.IMEI = imei.String
+		p.ChassisNo = chassisNo.String
+		p.EngineNo = engineNo.String
+		p.Model = model.String
+		p.Color = color.String
+		p.SupplierID = supplierID.String
 		products = append(products, p)
 	}
 	return products, nil
@@ -142,11 +165,11 @@ func (r *ProductRepository) Count(ctx context.Context) (int64, error) {
 func (r *ProductRepository) Search(ctx context.Context, query string, skip, limit int64) ([]domain.Product, error) {
 	searchQuery := "%" + query + "%"
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, name, name_urdu, company, company_urdu, category, price, purchase_price, description, in_stock, stock_count, sku, created_at, updated_at
+		SELECT id, name, name_urdu, company, company_urdu, category, price, purchase_price, serial_number, imei, chassis_no, engine_no, model, color, supplier_id, description, in_stock, stock_count, sku, created_at, updated_at
 		FROM products 
-		WHERE name LIKE ? OR name_urdu LIKE ? OR category LIKE ? OR company LIKE ? OR company_urdu LIKE ? OR description LIKE ? OR sku LIKE ?
+		WHERE name LIKE ? OR name_urdu LIKE ? OR category LIKE ? OR company LIKE ? OR company_urdu LIKE ? OR serial_number LIKE ? OR imei LIKE ? OR model LIKE ? OR description LIKE ? OR sku LIKE ?
 		ORDER BY created_at DESC LIMIT ? OFFSET ?`,
-		searchQuery, searchQuery, searchQuery, searchQuery, searchQuery, searchQuery, searchQuery, limit, skip)
+		searchQuery, searchQuery, searchQuery, searchQuery, searchQuery, searchQuery, searchQuery, searchQuery, searchQuery, searchQuery, limit, skip)
 	if err != nil {
 		return nil, err
 	}
@@ -156,7 +179,8 @@ func (r *ProductRepository) Search(ctx context.Context, query string, skip, limi
 	for rows.Next() {
 		var p domain.Product
 		var nameUrdu, company, companyUrdu, description, sku sql.NullString
-		err := rows.Scan(&p.ID, &p.Name, &nameUrdu, &company, &companyUrdu, &p.Category, &p.Price, &p.PurchasePrice, &description, &p.InStock, &p.StockCount, &sku, &p.CreatedAt, &p.UpdatedAt)
+		var serialNumber, imei, chassisNo, engineNo, model, color, supplierID sql.NullString
+		err := rows.Scan(&p.ID, &p.Name, &nameUrdu, &company, &companyUrdu, &p.Category, &p.Price, &p.PurchasePrice, &serialNumber, &imei, &chassisNo, &engineNo, &model, &color, &supplierID, &description, &p.InStock, &p.StockCount, &sku, &p.CreatedAt, &p.UpdatedAt)
 		if err != nil {
 			return nil, err
 		}
@@ -165,6 +189,13 @@ func (r *ProductRepository) Search(ctx context.Context, query string, skip, limi
 		p.CompanyUrdu = companyUrdu.String
 		p.Description = description.String
 		p.SKU = sku.String
+		p.SerialNumber = serialNumber.String
+		p.IMEI = imei.String
+		p.ChassisNo = chassisNo.String
+		p.EngineNo = engineNo.String
+		p.Model = model.String
+		p.Color = color.String
+		p.SupplierID = supplierID.String
 		products = append(products, p)
 	}
 	return products, nil
@@ -175,7 +206,6 @@ func (r *ProductRepository) BulkDelete(ctx context.Context, ids []string) error 
 	if len(ids) == 0 {
 		return nil
 	}
-	// Build placeholders for IN clause
 	placeholders := make([]string, len(ids))
 	args := make([]interface{}, len(ids))
 	for i, id := range ids {
@@ -190,7 +220,7 @@ func (r *ProductRepository) BulkDelete(ctx context.Context, ids []string) error 
 // GetLowStock returns products with stock below threshold
 func (r *ProductRepository) GetLowStock(ctx context.Context, threshold int) ([]domain.Product, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, name, name_urdu, company, company_urdu, category, price, purchase_price, description, in_stock, stock_count, sku, created_at, updated_at
+		SELECT id, name, name_urdu, company, company_urdu, category, price, purchase_price, serial_number, imei, chassis_no, engine_no, model, color, supplier_id, description, in_stock, stock_count, sku, created_at, updated_at
 		FROM products 
 		WHERE stock_count <= ? AND stock_count >= 0
 		ORDER BY stock_count ASC`, threshold)
@@ -203,7 +233,8 @@ func (r *ProductRepository) GetLowStock(ctx context.Context, threshold int) ([]d
 	for rows.Next() {
 		var p domain.Product
 		var nameUrdu, company, companyUrdu, description, sku sql.NullString
-		err := rows.Scan(&p.ID, &p.Name, &nameUrdu, &company, &companyUrdu, &p.Category, &p.Price, &p.PurchasePrice, &description, &p.InStock, &p.StockCount, &sku, &p.CreatedAt, &p.UpdatedAt)
+		var serialNumber, imei, chassisNo, engineNo, model, color, supplierID sql.NullString
+		err := rows.Scan(&p.ID, &p.Name, &nameUrdu, &company, &companyUrdu, &p.Category, &p.Price, &p.PurchasePrice, &serialNumber, &imei, &chassisNo, &engineNo, &model, &color, &supplierID, &description, &p.InStock, &p.StockCount, &sku, &p.CreatedAt, &p.UpdatedAt)
 		if err != nil {
 			return nil, err
 		}
@@ -212,6 +243,13 @@ func (r *ProductRepository) GetLowStock(ctx context.Context, threshold int) ([]d
 		p.CompanyUrdu = companyUrdu.String
 		p.Description = description.String
 		p.SKU = sku.String
+		p.SerialNumber = serialNumber.String
+		p.IMEI = imei.String
+		p.ChassisNo = chassisNo.String
+		p.EngineNo = engineNo.String
+		p.Model = model.String
+		p.Color = color.String
+		p.SupplierID = supplierID.String
 		products = append(products, p)
 	}
 	return products, nil

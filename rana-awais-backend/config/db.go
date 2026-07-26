@@ -406,6 +406,11 @@ func hashPassword(password string) string {
 // 📦 UTILITY FUNCTIONS
 // ═══════════════════════════════════════
 
+// GetSQLiteDB returns the active SQLite database connection
+func GetSQLiteDB() *sql.DB {
+	return DB
+}
+
 // HealthCheck checks if the database is reachable
 func HealthCheck() error {
 	if DB == nil {

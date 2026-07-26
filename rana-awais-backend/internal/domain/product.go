@@ -13,6 +13,13 @@ type Product struct {
 	Category      string    `json:"category" bson:"category"`
 	Price         float64   `json:"price" bson:"price"`
 	PurchasePrice float64   `json:"purchasePrice,omitempty" bson:"purchaseprice,omitempty"`
+	SerialNumber  string    `json:"serialNumber,omitempty" bson:"serialnumber,omitempty"`
+	IMEI          string    `json:"imei,omitempty" bson:"imei,omitempty"`
+	ChassisNo     string    `json:"chassisNo,omitempty" bson:"chassisno,omitempty"`
+	EngineNo      string    `json:"engineNo,omitempty" bson:"engineno,omitempty"`
+	Model         string    `json:"model,omitempty" bson:"model,omitempty"`
+	Color         string    `json:"color,omitempty" bson:"color,omitempty"`
+	SupplierID    string    `json:"supplierId,omitempty" bson:"supplierid,omitempty"`
 	Description   string    `json:"description,omitempty" bson:"description,omitempty"`
 	InStock       bool      `json:"in_stock" bson:"in_stock"`
 	StockCount    int       `json:"stockCount" bson:"stockcount"`
