@@ -279,6 +279,23 @@ func (r *SupplierRepository) UpdatePurchasePaid(ctx context.Context, id string, 
 	return err
 }
 
+func (r *SupplierRepository) CreateProductFromPurchase(ctx context.Context, item domain.PurchaseItem) error {
+	var serialNumber, imei, chassisNo, engineNo, model, color sql.NullString
+	if item.SerialNumber != "" { serialNumber.String = item.SerialNumber; serialNumber.Valid = true }
+	if item.IMEI != "" { imei.String = item.IMEI; imei.Valid = true }
+	if item.ChassisNo != "" { chassisNo.String = item.ChassisNo; chassisNo.Valid = true }
+	if item.EngineNo != "" { engineNo.String = item.EngineNo; engineNo.Valid = true }
+	if item.Model != "" { model.String = item.Model; model.Valid = true }
+	if item.Color != "" { color.String = item.Color; color.Valid = true }
+	
+	_, err := r.db.ExecContext(ctx,
+		`INSERT INTO products (id, name, name_urdu, category, price, purchase_price, serial_number, imei, chassis_no, engine_no, model, color, in_stock, stock_count, created_at, updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		uuid.New().String(), item.ProductName, item.ProductName, "Purchase", item.Price, item.Price,
+		serialNumber, imei, chassisNo, engineNo, model, color, 1, 1, time.Now(), time.Now())
+	return err
+}
+
 func (r *SupplierRepository) UpdatePromise(ctx context.Context, id string, pr *domain.SupplierPromise) error {
 	pr.UpdatedAt = time.Now()
 	_, err := r.db.ExecContext(ctx,

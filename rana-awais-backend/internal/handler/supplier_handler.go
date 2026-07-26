@@ -3,10 +3,13 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/config"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/domain"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/repository/sqlite"
+	"github.com/google/uuid"
 )
 
 type SupplierHandler struct {
@@ -15,6 +18,38 @@ type SupplierHandler struct {
 
 func NewSupplierHandler(repo *sqlite.SupplierRepository) *SupplierHandler {
 	return &SupplierHandler{repo: repo}
+}
+
+func (h *SupplierHandler) addToInventory(name, serial, imei, chassis, engine, model, color string, price float64) {
+	db := config.MongoDatabase
+	if db == nil {
+		db2 := config.GetSQLiteDB()
+		if db2 != nil {
+			db2.Exec(`INSERT INTO products (id, name, name_urdu, category, price, purchase_price, serial_number, imei, chassis_no, engine_no, model, color, in_stock, stock_count, created_at, updated_at)
+				VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+				uuid.New().String(), name, name, "Purchase", price, price, serial, imei, chassis, engine, model, color, 1, 1, time.Now(), time.Now())
+		}
+		return
+	}
+	coll := db.Collection("products")
+	coll.InsertOne(nil, domain.Product{
+		ID:           uuid.New().String(),
+		Name:         name,
+		NameUrdu:     name,
+		Category:     "Purchase",
+		Price:        price,
+		PurchasePrice: price,
+		SerialNumber: serial,
+		IMEI:         imei,
+		ChassisNo:    chassis,
+		EngineNo:      engine,
+		Model:         model,
+		Color:         color,
+		InStock:       true,
+		StockCount:    1,
+		CreatedAt:     time.Now(),
+		UpdatedAt:     time.Now(),
+	})
 }
 
 // ─── Suppliers CRUD ───
@@ -91,6 +126,11 @@ func (h *SupplierHandler) CreatePurchase(w http.ResponseWriter, r *http.Request)
 	if err := h.repo.CreatePurchase(r.Context(), &p); err != nil {
 		respondError(w, r, http.StatusInternalServerError, err.Error(), "خریداری ناکام")
 		return
+	}
+	// ✅ Also add each item as a product in inventory (both SQLite + MongoDB)
+	for _, item := range p.Items {
+		_ = h.repo.CreateProductFromPurchase(r.Context(), item)
+		h.addToInventory(item.ProductName, item.SerialNumber, item.IMEI, item.ChassisNo, item.EngineNo, item.Model, item.Color, item.Price)
 	}
 	// Auto-create promise for hybrid/credit
 	if p.PaymentMode != "cash" && p.RemainingAmount > 0 && p.DueDate != nil {
