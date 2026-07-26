@@ -39,8 +39,10 @@ const SupplierReport: React.FC<Props> = ({ supplierId, onClose }) => {
   const totalRemaining = totalPurchased - totalPaid;
 
   const handlePayment = async () => {
+    if (payLoading) return; // Prevent double-click
     const amt = parseFloat(paidAmount);
     if (!amt || amt <= 0) { setPayErr(isUrdu ? 'رقم درج کریں' : 'Enter amount'); return; }
+    if (amt > totalRemaining) { setPayErr(isUrdu ? `زیادہ سے زیادہ ${totalRemaining.toLocaleString()}` : `Max Rs. ${totalRemaining.toLocaleString()}`); return; }
     setPayLoading(true); setPayErr('');
     try {
       await api.post('/supplier-payments', {
@@ -55,8 +57,9 @@ const SupplierReport: React.FC<Props> = ({ supplierId, onClose }) => {
   };
 
   const handlePayPromise = async (promiseId: string) => {
+    if (payLoading) return; // Prevent double-click
     const pr = promises.find(p => p.id === promiseId);
-    if (!pr) return;
+    if (!pr || pr.status === 'paid') return;
     setPayLoading(true);
     try {
       // 1. Record the payment

@@ -26,25 +26,45 @@ func NewSupplierHandler(repo *sqlite.SupplierRepository) *SupplierHandler {
 	}
 }
 
-// addToInventory adds product to MongoDB (and SQLite fallback)
+// addToInventory adds product + inventory_item to MongoDB (and SQLite fallback)
 func (h *SupplierHandler) addToInventory(name, serial, imei, chassis, engine, model, color string, purchasePrice, salePrice float64) {
-	// MongoDB primary (Render ke liye)
+	productID := uuid.New().String()
+	now := time.Now()
+
+	// MongoDB primary
 	if config.MongoDatabase != nil {
+		// 1. Add to products collection
 		config.MongoDatabase.Collection("products").InsertOne(context.Background(), domain.Product{
-			ID:            uuid.New().String(),
+			ID:            productID,
 			Name:          name, NameUrdu: name, Category: "Purchase",
 			Price:         salePrice, PurchasePrice: purchasePrice,
 			SerialNumber:  serial, IMEI: imei, ChassisNo: chassis,
 			EngineNo:      engine, Model: model, Color: color,
 			InStock: true, StockCount: 1,
-			CreatedAt: time.Now(), UpdatedAt: time.Now(),
+			CreatedAt: now, UpdatedAt: now,
+		})
+		// 2. Add to inventory_items collection for full tracking
+		config.MongoDatabase.Collection("inventory_items").InsertOne(context.Background(), domain.InventoryItem{
+			ID:            uuid.New().String(),
+			ProductID:     productID,
+			SerialNumber:  serial, IMEI: imei, ChassisNo: chassis,
+			EngineNo:      engine, Model: model, Color: color,
+			Status:        "in_stock",
+			PurchaseDate:  now,
+			PurchasePrice: purchasePrice,
+			SellingPrice:  salePrice,
+			CreatedAt:     now, UpdatedAt: now,
 		})
 	}
 	// SQLite backup
 	if db := config.GetSQLiteDB(); db != nil {
 		db.Exec(`INSERT INTO products (id, name, name_urdu, category, price, purchase_price, serial_number, imei, chassis_no, engine_no, model, color, in_stock, stock_count, created_at, updated_at)
 			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			uuid.New().String(), name, name, "Purchase", salePrice, purchasePrice, serial, imei, chassis, engine, model, color, 1, 1, time.Now(), time.Now())
+			productID, name, name, "Purchase", salePrice, purchasePrice, serial, imei, chassis, engine, model, color, 1, 1, now, now)
+		// Also add to inventory_items for full tracking
+		db.Exec(`INSERT INTO inventory_items (id, product_id, serial_number, imei, chassis_no, engine_no, model, color, status, purchase_date, purchase_price, selling_price, created_at, updated_at)
+			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			uuid.New().String(), productID, serial, imei, chassis, engine, model, color, "in_stock", now, purchasePrice, salePrice, now, now)
 	}
 }
 
@@ -158,20 +178,68 @@ func (h *SupplierHandler) ListPurchases(w http.ResponseWriter, r *http.Request) 
 func (h *SupplierHandler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 	var pay domain.SupplierPayment
 	json.NewDecoder(r.Body).Decode(&pay)
-	if h.useMongo() { h.mongoRepo.CreatePayment(r.Context(), &pay) }
-	h.repo.CreatePayment(r.Context(), &pay)
-	// Update purchase paid_amount
+
+	// Auto-find purchase if purchaseId not provided: pick first purchase with remaining > 0
+	if pay.PurchaseID == "" && pay.SupplierID != "" {
+		purchases, _ := h.repo.ListPurchases(r.Context(), pay.SupplierID)
+		for _, p := range purchases {
+			if p.RemainingAmount > 0 && p.Status != "completed" {
+				pay.PurchaseID = p.ID
+				break
+			}
+		}
+		// Also try MongoDB if SQLite returned nothing
+		if pay.PurchaseID == "" && h.useMongo() {
+			if mongoList, err := h.mongoRepo.ListPurchases(r.Context(), pay.SupplierID); err == nil {
+				for _, p := range mongoList {
+					if p.RemainingAmount > 0 && p.Status != "completed" {
+						pay.PurchaseID = p.ID
+						break
+					}
+				}
+			}
+		}
+	}
+
+	// Prevent overpayment: cap amount at remaining
 	if pay.PurchaseID != "" {
-		// Try MongoDB first
 		var p *domain.Purchase
 		if h.useMongo() { p, _ = h.mongoRepo.GetPurchase(r.Context(), pay.PurchaseID) }
-		// Fallback to SQLite
+		if p == nil { p, _ = h.repo.GetPurchase(r.Context(), pay.PurchaseID) }
+		if p != nil {
+			if p.Status == "completed" {
+				respondError(w, r, 400, "Purchase already fully paid", "خریداری پہلے ہی مکمل ادا شدہ ہے")
+				return
+			}
+			if pay.Amount > p.RemainingAmount {
+				pay.Amount = p.RemainingAmount // Cap to remaining
+			}
+			if pay.Amount <= 0 {
+				respondError(w, r, 400, "No remaining amount to pay", "ادائیگی کے لیے کوئی بقایا نہیں")
+				return
+			}
+		}
+	}
+
+	// Save payment
+	if h.useMongo() { h.mongoRepo.CreatePayment(r.Context(), &pay) }
+	h.repo.CreatePayment(r.Context(), &pay)
+
+	// Update purchase paid_amount
+	if pay.PurchaseID != "" {
+		var p *domain.Purchase
+		if h.useMongo() { p, _ = h.mongoRepo.GetPurchase(r.Context(), pay.PurchaseID) }
 		if p == nil { p, _ = h.repo.GetPurchase(r.Context(), pay.PurchaseID) }
 		if p != nil {
 			newPaid := p.PaidAmount + pay.Amount
-			st := "partial"; if newPaid >= p.TotalAmount { st = "completed" }
-			h.repo.UpdatePurchasePaid(r.Context(), pay.PurchaseID, newPaid, p.TotalAmount-newPaid, st)
-			if h.useMongo() { h.mongoRepo.UpdatePurchasePaid(r.Context(), pay.PurchaseID, newPaid, p.TotalAmount-newPaid, st) }
+			newRemaining := p.TotalAmount - newPaid
+			if newRemaining < 0 { newRemaining = 0 }
+			st := "partial"
+			if newPaid >= p.TotalAmount { st = "completed" }
+			h.repo.UpdatePurchasePaid(r.Context(), pay.PurchaseID, newPaid, newRemaining, st)
+			if h.useMongo() {
+				h.mongoRepo.UpdatePurchasePaid(r.Context(), pay.PurchaseID, newPaid, newRemaining, st)
+			}
 		}
 	}
 	respondJSON(w, 201, pay)
