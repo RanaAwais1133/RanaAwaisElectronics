@@ -6,6 +6,7 @@ import { useCustomerStore } from '../../store/useCustomerStore';
 import FormField from '../../components/forms/FormField';
 import PhoneField from '../../components/forms/PhoneField';
 import CNICField from '../../components/forms/CNICField';
+import SelectField from '../../components/forms/SelectField';
 import { validatePhone } from '../../components/forms/PhoneField';
 import { validateCNIC } from '../../components/forms/CNICField';
 import { formatPhone, formatCNIC } from '../../utils/helpers';
@@ -354,20 +355,13 @@ const GuarantorCreate: React.FC<Props> = ({ onClose, onSuccess, initialData }) =
 
           {/* ✅ Verification Status (Edit mode only) */}
           {isEditMode && (
-            <div>
-              <label className="block text-sm font-semibold mb-1.5 text-gray-700 dark:text-gray-300">
-                {isUrdu ? 'تصدیق کی حیثیت' : 'Verification Status'}
-              </label>
-              <select
-                value={verificationStatus}
-                onChange={e => setVerificationStatus(e.target.value)}
-                className="w-full border rounded-xl px-4 py-2.5 bg-white dark:bg-gray-700 text-sm focus:ring-2 focus:ring-blue-400 focus:border-transparent outline-none transition-colors"
-              >
-                {verificationOptions.map(opt => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
-            </div>
+            <SelectField
+              label={isUrdu ? 'تصدیق کی حیثیت' : 'Verification Status'}
+              name="verificationStatus"
+              value={verificationStatus}
+              onChange={e => setVerificationStatus(e.target.value)}
+              options={verificationOptions}
+            />
           )}
 
           {/* âœ… Error */}
