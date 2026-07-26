@@ -1,58 +1,35 @@
 // ═══════════════════════════════════════════════════════════════
-// ✅ Rana Awais Electronics - Product List v3 (Table View)
-// ✅ Table view like CustomerList/GuarantorList
+// ✅ Inventory (Simple list - each item is unique)
 // ═══════════════════════════════════════════════════════════════
 
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
-import { useProductStore, Product, getStockStatusColor, getStockStatusLabel } from '../../store/useProductStore';
+import { useProductStore, Product } from '../../store/useProductStore';
 import ProductCreate from './ProductCreate';
-import AddStockModal from './AddStockModal';
 import { APP_CONFIG } from '../../config/app';
-import { useAuthStore } from '../../store/useAuthStore';
 
-// ✅ Product Row (Table View)
+// ✅ Product Row
 const ProductRow: React.FC<{
   product: Product;
   isUrdu: boolean;
   onEdit: (product: Product) => void;
-  onAddStock: (id: string) => void;
   onDelete: (id: string) => void;
   index: number;
-}> = ({ product, isUrdu, onEdit, onAddStock, onDelete, index }) => (
+}> = ({ product, isUrdu, onEdit, onDelete, index }) => (
   <tr className={`hover:bg-blue-50/30 dark:hover:bg-blue-900/10 transition-all duration-200 ${index % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50/30 dark:bg-gray-800/50'}`}>
     <td className="px-5 py-3 font-semibold text-gray-800 dark:text-gray-100 whitespace-nowrap">
       {isUrdu ? product.nameUrdu || product.name : product.name}
     </td>
-    <td className="px-5 py-3 text-gray-600 dark:text-gray-300 whitespace-nowrap">
-      {product.category || '—'}
-    </td>
-    <td className="px-5 py-3 text-gray-600 dark:text-gray-300 whitespace-nowrap">
-      {isUrdu ? (product.companyUrdu || product.company || '—') : (product.company || '—')}
-    </td>
-    <td className="px-5 py-3 text-gray-600 dark:text-gray-300 whitespace-nowrap">
-      {product.serialNumber || (product as any).serial_number || '—'}
-    </td>
-    <td className="px-5 py-3 text-gray-600 dark:text-gray-300 whitespace-nowrap">
-      {product.model || '—'}
-    </td>
-    <td className="px-5 py-3 font-bold text-gray-800 dark:text-gray-100 whitespace-nowrap">
-      Rs. {product.price?.toLocaleString()}
-    </td>
-    <td className="px-5 py-3 font-bold text-gray-500 dark:text-gray-400 whitespace-nowrap">
-      Rs. {(product.purchasePrice || 0)?.toLocaleString()}
-    </td>
-    <td className="px-5 py-3">
-      <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${getStockStatusColor(product)}`}>
-        {getStockStatusLabel(product, isUrdu)} <span className="ml-1">({product.stockCount ?? 0})</span>
-      </span>
-    </td>
-    <td className="px-5 py-3">
+    <td className="px-5 py-3 text-gray-600 dark:text-gray-300 whitespace-nowrap">{product.category || '—'}</td>
+    <td className="px-5 py-3 text-gray-600 dark:text-gray-300 whitespace-nowrap">{isUrdu ? (product.companyUrdu || product.company || '—') : (product.company || '—')}</td>
+    <td className="px-5 py-3 text-gray-600 dark:text-gray-300 whitespace-nowrap">{product.serialNumber || '—'}</td>
+    <td className="px-5 py-3 text-gray-600 dark:text-gray-300 whitespace-nowrap">{product.model || '—'}</td>
+    <td className="px-5 py-3 text-gray-600 dark:text-gray-300 whitespace-nowrap">{product.color || '—'}</td>
+    <td className="px-5 py-3 font-bold text-gray-800 dark:text-gray-100 whitespace-nowrap">Rs. {product.price?.toLocaleString()}</td>
+    <td className="px-5 py-3 font-bold text-gray-500 dark:text-gray-400 whitespace-nowrap">Rs. {(product.purchasePrice || 0)?.toLocaleString()}</td>
+    <td className="px-5 py-3 text-center">
       <div className="flex justify-center gap-1.5">
-        <button onClick={() => onAddStock(product.id)} className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 hover:bg-emerald-100 dark:hover:bg-emerald-900/50" title="Add Stock">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-        </button>
         <button onClick={() => onEdit(product)} className="p-2 rounded-xl bg-blue-50 dark:bg-blue-900/30 text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/50" title="Edit">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
         </button>
@@ -67,13 +44,11 @@ const ProductRow: React.FC<{
 const ProductList: React.FC = () => {
   const { t, i18n } = useTranslation();
   const isUrdu = i18n.language === 'ur';
-  const currentUser = useAuthStore((state) => state.user);
 
-  const { products, loading, fetchProducts, deleteProduct, bulkDelete, getCategories } = useProductStore();
+  const { products, loading, fetchProducts, deleteProduct, getCategories } = useProductStore();
   const [search, setSearch] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [editProduct, setEditProduct] = useState<Product | null>(null);
-  const [addStockProductId, setAddStockProductId] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [isDeleting, setIsDeleting] = useState(false);
@@ -133,15 +108,15 @@ const ProductList: React.FC = () => {
                   <th className="px-5 py-4 text-start text-xs font-bold uppercase">{isUrdu ? 'کمپنی' : 'Company'}</th>
                   <th className="px-5 py-4 text-start text-xs font-bold uppercase">{isUrdu ? 'سیریل' : 'Serial'}</th>
                   <th className="px-5 py-4 text-start text-xs font-bold uppercase">{isUrdu ? 'ماڈل' : 'Model'}</th>
+                  <th className="px-5 py-4 text-start text-xs font-bold uppercase">{isUrdu ? 'رنگ' : 'Color'}</th>
                   <th className="px-5 py-4 text-start text-xs font-bold uppercase">{isUrdu ? 'قیمت' : 'Price'}</th>
-                  <th className="px-5 py-4 text-start text-xs font-bold uppercase">{isUrdu ? 'خرید' : 'Cost'}</th>
-                  <th className="px-5 py-4 text-start text-xs font-bold uppercase">{isUrdu ? 'اسٹاک' : 'Stock'}</th>
+                  <th className="px-5 py-4 text-start text-xs font-bold uppercase">{isUrdu ? 'لاگت' : 'Cost'}</th>
                   <th className="px-5 py-4 text-center text-xs font-bold uppercase">{t('actions')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
                 {filtered.map((p, idx) => (
-                  <ProductRow key={p.id} product={p} isUrdu={isUrdu} onEdit={setEditProduct} onAddStock={setAddStockProductId} onDelete={setDeleteConfirm} index={idx} />
+                  <ProductRow key={p.id} product={p} isUrdu={isUrdu} onEdit={setEditProduct} onDelete={setDeleteConfirm} index={idx} />
                 ))}
               </tbody>
             </table>
@@ -151,7 +126,6 @@ const ProductList: React.FC = () => {
 
       {showCreate && <ProductCreate onClose={() => setShowCreate(false)} onSuccess={() => { fetchProducts(true); setShowCreate(false); }} />}
       {editProduct && <ProductCreate initialData={editProduct} onClose={() => setEditProduct(null)} onSuccess={() => { fetchProducts(true); setEditProduct(null); }} />}
-      {addStockProductId && <AddStockModal productId={addStockProductId} onClose={() => setAddStockProductId(null)} onSuccess={() => { fetchProducts(true); setAddStockProductId(null); }} />}
 
       {deleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
