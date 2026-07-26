@@ -144,15 +144,14 @@ func (h *SupplierHandler) CreatePurchase(w http.ResponseWriter, r *http.Request)
 		respondError(w, r, http.StatusBadRequest, "Supplier required", "سپلائر ضروری ہے")
 		return
 	}
-	// Save to MongoDB (persists on Render)
-	if h.mongoRepo != nil {
-		if err := h.mongoRepo.CreatePurchase(r.Context(), &p); err != nil {
-			respondError(w, r, http.StatusInternalServerError, err.Error(), "خریداری ناکام")
-			return
-		}
+	// ✅ Save to SQLite first (primary, reliable)
+	if err := h.repo.CreatePurchase(r.Context(), &p); err != nil {
+		respondError(w, r, http.StatusInternalServerError, err.Error(), "خریداری ناکام")
+		return
 	}
-	// Also save to SQLite (local backup)
-	_ = h.repo.CreatePurchase(r.Context(), &p)
+	// ✅ Also save to MongoDB (Render persistence)
+	if h.mongoRepo != nil { _ = h.mongoRepo.CreatePurchase(r.Context(), &p) }
+	
 	// ✅ Add each item as a product in inventory  
 	for _, item := range p.Items {
 		_ = h.repo.CreateProductFromPurchase(r.Context(), item)
@@ -164,17 +163,17 @@ func (h *SupplierHandler) CreatePurchase(w http.ResponseWriter, r *http.Request)
 			SupplierID: p.SupplierID, PurchaseID: p.ID, Amount: p.RemainingAmount,
 			DueDate: *p.DueDate, PaidAmount: 0, Status: "pending",
 		}
-		if h.mongoRepo != nil { _ = h.mongoRepo.CreatePromise(r.Context(), &pr) }
 		_ = h.repo.CreatePromise(r.Context(), &pr)
+		if h.mongoRepo != nil { _ = h.mongoRepo.CreatePromise(r.Context(), &pr) }
 	}
 	respondJSON(w, http.StatusCreated, p)
 }
 
 func (h *SupplierHandler) GetPurchase(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
-	var p *domain.Purchase
-	var err error
-	if h.mongoRepo != nil { p, err = h.mongoRepo.GetPurchase(r.Context(), id) } else { p, err = h.repo.GetPurchase(r.Context(), id) }
+	// Read from SQLite primary
+	p, err := h.repo.GetPurchase(r.Context(), id)
+	if (err != nil || p == nil) && h.mongoRepo != nil { p, err = h.mongoRepo.GetPurchase(r.Context(), id) }
 	if err != nil || p == nil {
 		respondError(w, r, http.StatusNotFound, "Not found", "نہیں ملا")
 		return
@@ -184,13 +183,16 @@ func (h *SupplierHandler) GetPurchase(w http.ResponseWriter, r *http.Request) {
 
 func (h *SupplierHandler) ListPurchases(w http.ResponseWriter, r *http.Request) {
 	supplierID := r.URL.Query().Get("supplierId")
-	var list []domain.Purchase
-	var err error
-	if h.mongoRepo != nil { list, err = h.mongoRepo.ListPurchases(r.Context(), supplierID) } else { list, err = h.repo.ListPurchases(r.Context(), supplierID) }
+	// Read from SQLite primary, fallback to MongoDB
+	list, err := h.repo.ListPurchases(r.Context(), supplierID)
+	if err != nil || len(list) == 0 {
+		if h.mongoRepo != nil { list, err = h.mongoRepo.ListPurchases(r.Context(), supplierID) }
+	}
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "List failed", "فہرست ناکام")
 		return
 	}
+	if list == nil { list = []domain.Purchase{} }
 	respondJSON(w, http.StatusOK, map[string]interface{}{"data": list, "total": len(list)})
 }
 
@@ -201,11 +203,11 @@ func (h *SupplierHandler) CreatePayment(w http.ResponseWriter, r *http.Request) 
 		respondError(w, r, http.StatusBadRequest, "Invalid body", "غلط مواد")
 		return
 	}
-	if h.mongoRepo != nil { _ = h.mongoRepo.CreatePayment(r.Context(), &pay) }
 	if err := h.repo.CreatePayment(r.Context(), &pay); err != nil {
 		respondError(w, r, http.StatusInternalServerError, "Payment failed", "ادائیگی ناکام")
 		return
 	}
+	if h.mongoRepo != nil { _ = h.mongoRepo.CreatePayment(r.Context(), &pay) }
 	if pay.PurchaseID != "" {
 		p, _ := h.repo.GetPurchase(r.Context(), pay.PurchaseID)
 		if p != nil {
@@ -221,13 +223,13 @@ func (h *SupplierHandler) CreatePayment(w http.ResponseWriter, r *http.Request) 
 
 func (h *SupplierHandler) ListPayments(w http.ResponseWriter, r *http.Request) {
 	supplierID := r.URL.Query().Get("supplierId")
-	var list []domain.SupplierPayment
-	var err error
-	if h.mongoRepo != nil { list, err = h.mongoRepo.ListPayments(r.Context(), supplierID) } else { list, err = h.repo.ListPayments(r.Context(), supplierID) }
+	list, err := h.repo.ListPayments(r.Context(), supplierID)
+	if (err != nil || len(list) == 0) && h.mongoRepo != nil { list, err = h.mongoRepo.ListPayments(r.Context(), supplierID) }
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "List failed", "فہرست ناکام")
 		return
 	}
+	if list == nil { list = []domain.SupplierPayment{} }
 	respondJSON(w, http.StatusOK, map[string]interface{}{"data": list, "total": len(list)})
 }
 
@@ -238,24 +240,25 @@ func (h *SupplierHandler) CreatePromise(w http.ResponseWriter, r *http.Request) 
 		respondError(w, r, http.StatusBadRequest, "Invalid body", "غلط مواد")
 		return
 	}
-	if h.mongoRepo != nil { _ = h.mongoRepo.CreatePromise(r.Context(), &pr) }
 	if err := h.repo.CreatePromise(r.Context(), &pr); err != nil {
 		respondError(w, r, http.StatusInternalServerError, "Promise failed", "وعدہ ناکام")
 		return
 	}
+	if h.mongoRepo != nil { _ = h.mongoRepo.CreatePromise(r.Context(), &pr) }
 	respondJSON(w, http.StatusCreated, pr)
 }
 
 func (h *SupplierHandler) ListPromises(w http.ResponseWriter, r *http.Request) {
 	status := r.URL.Query().Get("status")
 	supplierID := r.URL.Query().Get("supplierId")
-	var list []domain.SupplierPromise
-	var err error
-	if h.mongoRepo != nil { list, err = h.mongoRepo.ListPromises(r.Context(), supplierID) } else { list, err = h.repo.ListPromises(r.Context(), status) }
+	// Read from SQLite primary
+	list, err := h.repo.ListPromises(r.Context(), status)
+	if (err != nil || len(list) == 0) && h.mongoRepo != nil { list, err = h.mongoRepo.ListPromises(r.Context(), supplierID) }
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "List failed", "فہرست ناکام")
 		return
 	}
+	if list == nil { list = []domain.SupplierPromise{} }
 	respondJSON(w, http.StatusOK, map[string]interface{}{"data": list, "total": len(list)})
 }
 
@@ -266,10 +269,10 @@ func (h *SupplierHandler) UpdatePromise(w http.ResponseWriter, r *http.Request) 
 		respondError(w, r, http.StatusBadRequest, "Invalid body", "غلط مواد")
 		return
 	}
-	if h.mongoRepo != nil { _ = h.mongoRepo.UpdatePromise(r.Context(), id, pr.PaidAmount, pr.Status) }
 	if err := h.repo.UpdatePromise(r.Context(), id, &pr); err != nil {
 		respondError(w, r, http.StatusInternalServerError, "Update failed", "اپڈیٹ ناکام")
 		return
 	}
+	if h.mongoRepo != nil { _ = h.mongoRepo.UpdatePromise(r.Context(), id, pr.PaidAmount, pr.Status) }
 	respondJSON(w, http.StatusOK, pr)
 }

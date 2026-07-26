@@ -143,6 +143,11 @@ export const useSupplierStore = create<SupplierState>()((set, get) => ({
     try {
       const res = await api.post('/purchases', data);
       get().fetchPurchases();
+      // ✅ Also refresh products so new items appear in inventory
+      try { 
+        const { useProductStore } = await import('./useProductStore');
+        useProductStore.getState().fetchProducts(true);
+      } catch {}
       return res.data;
     } catch { return null; }
   },
