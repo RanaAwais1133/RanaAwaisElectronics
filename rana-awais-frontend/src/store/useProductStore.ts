@@ -304,6 +304,12 @@ export const useProductStore = create<ProductState>()((set, get) => {
         company: data.company,
         companyUrdu: data.companyUrdu,
         sku: data.sku,
+        serialNumber: data.serialNumber,
+        imei: data.imei,
+        chassisNo: data.chassisNo,
+        engineNo: data.engineNo,
+        model: data.model,
+        color: data.color,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
