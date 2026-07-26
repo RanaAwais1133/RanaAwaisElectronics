@@ -142,6 +142,7 @@ const ProductCreate: React.FC<Props> = ({ onClose, onSuccess, initialData }) => 
   }, [
     name, nameUrdu, company, companyUrdu, category,
     sellingPrice, purchasePrice, description, quantity, sku,
+    serialNumber, imei, chassisNo, engineNo, model, color,
     isEditMode, initialData, currentUser, onSuccess, onClose,
     t, isUrdu, validateForm, storeCreateProduct, storeUpdateProduct,
   ]);
