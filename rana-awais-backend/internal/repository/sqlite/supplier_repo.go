@@ -187,6 +187,24 @@ func (r *SupplierRepository) ListPurchases(ctx context.Context, supplierID strin
 		}
 		p.Remarks = remarks.String
 		p.CreatedBy = createdBy.String
+		// Fetch items for this purchase
+		itemRows, err := r.db.QueryContext(ctx, `SELECT product_name, serial_number, imei, chassis_no, engine_no, model, color, price, sale_price FROM purchase_items WHERE purchase_id=?`, p.ID)
+		if err == nil {
+			for itemRows.Next() {
+				var item domain.PurchaseItem
+				var sn, im, cn, en, mo, co sql.NullString
+				if itemRows.Scan(&item.ProductName, &sn, &im, &cn, &en, &mo, &co, &item.Price, &item.SalePrice) == nil {
+					item.SerialNumber = sn.String
+					item.IMEI = im.String
+					item.ChassisNo = cn.String
+					item.EngineNo = en.String
+					item.Model = mo.String
+					item.Color = co.String
+					p.Items = append(p.Items, item)
+				}
+			}
+			itemRows.Close()
+		}
 		list = append(list, p)
 	}
 	return list, nil

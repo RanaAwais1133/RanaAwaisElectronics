@@ -103,6 +103,19 @@ func (r *SupplierMongoRepo) ListPurchases(ctx context.Context, supplierID string
 	var list []domain.Purchase
 	cursor.All(ctx, &list)
 	if list == nil { list = []domain.Purchase{} }
+	// Fetch items for each purchase
+	if r.pitems != nil {
+		for i := range list {
+			itemCursor, _ := r.pitems.Find(ctx, bson.M{"purchaseid": list[i].ID})
+			if itemCursor != nil {
+				var items []domain.PurchaseItem
+				itemCursor.All(ctx, &items)
+				if items == nil { items = []domain.PurchaseItem{} }
+				list[i].Items = items
+				itemCursor.Close(ctx)
+			}
+		}
+	}
 	return list, nil
 }
 

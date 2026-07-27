@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
-import { useSupplierStore } from '../../store/useSupplierStore';
+import { useSupplierStore, Purchase, PurchaseItem } from '../../store/useSupplierStore';
 import api from '../../utils/api';
 
 interface Props {
@@ -18,6 +18,9 @@ const SupplierReport: React.FC<Props> = ({ supplierId, onClose }) => {
   const [showPayModal, setShowPayModal] = useState(false);
   const [payLoading, setPayLoading] = useState(false);
   const [payErr, setPayErr] = useState('');
+  const [expandedPurchase, setExpandedPurchase] = useState<string | null>(null);
+  const [showPurchaseHistory, setShowPurchaseHistory] = useState(false);
+  const [selectedPurchaseForHistory, setSelectedPurchaseForHistory] = useState<Purchase | null>(null);
 
   const supplier = suppliers.find(s => s.id === supplierId);
   const supplierPromises = promises.filter(p => p.supplierId === supplierId);
@@ -38,44 +41,90 @@ const SupplierReport: React.FC<Props> = ({ supplierId, onClose }) => {
   const totalPaid = supplierPurchases.reduce((s, p) => s + (p.paidAmount || 0), 0);
   const totalRemaining = totalPurchased - totalPaid;
 
+  // Collect all product names from purchases for the summary
+  const allProductNames = supplierPurchases
+    .flatMap(p => p.items || [])
+    .map(i => i.productName)
+    .filter(Boolean)
+    .filter((v, i, a) => a.indexOf(v) === i)
+    .join(', ');
+
+  const formatDate = (dateStr: string | Date | undefined | null): string => {
+    if (!dateStr) return '-';
+    try {
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return '-';
+      return d.toLocaleDateString();
+    } catch {
+      return '-';
+    }
+  };
+
   const handlePayment = async () => {
-    if (payLoading) return; // Prevent double-click
+    if (payLoading) return;
     const amt = parseFloat(paidAmount);
     if (!amt || amt <= 0) { setPayErr(isUrdu ? 'رقم درج کریں' : 'Enter amount'); return; }
-    if (amt > totalRemaining) { setPayErr(isUrdu ? `زیادہ سے زیادہ ${totalRemaining.toLocaleString()}` : `Max Rs. ${totalRemaining.toLocaleString()}`); return; }
+    if (totalPurchased > 0 && amt > totalRemaining) {
+      setPayErr(isUrdu ? `زیادہ سے زیادہ ${totalRemaining.toLocaleString()}` : `Max Rs. ${totalRemaining.toLocaleString()}`);
+      return;
+    }
     setPayLoading(true); setPayErr('');
     try {
+      // Get today's date in YYYY-MM-DD format
+      const today = new Date();
+      const paymentDate = today.getFullYear() + '-' +
+        String(today.getMonth() + 1).padStart(2, '0') + '-' +
+        String(today.getDate()).padStart(2, '0');
+
       await api.post('/supplier-payments', {
         supplierId, amount: amt, method: paymentMethod,
-        paymentDate: new Date().toISOString().split('T')[0],
+        paymentDate,
       });
       toast.success(isUrdu ? 'ادائیگی محفوظ' : 'Payment saved');
       loadData();
       setShowPayModal(false); setPaidAmount('');
-    } catch { toast.error(isUrdu ? 'ناکام' : 'Failed'); }
+    } catch (err: any) {
+      const msg = err?.response?.data?.error || err?.response?.data?.message || (isUrdu ? 'ناکام' : 'Failed');
+      toast.error(msg);
+    }
     finally { setPayLoading(false); }
   };
 
   const handlePayPromise = async (promiseId: string) => {
-    if (payLoading) return; // Prevent double-click
+    if (payLoading) return;
     const pr = promises.find(p => p.id === promiseId);
     if (!pr || pr.status === 'paid') return;
     setPayLoading(true);
     try {
-      // 1. Record the payment
+      const today = new Date();
+      const paymentDate = today.getFullYear() + '-' +
+        String(today.getMonth() + 1).padStart(2, '0') + '-' +
+        String(today.getDate()).padStart(2, '0');
+
       await api.post('/supplier-payments', {
         supplierId: pr.supplierId,
         purchaseId: pr.purchaseId,
         amount: pr.amount,
         method: 'cash',
-        paymentDate: new Date().toISOString().split('T')[0],
+        paymentDate,
       });
-      // 2. Mark promise as paid
       await api.put(`/supplier-promises/${promiseId}`, { status: 'paid', paidAmount: pr.amount });
       toast.success(isUrdu ? 'ادا شدہ' : 'Marked paid');
       loadData();
-    } catch { toast.error(isUrdu ? 'ناکام' : 'Failed'); }
+    } catch (err: any) {
+      const msg = err?.response?.data?.error || (isUrdu ? 'ناکام' : 'Failed');
+      toast.error(msg);
+    }
     finally { setPayLoading(false); }
+  };
+
+  const toggleItems = (purchaseId: string) => {
+    setExpandedPurchase(expandedPurchase === purchaseId ? null : purchaseId);
+  };
+
+  const openHistoryModal = (purchase: Purchase) => {
+    setSelectedPurchaseForHistory(purchase);
+    setShowPurchaseHistory(true);
   };
 
   if (!supplier) return null;
@@ -114,37 +163,102 @@ const SupplierReport: React.FC<Props> = ({ supplierId, onClose }) => {
             </div>
           </div>
 
+          {/* Products Summary - shows all purchased products */}
+          {allProductNames && (
+            <div className="bg-amber-50 dark:bg-amber-900/10 rounded-xl p-3">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">{isUrdu ? 'لی گئی مصنوعات' : 'Products Purchased'}</p>
+              <div className="flex flex-wrap gap-1">
+                {allProductNames.split(', ').map((name, i) => (
+                  <span key={i} className="px-2 py-0.5 bg-amber-200 dark:bg-amber-800 text-amber-800 dark:text-amber-200 rounded-full text-xs">{name}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Purchases Table */}
           <div>
             <h3 className="text-sm font-bold mb-2 text-gray-700 dark:text-gray-200">{isUrdu ? 'خریداریاں' : 'Purchases'}</h3>
             <div className="overflow-x-auto border rounded-xl">
-              <table className="w-full text-xs min-w-[700px]">
+              <table className="w-full text-xs min-w-[800px]">
                 <thead className="bg-gray-50 dark:bg-gray-700 text-gray-500 dark:text-gray-400 uppercase">
                   <tr>
                     <th className="px-3 py-2.5 text-start">{isUrdu ? 'تاریخ' : 'Date'}</th>
+                    <th className="px-3 py-2.5 text-start">{isUrdu ? 'اشیاء' : 'Items'}</th>
                     <th className="px-3 py-2.5 text-end">{isUrdu ? 'ٹوٹل' : 'Total'}</th>
                     <th className="px-3 py-2.5 text-end">{isUrdu ? 'ادا' : 'Paid'}</th>
                     <th className="px-3 py-2.5 text-end">{isUrdu ? 'بقایا' : 'Left'}</th>
                     <th className="px-3 py-2.5 text-center">{isUrdu ? 'موڈ' : 'Mode'}</th>
                     <th className="px-3 py-2.5 text-center">{isUrdu ? 'سٹیٹس' : 'Status'}</th>
+                    <th className="px-3 py-2.5 text-center">{isUrdu ? 'تفصیل' : 'Detail'}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50 bg-white dark:bg-gray-800">
                   {supplierPurchases.length === 0 ? (
-                    <tr><td colSpan={6} className="px-3 py-6 text-center text-gray-400 text-xs">{isUrdu ? 'کوئی خریداری نہیں' : 'No purchases yet'}</td></tr>
+                    <tr><td colSpan={8} className="px-3 py-6 text-center text-gray-400 text-xs">{isUrdu ? 'کوئی خریداری نہیں' : 'No purchases yet'}</td></tr>
                   ) : supplierPurchases.map(p => (
-                    <tr key={p.id} className="hover:bg-blue-50/30 dark:hover:bg-blue-900/10">
-                      <td className="px-3 py-2.5 font-medium whitespace-nowrap">{new Date(p.createdAt).toLocaleDateString()}</td>
-                      <td className="px-3 py-2.5 text-end whitespace-nowrap">{p.totalAmount?.toLocaleString()}</td>
-                      <td className="px-3 py-2.5 text-end whitespace-nowrap text-emerald-600">{p.paidAmount?.toLocaleString()}</td>
-                      <td className="px-3 py-2.5 text-end whitespace-nowrap text-red-500">{p.remainingAmount?.toLocaleString()}</td>
-                      <td className="px-3 py-2.5 text-center capitalize">{p.paymentMode}</td>
-                      <td className="px-3 py-2.5 text-center">
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${p.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : p.status === 'partial' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
-                          {p.status || 'pending'}
-                        </span>
-                      </td>
-                    </tr>
+                    <React.Fragment key={p.id}>
+                      <tr className={`hover:bg-blue-50/30 dark:hover:bg-blue-900/10 cursor-pointer ${expandedPurchase === p.id ? 'bg-blue-50/50' : ''}`} onClick={() => toggleItems(p.id)}>
+                        <td className="px-3 py-2.5 font-medium whitespace-nowrap">{formatDate(p.createdAt)}</td>
+                        <td className="px-3 py-2.5">
+                          <div className="flex items-center gap-1 flex-wrap">
+                            {p.items && p.items.length > 0 ? (
+                              p.items.slice(0, 2).map((item, idx) => (
+                                <span key={idx} className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 rounded text-xs">{item.productName}</span>
+                              ))
+                            ) : <span className="text-gray-400">-</span>}
+                            {p.items && p.items.length > 2 && <span className="text-blue-500 text-xs">+{p.items.length - 2}</span>}
+                          </div>
+                        </td>
+                        <td className="px-3 py-2.5 text-end whitespace-nowrap">{p.totalAmount?.toLocaleString()}</td>
+                        <td className="px-3 py-2.5 text-end whitespace-nowrap text-emerald-600">{p.paidAmount?.toLocaleString()}</td>
+                        <td className="px-3 py-2.5 text-end whitespace-nowrap text-red-500">{p.remainingAmount?.toLocaleString()}</td>
+                        <td className="px-3 py-2.5 text-center capitalize">{p.paymentMode}</td>
+                        <td className="px-3 py-2.5 text-center">
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${p.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : p.status === 'partial' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
+                            {p.status || 'pending'}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5 text-center">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); openHistoryModal(p); }}
+                            className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs transition-colors"
+                          >
+                            {isUrdu ? 'ہسٹری' : 'History'}
+                          </button>
+                        </td>
+                      </tr>
+                      {/* Expandable items row */}
+                      {expandedPurchase === p.id && p.items && p.items.length > 0 && (
+                        <tr className="bg-gray-50/50 dark:bg-gray-700/30">
+                          <td colSpan={8} className="px-6 py-3">
+                            <table className="w-full text-xs">
+                              <thead>
+                                <tr className="text-gray-500">
+                                  <th className="text-start px-2 py-1">{isUrdu ? 'نام' : 'Product'}</th>
+                                  <th className="text-start px-2 py-1">{isUrdu ? 'سیریل' : 'Serial'}</th>
+                                  <th className="text-start px-2 py-1">IMEI</th>
+                                  <th className="text-start px-2 py-1">{isUrdu ? 'شاصی' : 'Chassis'}</th>
+                                  <th className="text-start px-2 py-1">{isUrdu ? 'انجن' : 'Engine'}</th>
+                                  <th className="text-end px-2 py-1">{isUrdu ? 'قیمت' : 'Price'}</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                                {p.items.map((item, idx) => (
+                                  <tr key={idx} className="hover:bg-white/50">
+                                    <td className="px-2 py-1 font-medium">{item.productName}</td>
+                                    <td className="px-2 py-1 text-gray-600">{item.serialNumber || '-'}</td>
+                                    <td className="px-2 py-1 text-gray-600">{item.imei || '-'}</td>
+                                    <td className="px-2 py-1 text-gray-600">{item.chassisNo || '-'}</td>
+                                    <td className="px-2 py-1 text-gray-600">{item.engineNo || '-'}</td>
+                                    <td className="px-2 py-1 text-end">Rs. {(item.price || 0).toLocaleString()}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                   ))}
                 </tbody>
               </table>
@@ -169,7 +283,7 @@ const SupplierReport: React.FC<Props> = ({ supplierId, onClose }) => {
                     <tr><td colSpan={4} className="px-3 py-6 text-center text-gray-400 text-xs">{isUrdu ? 'کوئی وعدہ نہیں' : 'No promises'}</td></tr>
                   ) : supplierPromises.map(pr => (
                     <tr key={pr.id} className="hover:bg-blue-50/30 dark:hover:bg-blue-900/10">
-                      <td className="px-3 py-2.5 font-medium whitespace-nowrap">{new Date(pr.dueDate).toLocaleDateString()}</td>
+                      <td className="px-3 py-2.5 font-medium whitespace-nowrap">{formatDate(pr.dueDate)}</td>
                       <td className="px-3 py-2.5 text-end whitespace-nowrap">{pr.amount?.toLocaleString()}</td>
                       <td className="px-3 py-2.5 text-center">
                         <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${pr.status === 'paid' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
@@ -178,8 +292,8 @@ const SupplierReport: React.FC<Props> = ({ supplierId, onClose }) => {
                       </td>
                       <td className="px-3 py-2.5 text-center">
                         {pr.status !== 'paid' && (
-                          <button onClick={() => handlePayPromise(pr.id)} className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-medium transition-colors">
-                            {isUrdu ? 'ادا کریں' : 'Pay Now'}
+                          <button onClick={() => handlePayPromise(pr.id)} disabled={payLoading} className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white rounded text-xs font-medium transition-colors">
+                            {payLoading ? '...' : isUrdu ? 'ادا کریں' : 'Pay Now'}
                           </button>
                         )}
                       </td>
@@ -207,7 +321,7 @@ const SupplierReport: React.FC<Props> = ({ supplierId, onClose }) => {
                     <tr><td colSpan={3} className="px-3 py-6 text-center text-gray-400 text-xs">{isUrdu ? 'کوئی ادائیگی نہیں' : 'No payments yet'}</td></tr>
                   ) : supplierPayments.map(pay => (
                     <tr key={pay.id} className="hover:bg-blue-50/30 dark:hover:bg-blue-900/10">
-                      <td className="px-3 py-2.5 font-medium whitespace-nowrap">{new Date(pay.paymentDate).toLocaleDateString()}</td>
+                      <td className="px-3 py-2.5 font-medium whitespace-nowrap">{formatDate(pay.paymentDate)}</td>
                       <td className="px-3 py-2.5 text-end whitespace-nowrap text-emerald-600 font-medium">{pay.amount?.toLocaleString()}</td>
                       <td className="px-3 py-2.5 text-center capitalize">{pay.method || 'cash'}</td>
                     </tr>
@@ -227,6 +341,7 @@ const SupplierReport: React.FC<Props> = ({ supplierId, onClose }) => {
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">{isUrdu ? 'رقم' : 'Amount'} *</label>
                   <input type="number" placeholder="0" value={paidAmount} onChange={e => setPaidAmount(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-600" />
+                  {totalRemaining > 0 && <p className="text-xs text-gray-400 mt-1">{isUrdu ? 'بقایا' : 'Remaining'}: Rs. {totalRemaining.toLocaleString()}</p>}
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">{isUrdu ? 'طریقہ' : 'Method'}</label>
@@ -242,6 +357,70 @@ const SupplierReport: React.FC<Props> = ({ supplierId, onClose }) => {
                     {payLoading ? '...' : isUrdu ? 'ادا کریں' : 'Pay'}
                   </button>
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Purchase History Modal */}
+        {showPurchaseHistory && selectedPurchaseForHistory && (
+          <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/50 rounded-3xl" onClick={() => setShowPurchaseHistory(false)}>
+            <div className="bg-white dark:bg-gray-700 rounded-2xl p-5 w-[90%] max-w-lg shadow-2xl max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+              <div className="flex justify-between items-center mb-3">
+                <h3 className="font-bold text-gray-800 dark:text-white">
+                  {isUrdu ? 'خریداری کی تفصیل' : 'Purchase Details'}
+                  <span className="text-sm font-normal text-gray-500 ml-2">{formatDate(selectedPurchaseForHistory.createdAt)}</span>
+                </h3>
+                <button onClick={() => setShowPurchaseHistory(false)} className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600">&times;</button>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 mb-3 text-xs bg-gray-50 dark:bg-gray-600 rounded-lg p-3">
+                <div><span className="text-gray-500">{isUrdu ? 'کل' : 'Total'}:</span> <strong>Rs. {selectedPurchaseForHistory.totalAmount?.toLocaleString()}</strong></div>
+                <div><span className="text-gray-500">{isUrdu ? 'ادا' : 'Paid'}:</span> <strong className="text-emerald-600">Rs. {selectedPurchaseForHistory.paidAmount?.toLocaleString()}</strong></div>
+                <div><span className="text-gray-500">{isUrdu ? 'بقایا' : 'Left'}:</span> <strong className="text-red-600">Rs. {selectedPurchaseForHistory.remainingAmount?.toLocaleString()}</strong></div>
+              </div>
+
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-gray-500 border-b">
+                    <th className="text-start px-2 py-1.5">{isUrdu ? 'نام' : 'Product'}</th>
+                    <th className="text-start px-2 py-1.5">{isUrdu ? 'سیریل' : 'Serial'}</th>
+                    <th className="text-start px-2 py-1.5">IMEI</th>
+                    <th className="text-start px-2 py-1.5">{isUrdu ? 'ماڈل' : 'Model'}</th>
+                    <th className="text-end px-2 py-1.5">{isUrdu ? 'قیمت' : 'Price'}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                  {(selectedPurchaseForHistory.items || []).length === 0 ? (
+                    <tr><td colSpan={5} className="px-2 py-4 text-center text-gray-400">{isUrdu ? 'کوئی آئٹم نہیں' : 'No items'}</td></tr>
+                  ) : selectedPurchaseForHistory.items!.map((item, idx) => (
+                    <tr key={idx}>
+                      <td className="px-2 py-1.5 font-medium">{item.productName}</td>
+                      <td className="px-2 py-1.5 text-gray-600">{item.serialNumber || '-'}</td>
+                      <td className="px-2 py-1.5 text-gray-600">{item.imei || '-'}</td>
+                      <td className="px-2 py-1.5 text-gray-600">{item.model || '-'}</td>
+                      <td className="px-2 py-1.5 text-end">Rs. {(item.price || 0).toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {/* Payment history for this purchase only */}
+              {supplierPayments.filter(pay => pay.purchaseId === selectedPurchaseForHistory.id).length > 0 && (
+                <div className="mt-3 pt-3 border-t">
+                  <h4 className="text-xs font-bold text-gray-700 dark:text-gray-200 mb-2">{isUrdu ? 'ادائیگیاں' : 'Payments'}</h4>
+                  {supplierPayments.filter(pay => pay.purchaseId === selectedPurchaseForHistory.id).map(pay => (
+                    <div key={pay.id} className="flex justify-between items-center text-xs py-1">
+                      <span className="text-gray-500">{formatDate(pay.paymentDate)}</span>
+                      <span className="text-emerald-600 font-medium">Rs. {pay.amount?.toLocaleString()}</span>
+                      <span className="capitalize text-gray-500">({pay.method || 'cash'})</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="mt-3 flex justify-end">
+                <button onClick={() => setShowPurchaseHistory(false)} className="px-4 py-1.5 bg-gray-100 dark:bg-gray-600 rounded-lg text-xs font-medium">{isUrdu ? 'بند کریں' : 'Close'}</button>
               </div>
             </div>
           </div>

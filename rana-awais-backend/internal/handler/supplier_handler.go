@@ -176,8 +176,35 @@ func (h *SupplierHandler) ListPurchases(w http.ResponseWriter, r *http.Request) 
 
 // ─── Payments ───
 func (h *SupplierHandler) CreatePayment(w http.ResponseWriter, r *http.Request) {
-	var pay domain.SupplierPayment
-	json.NewDecoder(r.Body).Decode(&pay)
+	// Use a raw decode first to handle date string properly
+	var raw struct {
+		SupplierID  string  `json:"supplierId"`
+		PurchaseID  string  `json:"purchaseId"`
+		Amount      float64 `json:"amount"`
+		Method      string  `json:"method"`
+		PaymentDate string  `json:"paymentDate"`
+		Remarks     string  `json:"remarks"`
+		CreatedBy   string  `json:"createdBy"`
+	}
+	json.NewDecoder(r.Body).Decode(&raw)
+
+	// Parse date properly
+	paymentDate := time.Now()
+	if raw.PaymentDate != "" {
+		if parsed, err := time.Parse("2006-01-02", raw.PaymentDate); err == nil {
+			paymentDate = parsed
+		} else if parsed, err := time.Parse(time.RFC3339, raw.PaymentDate); err == nil {
+			paymentDate = parsed
+		}
+	}
+
+	pay := domain.SupplierPayment{
+		SupplierID: raw.SupplierID, PurchaseID: raw.PurchaseID,
+		Amount: raw.Amount, Method: raw.Method,
+		PaymentDate: paymentDate,
+		Remarks: raw.Remarks, CreatedBy: raw.CreatedBy,
+	}
+	if pay.Method == "" { pay.Method = "cash" }
 
 	// Auto-find purchase if purchaseId not provided: pick first purchase with remaining > 0
 	if pay.PurchaseID == "" && pay.SupplierID != "" {
@@ -211,7 +238,7 @@ func (h *SupplierHandler) CreatePayment(w http.ResponseWriter, r *http.Request) 
 				respondError(w, r, 400, "Purchase already fully paid", "خریداری پہلے ہی مکمل ادا شدہ ہے")
 				return
 			}
-			if pay.Amount > p.RemainingAmount {
+			if pay.Amount > p.RemainingAmount && p.RemainingAmount > 0 {
 				pay.Amount = p.RemainingAmount // Cap to remaining
 			}
 			if pay.Amount <= 0 {
