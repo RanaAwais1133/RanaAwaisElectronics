@@ -34,6 +34,7 @@ export interface Purchase {
 export interface PurchaseItem {
   id?: string;
   productName: string;
+  company?: string;
   serialNumber?: string;
   imei?: string;
   chassisNo?: string;

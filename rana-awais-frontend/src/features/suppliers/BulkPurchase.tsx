@@ -12,6 +12,7 @@ interface Props {
 interface ItemRow {
   id: string;
   productName: string;
+  company: string;
   serialNumber: string;
   imei: string;
   chassisNo: string;
@@ -22,7 +23,7 @@ interface ItemRow {
   salePrice: string;
 }
 
-const BlankItem: ItemRow = { id: '1', productName: '', serialNumber: '', imei: '', chassisNo: '', engineNo: '', model: '', color: '', purchasePrice: '', salePrice: '' };
+const BlankItem: ItemRow = { id: '1', productName: '', company: '', serialNumber: '', imei: '', chassisNo: '', engineNo: '', model: '', color: '', purchasePrice: '', salePrice: '' };
 
 const BulkPurchase: React.FC<Props> = ({ onClose, onSuccess }) => {
   const { t, i18n } = useTranslation();
@@ -82,7 +83,7 @@ const BulkPurchase: React.FC<Props> = ({ onClose, onSuccess }) => {
         status: paymentMode === 'cash' ? 'completed' : 'pending',
         createdBy: currentUser?.displayName || currentUser?.username || '',
         items: items.map(i => ({
-          productName: i.productName, serialNumber: i.serialNumber, imei: i.imei,
+          productName: i.productName, company: i.company, serialNumber: i.serialNumber, imei: i.imei,
           chassisNo: i.chassisNo, engineNo: i.engineNo, model: i.model, color: i.color,
           price: parseFloat(i.purchasePrice) || 0, salePrice: parseFloat(i.salePrice) || 0,
         })),
@@ -135,7 +136,7 @@ const BulkPurchase: React.FC<Props> = ({ onClose, onSuccess }) => {
               <table className="w-full text-xs min-w-[1100px]">
                 <thead className="bg-gray-50 dark:bg-gray-700">
                   <tr>
-                    <th className="px-2 py-2 text-start">Product *</th><th className="px-2 py-2 text-start">Serial</th><th className="px-2 py-2 text-start">IMEI</th>
+                    <th className="px-2 py-2 text-start">Product *</th><th className="px-2 py-2 text-start">Company</th><th className="px-2 py-2 text-start">Serial</th><th className="px-2 py-2 text-start">IMEI</th>
                     <th className="px-2 py-2 text-start">Chassis</th><th className="px-2 py-2 text-start">Engine</th><th className="px-2 py-2 text-start">Model</th>
                     <th className="px-2 py-2 text-start">Color</th><th className="px-2 py-2 text-start">Cost</th><th className="px-2 py-2 text-start">Sale</th><th className="px-2 py-2"></th>
                   </tr>
@@ -144,6 +145,7 @@ const BulkPurchase: React.FC<Props> = ({ onClose, onSuccess }) => {
                   {items.map((item) => (
                     <tr key={item.id} className="hover:bg-blue-50/30">
                       <td className="px-2 py-1"><input type="text" value={item.productName} onChange={e => updateRow(item.id, 'productName', e.target.value)} className="w-full border rounded px-2 py-1.5 text-xs bg-white dark:bg-gray-700" placeholder="Name" /></td>
+                      <td className="px-2 py-1"><input type="text" value={item.company} onChange={e => updateRow(item.id, 'company', e.target.value)} className="w-full border rounded px-2 py-1.5 text-xs bg-white dark:bg-gray-700" placeholder="Company" /></td>
                       <td className="px-2 py-1"><input type="text" value={item.serialNumber} onChange={e => updateRow(item.id, 'serialNumber', e.target.value)} className="w-full border rounded px-2 py-1.5 text-xs bg-white dark:bg-gray-700" /></td>
                       <td className="px-2 py-1"><input type="text" value={item.imei} onChange={e => updateRow(item.id, 'imei', e.target.value)} className="w-full border rounded px-2 py-1.5 text-xs bg-white dark:bg-gray-700" /></td>
                       <td className="px-2 py-1"><input type="text" value={item.chassisNo} onChange={e => updateRow(item.id, 'chassisNo', e.target.value)} className="w-full border rounded px-2 py-1.5 text-xs bg-white dark:bg-gray-700" /></td>

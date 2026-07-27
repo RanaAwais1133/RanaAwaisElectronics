@@ -245,6 +245,7 @@ const SupplierReport: React.FC<Props> = ({ supplierId, onClose }) => {
                               <thead>
                                 <tr className="text-gray-500">
                                   <th className="text-start px-2 py-1">{isUrdu ? 'نام' : 'Product'}</th>
+                                  <th className="text-start px-2 py-1">{isUrdu ? 'کمپنی' : 'Company'}</th>
                                   <th className="text-start px-2 py-1">{isUrdu ? 'سیریل' : 'Serial'}</th>
                                   <th className="text-start px-2 py-1">IMEI</th>
                                   <th className="text-start px-2 py-1">{isUrdu ? 'شاصی' : 'Chassis'}</th>
@@ -256,6 +257,7 @@ const SupplierReport: React.FC<Props> = ({ supplierId, onClose }) => {
                                 {p.items.map((item, idx) => (
                                   <tr key={idx} className="hover:bg-white/50">
                                     <td className="px-2 py-1 font-medium">{item.productName}</td>
+                                    <td className="px-2 py-1 text-gray-600">{item.company || '-'}</td>
                                     <td className="px-2 py-1 text-gray-600">{item.serialNumber || '-'}</td>
                                     <td className="px-2 py-1 text-gray-600">{item.imei || '-'}</td>
                                     <td className="px-2 py-1 text-gray-600">{item.chassisNo || '-'}</td>
@@ -394,6 +396,7 @@ const SupplierReport: React.FC<Props> = ({ supplierId, onClose }) => {
                 <thead>
                   <tr className="text-gray-500 border-b">
                     <th className="text-start px-2 py-1.5">{isUrdu ? 'نام' : 'Product'}</th>
+                    <th className="text-start px-2 py-1.5">{isUrdu ? 'کمپنی' : 'Company'}</th>
                     <th className="text-start px-2 py-1.5">{isUrdu ? 'سیریل' : 'Serial'}</th>
                     <th className="text-start px-2 py-1.5">IMEI</th>
                     <th className="text-start px-2 py-1.5">{isUrdu ? 'ماڈل' : 'Model'}</th>
@@ -402,10 +405,11 @@ const SupplierReport: React.FC<Props> = ({ supplierId, onClose }) => {
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                   {(selectedPurchaseForHistory.items || []).length === 0 ? (
-                    <tr><td colSpan={5} className="px-2 py-4 text-center text-gray-400">{isUrdu ? 'کوئی آئٹم نہیں' : 'No items'}</td></tr>
+                    <tr><td colSpan={6} className="px-2 py-4 text-center text-gray-400">{isUrdu ? 'کوئی آئٹم نہیں' : 'No items'}</td></tr>
                   ) : selectedPurchaseForHistory.items!.map((item, idx) => (
                     <tr key={idx}>
                       <td className="px-2 py-1.5 font-medium">{item.productName}</td>
+                      <td className="px-2 py-1.5 text-gray-600">{item.company || '-'}</td>
                       <td className="px-2 py-1.5 text-gray-600">{item.serialNumber || '-'}</td>
                       <td className="px-2 py-1.5 text-gray-600">{item.imei || '-'}</td>
                       <td className="px-2 py-1.5 text-gray-600">{item.model || '-'}</td>

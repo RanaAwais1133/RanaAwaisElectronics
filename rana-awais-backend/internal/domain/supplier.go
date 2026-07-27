@@ -36,6 +36,7 @@ type PurchaseItem struct {
 	ID            string    `json:"id" bson:"_id"`
 	PurchaseID    string    `json:"purchaseId" bson:"purchaseid"`
 	ProductName   string    `json:"productName" bson:"productname"`
+	Company       string    `json:"company,omitempty" bson:"company,omitempty"`
 	SerialNumber  string    `json:"serialNumber,omitempty" bson:"serialnumber,omitempty"`
 	IMEI          string    `json:"imei,omitempty" bson:"imei,omitempty"`
 	ChassisNo     string    `json:"chassisNo,omitempty" bson:"chassisno,omitempty"`

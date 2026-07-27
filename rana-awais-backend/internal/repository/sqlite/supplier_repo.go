@@ -112,9 +112,9 @@ func (r *SupplierRepository) CreatePurchase(ctx context.Context, p *domain.Purch
 		item.PurchaseID = p.ID
 		item.CreatedAt = time.Now()
 		_, err := r.db.ExecContext(ctx,
-			`INSERT INTO purchase_items (id, purchase_id, product_name, serial_number, imei, chassis_no, engine_no, model, color, price, sale_price, created_at)
-			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-			item.ID, item.PurchaseID, item.ProductName, item.SerialNumber, item.IMEI, item.ChassisNo, item.EngineNo, item.Model, item.Color, item.Price, item.SalePrice, item.CreatedAt)
+			`INSERT INTO purchase_items (id, purchase_id, product_name, company, serial_number, imei, chassis_no, engine_no, model, color, price, sale_price, created_at)
+			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			item.ID, item.PurchaseID, item.ProductName, item.Company, item.SerialNumber, item.IMEI, item.ChassisNo, item.EngineNo, item.Model, item.Color, item.Price, item.SalePrice, item.CreatedAt)
 		if err != nil {
 			return err
 		}
@@ -141,13 +141,14 @@ func (r *SupplierRepository) GetPurchase(ctx context.Context, id string) (*domai
 	p.Remarks = remarks.String
 	p.CreatedBy = createdBy.String
 	// Fetch items
-	rows, err := r.db.QueryContext(ctx, `SELECT id, purchase_id, product_name, serial_number, imei, chassis_no, engine_no, model, color, price, created_at FROM purchase_items WHERE purchase_id=?`, id)
+	rows, err := r.db.QueryContext(ctx, `SELECT id, purchase_id, product_name, company, serial_number, imei, chassis_no, engine_no, model, color, price, created_at FROM purchase_items WHERE purchase_id=?`, id)
 	if err == nil {
 		defer rows.Close()
 		for rows.Next() {
 			var item domain.PurchaseItem
-			var sn, im, cn, en, mo, co sql.NullString
-			if err := rows.Scan(&item.ID, &item.PurchaseID, &item.ProductName, &sn, &im, &cn, &en, &mo, &co, &item.Price, &item.CreatedAt); err == nil {
+			var sn, im, cn, en, mo, co, comp sql.NullString
+			if err := rows.Scan(&item.ID, &item.PurchaseID, &item.ProductName, &comp, &sn, &im, &cn, &en, &mo, &co, &item.Price, &item.CreatedAt); err == nil {
+				item.Company = comp.String
 				item.SerialNumber = sn.String
 				item.IMEI = im.String
 				item.ChassisNo = cn.String
@@ -188,12 +189,13 @@ func (r *SupplierRepository) ListPurchases(ctx context.Context, supplierID strin
 		p.Remarks = remarks.String
 		p.CreatedBy = createdBy.String
 		// Fetch items for this purchase
-		itemRows, err := r.db.QueryContext(ctx, `SELECT product_name, serial_number, imei, chassis_no, engine_no, model, color, price, sale_price FROM purchase_items WHERE purchase_id=?`, p.ID)
+		itemRows, err := r.db.QueryContext(ctx, `SELECT product_name, company, serial_number, imei, chassis_no, engine_no, model, color, price, sale_price FROM purchase_items WHERE purchase_id=?`, p.ID)
 		if err == nil {
 			for itemRows.Next() {
 				var item domain.PurchaseItem
-				var sn, im, cn, en, mo, co sql.NullString
-				if itemRows.Scan(&item.ProductName, &sn, &im, &cn, &en, &mo, &co, &item.Price, &item.SalePrice) == nil {
+				var sn, im, cn, en, mo, co, comp sql.NullString
+				if itemRows.Scan(&item.ProductName, &comp, &sn, &im, &cn, &en, &mo, &co, &item.Price, &item.SalePrice) == nil {
+					item.Company = comp.String
 					item.SerialNumber = sn.String
 					item.IMEI = im.String
 					item.ChassisNo = cn.String
