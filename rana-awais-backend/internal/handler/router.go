@@ -945,6 +945,7 @@ func SetupRouter(
 	protected.HandleFunc("/supplier-promises", supplierH.CreatePromise).Methods("POST")
 	protected.HandleFunc("/supplier-promises", supplierH.ListPromises).Methods("GET")
 	protected.HandleFunc("/supplier-promises/{id}", supplierH.UpdatePromise).Methods("PUT")
+	protected.HandleFunc("/suppliers/{id}/ledger", supplierH.GetLedger).Methods("GET")
 
 	// ========== PROMISES ==========
 	protected.HandleFunc("/promises", promiseH.Create).Methods("POST")

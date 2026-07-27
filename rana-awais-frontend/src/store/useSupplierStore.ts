@@ -86,6 +86,7 @@ interface SupplierState {
   fetchPromises: (status?: string) => Promise<void>;
   createPromise: (data: any) => Promise<void>;
   updatePromise: (id: string, data: any) => Promise<void>;
+  fetchLedger: (supplierId: string) => Promise<any>;
 }
 
 export const useSupplierStore = create<SupplierState>()((set, get) => ({
@@ -188,5 +189,12 @@ export const useSupplierStore = create<SupplierState>()((set, get) => ({
       await api.put(`/supplier-promises/${id}`, data);
       get().fetchPromises();
     } catch {}
+  },
+
+  fetchLedger: async (supplierId: string) => {
+    try {
+      const res = await api.get(`/suppliers/${supplierId}/ledger`);
+      return res.data;
+    } catch { return null; }
   },
 }));

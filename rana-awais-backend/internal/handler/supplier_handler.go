@@ -123,9 +123,41 @@ func (h *SupplierHandler) List(w http.ResponseWriter, r *http.Request) {
 
 // ─── Purchases ───
 func (h *SupplierHandler) CreatePurchase(w http.ResponseWriter, r *http.Request) {
-	var p domain.Purchase
-	json.NewDecoder(r.Body).Decode(&p)
-	if p.SupplierID == "" { respondError(w, r, 400, "Supplier required", "سپلائر"); return }
+	// Raw decode to parse date strings properly
+	var raw struct {
+		SupplierID      string                 `json:"supplierId"`
+		TotalAmount     float64                `json:"totalAmount"`
+		PaidAmount      float64                `json:"paidAmount"`
+		RemainingAmount float64                `json:"remainingAmount"`
+		PaymentMode     string                 `json:"paymentMode"`
+		DueDate         string                 `json:"dueDate"`
+		Status          string                 `json:"status"`
+		Remarks         string                 `json:"remarks"`
+		CreatedBy       string                 `json:"createdBy"`
+		Items           []domain.PurchaseItem  `json:"items"`
+	}
+	json.NewDecoder(r.Body).Decode(&raw)
+	if raw.SupplierID == "" { respondError(w, r, 400, "Supplier required", "سپلائر"); return }
+
+	// Parse dueDate string
+	var dueDate *time.Time
+	if raw.DueDate != "" {
+		if parsed, err := time.Parse("2006-01-02", raw.DueDate); err == nil {
+			dueDate = &parsed
+		} else if parsed, err := time.Parse(time.RFC3339, raw.DueDate); err == nil {
+			dueDate = &parsed
+		}
+	}
+
+	p := domain.Purchase{
+		SupplierID: raw.SupplierID, TotalAmount: raw.TotalAmount,
+		PaidAmount: raw.PaidAmount, RemainingAmount: raw.RemainingAmount,
+		PaymentMode: raw.PaymentMode, DueDate: dueDate,
+		Status: raw.Status, Remarks: raw.Remarks,
+		CreatedBy: raw.CreatedBy, Items: raw.Items,
+	}
+	if p.PaidAmount >= p.TotalAmount { p.Status = "completed" }
+	if p.Status == "" { p.Status = "pending" }
 
 	// MongoDB PRIMARY save
 	if h.useMongo() {
@@ -310,4 +342,117 @@ func (h *SupplierHandler) UpdatePromise(w http.ResponseWriter, r *http.Request) 
 	if h.useMongo() { h.mongoRepo.UpdatePromise(r.Context(), id, pr.PaidAmount, pr.Status) }
 	h.repo.UpdatePromise(r.Context(), id, &pr)
 	respondJSON(w, 200, pr)
+}
+
+// ─── Supplier Ledger ───
+func (h *SupplierHandler) GetLedger(w http.ResponseWriter, r *http.Request) {
+	supplierID := mux.Vars(r)["id"]
+	if supplierID == "" { respondError(w, r, 400, "Supplier required", "سپلائر"); return }
+
+	type LedgerEntry struct {
+		Date        time.Time `json:"date"`
+		Description string    `json:"description"`
+		Debit       float64   `json:"debit"`
+		Credit      float64   `json:"credit"`
+		Balance     float64   `json:"balance"`
+		Type        string    `json:"type"` // "purchase" or "payment"
+		RefID       string    `json:"refId"`
+	}
+
+	var entries []LedgerEntry
+	var balance float64
+
+	// Get all purchases for this supplier
+	var purchases []domain.Purchase
+	if h.useMongo() {
+		purchases, _ = h.mongoRepo.ListPurchases(r.Context(), supplierID)
+	}
+	if len(purchases) == 0 {
+		purchases, _ = h.repo.ListPurchases(r.Context(), supplierID)
+	}
+
+	// Get all payments for this supplier
+	var pays []domain.SupplierPayment
+	if h.useMongo() {
+		pays, _ = h.mongoRepo.ListPayments(r.Context(), supplierID)
+	}
+	if len(pays) == 0 {
+		pays, _ = h.repo.ListPayments(r.Context(), supplierID)
+	}
+
+	// Get all promises for this supplier
+	var promis []domain.SupplierPromise
+	if h.useMongo() {
+		promis, _ = h.mongoRepo.ListPromises(r.Context(), supplierID)
+	}
+
+	// Build a combined timeline sorted by date
+	type rawEntry struct {
+		ts          time.Time
+		description string
+		debit       float64
+		credit      float64
+		typ         string
+		refID       string
+	}
+	var raw []rawEntry
+
+	for _, p := range purchases {
+		desc := "Purchase"
+		if len(p.Items) > 0 {
+			names := ""
+			for i, item := range p.Items {
+				if i > 0 { names += ", " }
+				if i >= 3 { names += "..."; break }
+				names += item.ProductName
+			}
+			desc = "Purchase - " + names
+		}
+		raw = append(raw, rawEntry{ts: p.CreatedAt, description: desc, debit: p.TotalAmount, credit: 0, typ: "purchase", refID: p.ID})
+	}
+
+	for _, pay := range pays {
+		method := pay.Method
+		if method == "" { method = "cash" }
+		raw = append(raw, rawEntry{ts: pay.PaymentDate, description: "Payment (" + method + ")", debit: 0, credit: pay.Amount, typ: "payment", refID: pay.ID})
+	}
+
+	// Sort by date ascending
+	for i := 0; i < len(raw); i++ {
+		for j := i+1; j < len(raw); j++ {
+			if raw[j].ts.Before(raw[i].ts) {
+				raw[i], raw[j] = raw[j], raw[i]
+			}
+		}
+	}
+
+	// Calculate running balance
+	for _, e := range raw {
+		balance += e.debit - e.credit
+		entries = append(entries, LedgerEntry{
+			Date: e.ts, Description: e.description,
+			Debit: e.debit, Credit: e.credit,
+			Balance: balance, Type: e.typ, RefID: e.refID,
+		})
+	}
+	if entries == nil { entries = []LedgerEntry{} }
+
+	// Calculate summary
+	totalPurchased := 0.0
+	totalPaid := 0.0
+	totalPromises := 0.0
+	for _, p := range purchases { totalPurchased += p.TotalAmount }
+	for _, pay := range pays { totalPaid += pay.Amount }
+	for _, pr := range promis { if pr.Status != "paid" { totalPromises += pr.Amount - pr.PaidAmount } }
+
+	respondJSON(w, 200, map[string]interface{}{
+		"entries": entries,
+		"summary": map[string]interface{}{
+			"totalPurchased": totalPurchased,
+			"totalPaid":      totalPaid,
+			"totalRemaining": totalPurchased - totalPaid,
+			"pendingPromises": totalPromises,
+			"balance":        balance,
+		},
+	})
 }

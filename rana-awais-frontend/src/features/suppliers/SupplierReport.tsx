@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 import { useSupplierStore, Purchase, PurchaseItem } from '../../store/useSupplierStore';
 import api from '../../utils/api';
+import SupplierLedger from './SupplierLedger';
+import SupplierReminders from './SupplierReminders';
 
 interface Props {
   supplierId: string;
@@ -21,6 +23,8 @@ const SupplierReport: React.FC<Props> = ({ supplierId, onClose }) => {
   const [expandedPurchase, setExpandedPurchase] = useState<string | null>(null);
   const [showPurchaseHistory, setShowPurchaseHistory] = useState(false);
   const [selectedPurchaseForHistory, setSelectedPurchaseForHistory] = useState<Purchase | null>(null);
+  const [showLedger, setShowLedger] = useState(false);
+  const [showReminders, setShowReminders] = useState(false);
 
   const supplier = suppliers.find(s => s.id === supplierId);
   const supplierPromises = promises.filter(p => p.supplierId === supplierId);
@@ -138,9 +142,15 @@ const SupplierReport: React.FC<Props> = ({ supplierId, onClose }) => {
             <h2 className="text-lg font-bold text-gray-800 dark:text-white">{supplier.name}</h2>
             <p className="text-xs text-gray-500">{supplier.phone} {supplier.company ? `| ${supplier.company}` : ''}</p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <button onClick={() => setShowReminders(true)} className="px-2 py-1.5 bg-amber-500 text-white rounded-lg text-xs font-medium hover:bg-amber-600">
+              {isUrdu ? 'یاد دہانی' : 'Reminders'}
+            </button>
+            <button onClick={() => setShowLedger(true)} className="px-2 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700">
+              {isUrdu ? 'لیجر' : 'Ledger'}
+            </button>
             <button onClick={() => setShowPayModal(true)} className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-medium hover:bg-emerald-700">
-              + {isUrdu ? 'ادائیگی' : 'Add Payment'}
+              + {isUrdu ? 'ادائیگی' : 'Payment'}
             </button>
             <button onClick={onClose} className="p-1.5 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700 text-xl">&times;</button>
           </div>
@@ -424,6 +434,16 @@ const SupplierReport: React.FC<Props> = ({ supplierId, onClose }) => {
               </div>
             </div>
           </div>
+        )}
+
+        {/* Supplier Ledger Modal */}
+        {showLedger && supplierId && (
+          <SupplierLedger supplierId={supplierId} onClose={() => setShowLedger(false)} />
+        )}
+
+        {/* Supplier Reminders Modal */}
+        {showReminders && (
+          <SupplierReminders onClose={() => setShowReminders(false)} />
         )}
       </div>
     </div>
