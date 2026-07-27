@@ -173,11 +173,33 @@ const BulkPurchase: React.FC<Props> = ({ onClose, onSuccess }) => {
             </div>
             {paymentMode !== 'cash' && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div><label className="block text-xs font-medium mb-1">{isUrdu ? 'ابھی ادا کی گئی رقم' : 'Paid Now'}</label><input type="number" value={paidAmount} onChange={e => setPaidAmount(e.target.value)} className="w-full border rounded-xl px-3 py-2 text-sm bg-white dark:bg-gray-700" /></div>
-                <div><label className="block text-xs font-medium mb-1">{isUrdu ? 'بقایا کی تاریخ' : 'Due Date'}</label><input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className="w-full border rounded-xl px-3 py-2 text-sm bg-white dark:bg-gray-700" /></div>
+                <div>
+                  <label className="block text-xs font-medium mb-1">{isUrdu ? 'ابھی ادا کی گئی رقم' : 'Amount Paying Now'}</label>
+                  <input type="number" value={paidAmount} onChange={e => setPaidAmount(e.target.value)} className="w-full border rounded-xl px-3 py-2 text-sm bg-white dark:bg-gray-700" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1">{isUrdu ? 'ادائیگی کی آخری تاریخ' : 'Payment Due Date'} *</label>
+                  <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className="w-full border rounded-xl px-3 py-2 text-sm bg-white dark:bg-gray-700" />
+                  <p className="text-[10px] text-gray-400 mt-0.5">{isUrdu ? 'یہ وہ تاریخ ہے جب آپ بقایا رقم ادا کرنے کا وعدہ کرتے ہیں' : 'The date by which you promise to pay the remaining amount'}</p>
+                </div>
               </div>
             )}
-            {paymentMode !== 'cash' && <div className="mt-2 text-sm text-gray-500">Remaining: Rs. {(totalAmount - (parseFloat(paidAmount) || 0)).toLocaleString()}</div>}
+            {paymentMode !== 'cash' && (
+              <div className="bg-amber-50 dark:bg-amber-900/10 rounded-xl p-3 text-sm">
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-600 dark:text-gray-400">{isUrdu ? 'کل رقم' : 'Total'}:</span>
+                  <span className="font-bold">Rs. {totalAmount.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between items-center mt-1">
+                  <span className="text-gray-600 dark:text-gray-400">{isUrdu ? 'آج ادا کی گئی' : 'Paying Now'}:</span>
+                  <span className="font-bold text-emerald-600">Rs. {(parseFloat(paidAmount) || 0).toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between items-center mt-1 border-t border-amber-200 dark:border-amber-800 pt-1">
+                  <span className="text-gray-600 dark:text-gray-400">{isUrdu ? 'بقایا (ادائیگی کی تاریخ)' : 'Remaining (Due Date)'}:</span>
+                  <span className="font-bold text-red-600">Rs. {(totalAmount - (parseFloat(paidAmount) || 0)).toLocaleString()}</span>
+                </div>
+              </div>
+            )}
           </div>
 
           {error && <div className="text-red-500 text-sm bg-red-50 dark:bg-red-900/30 p-3 rounded-xl">{error}</div>}
