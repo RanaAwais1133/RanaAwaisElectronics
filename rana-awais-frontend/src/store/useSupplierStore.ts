@@ -97,14 +97,11 @@ export const useSupplierStore = create<SupplierState>()((set, get) => ({
   loading: false,
 
   fetchSuppliers: async () => {
-    set({ loading: true });
     try {
       const res = await api.get('/suppliers');
       const data = res.data?.data || res.data || [];
-      set({ suppliers: Array.isArray(data) ? data : [], loading: false });
-    } catch {
-      set({ loading: false });
-    }
+      set({ suppliers: Array.isArray(data) ? data : [] });
+    } catch {}
   },
 
   createSupplier: async (data) => {
@@ -144,7 +141,7 @@ export const useSupplierStore = create<SupplierState>()((set, get) => ({
     try {
       const res = await api.post('/purchases', data);
       get().fetchPurchases();
-      // ✅ Also refresh products so new items appear in inventory
+      // ✅ Refresh products so new items appear in inventory
       try { 
         const { useProductStore } = await import('./useProductStore');
         useProductStore.getState().fetchProducts(true);
