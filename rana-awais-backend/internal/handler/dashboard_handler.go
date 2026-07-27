@@ -136,18 +136,30 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 		newCustomers = count
 	}
 
-	// PIPELINE 4: Total profit - calculated properly using calculatePaymentProfit
+	// PIPELINE 4: Total profit - optimized with aggregation
 	totalProfit := 0.0
-	// Get all payments and calculate profit for each
-	allPayCur, err := db.Collection("payments").Find(ctx(), bson.M{})
+	profitPipe := mongo.Pipeline{
+		{{Key: "$lookup", Value: bson.D{{Key: "from", Value: "installment_plans"}, {Key: "localField", Value: "installmentplanid"}, {Key: "foreignField", Value: "_id"}, {Key: "as", Value: "plan"}}}},
+		{{Key: "$unwind", Value: bson.D{{Key: "path", Value: "$plan"}, {Key: "preserveNullAndEmptyArrays", Value: true}}}},
+		{{Key: "$lookup", Value: bson.D{{Key: "from", Value: "products"}, {Key: "localField", Value: "plan.productid"}, {Key: "foreignField", Value: "_id"}, {Key: "as", Value: "product"}}}},
+		{{Key: "$unwind", Value: bson.D{{Key: "path", Value: "$product"}, {Key: "preserveNullAndEmptyArrays", Value: true}}}},
+		{{Key: "$group", Value: bson.D{{Key: "_id", Value: nil}, {Key: "totalProfit", Value: bson.D{{Key: "$sum", Value: bson.D{{Key: "$cond", Value: []interface{}{
+			bson.D{{Key: "$gt", Value: []interface{}{"$product.purchaseprice", 0}}},
+			bson.D{{Key: "$subtract", Value: []interface{}{"$amount", "$product.purchaseprice"}}},
+			"$amount",
+		}}}}}}}}},
+	}
+	profitCur, err := db.Collection("payments").Aggregate(ctx(), profitPipe)
 	if err == nil {
-		for allPayCur.Next(ctx()) {
-			var pay domain.Payment
-			if allPayCur.Decode(&pay) == nil {
-				totalProfit += calculatePaymentProfit(pay, db)
+		if profitCur.Next(ctx()) {
+			var res struct {
+				TotalProfit float64 `bson:"totalProfit"`
+			}
+			if profitCur.Decode(&res) == nil {
+				totalProfit = res.TotalProfit
 			}
 		}
-		allPayCur.Close(ctx())
+		profitCur.Close(ctx())
 	}
 
 	// PIPELINE 5: Daily breakdown (last 7 days)
