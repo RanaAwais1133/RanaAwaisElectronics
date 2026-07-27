@@ -156,8 +156,14 @@ func (h *SupplierHandler) CreatePurchase(w http.ResponseWriter, r *http.Request)
 		Status: raw.Status, Remarks: raw.Remarks,
 		CreatedBy: raw.CreatedBy, Items: raw.Items,
 	}
-	if p.PaidAmount >= p.TotalAmount { p.Status = "completed" }
-	if p.Status == "" { p.Status = "pending" }
+	// Smart status detection
+	if p.PaidAmount >= p.TotalAmount {
+		p.Status = "completed"
+	} else if p.PaidAmount > 0 {
+		p.Status = "partial"
+	} else {
+		p.Status = "pending"
+	}
 
 	// MongoDB PRIMARY save
 	if h.useMongo() {
