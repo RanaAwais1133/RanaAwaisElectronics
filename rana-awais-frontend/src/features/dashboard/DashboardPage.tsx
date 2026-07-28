@@ -218,6 +218,91 @@ const TodayInstallmentStatsModal: React.FC<TodayInstallmentStatsModalProps> = ({
   );
 };
 
+// ========== VARIANTS DETAIL MODAL ==========
+const VariantsDetailModal: React.FC<{ productName: string; onClose: () => void; isUrdu: boolean }> = ({ productName, onClose, isUrdu }) => {
+  const [variants, setVariants] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.get(`/products/search?q=${encodeURIComponent(productName)}&limit=200`)
+      .then(res => {
+        if (!cancelled) {
+          const d = res.data?.data || res.data || [];
+          setVariants(Array.isArray(d) ? d.filter((p: any) => (p.name || '').toLowerCase() === productName.toLowerCase()) : []);
+        }
+      })
+      .catch(() => { if (!cancelled) setVariants([]); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [productName]);
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-5xl w-full max-h-[85vh] flex flex-col border border-gray-200 dark:border-gray-700" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-blue-50 dark:bg-blue-900/30 rounded-lg">
+              <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-gray-900 dark:text-white">{isUrdu ? 'پروڈکٹ کی تفصیلات' : 'Product Variants'} — {productName}</h2>
+              <p className="text-xs text-gray-500">{loading ? '...' : `${variants.length} ${isUrdu ? 'آئٹمز' : 'items'}`}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors">
+            <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-6">
+          {loading ? (
+            <div className="flex flex-col items-center justify-center py-16 gap-3"><div className="w-10 h-10 border-4 border-gray-900 dark:border-white border-t-transparent rounded-full animate-spin" /><p className="text-sm text-gray-400">{isUrdu ? 'لوڈ ہو رہا ہے...' : 'Loading...'}</p></div>
+          ) : variants.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 gap-3"><p className="text-gray-400 font-medium">{isUrdu ? 'کوئی ڈیٹا نہیں' : 'No variants found'}</p></div>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-50 dark:bg-gray-700/50">
+                    <th className="px-2 py-2.5 text-start text-[10px] font-bold text-gray-500 uppercase">#</th>
+                    <th className="px-2 py-2.5 text-start text-[10px] font-bold text-gray-500 uppercase">{isUrdu ? 'نام' : 'Name'}</th>
+                    <th className="px-2 py-2.5 text-start text-[10px] font-bold text-gray-500 uppercase">{isUrdu ? 'کمپنی' : 'Company'}</th>
+                    <th className="px-2 py-2.5 text-start text-[10px] font-bold text-gray-500 uppercase">{isUrdu ? 'سیریل' : 'Serial'}</th>
+                    <th className="px-2 py-2.5 text-start text-[10px] font-bold text-gray-500 uppercase">IMEI</th>
+                    <th className="px-2 py-2.5 text-start text-[10px] font-bold text-gray-500 uppercase">{isUrdu ? 'شاصی' : 'Chassis'}</th>
+                    <th className="px-2 py-2.5 text-start text-[10px] font-bold text-gray-500 uppercase">{isUrdu ? 'انجن' : 'Engine'}</th>
+                    <th className="px-2 py-2.5 text-start text-[10px] font-bold text-gray-500 uppercase">{isUrdu ? 'ماڈل' : 'Model'}</th>
+                    <th className="px-2 py-2.5 text-start text-[10px] font-bold text-gray-500 uppercase">{isUrdu ? 'رنگ' : 'Color'}</th>
+                    <th className="px-2 py-2.5 text-end text-[10px] font-bold text-gray-500 uppercase">{isUrdu ? 'قیمت خرید' : 'Cost'}</th>
+                    <th className="px-2 py-2.5 text-end text-[10px] font-bold text-gray-500 uppercase">{isUrdu ? 'فروخت قیمت' : 'Sale'}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
+                  {variants.map((v: any, idx: number) => (
+                    <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
+                      <td className="px-2 py-2.5 text-gray-400 font-mono text-xs text-center">{idx + 1}</td>
+                      <td className="px-2 py-2.5 text-xs font-semibold text-gray-800 dark:text-white whitespace-nowrap">{v.name || '—'}</td>
+                      <td className="px-2 py-2.5 text-xs text-gray-600 dark:text-gray-300">{v.company || '—'}</td>
+                      <td className="px-2 py-2.5 text-xs text-gray-600 dark:text-gray-300 font-mono">{v.serialNumber || v.serial_number || '—'}</td>
+                      <td className="px-2 py-2.5 text-xs text-gray-600 dark:text-gray-300 font-mono">{v.imei || '—'}</td>
+                      <td className="px-2 py-2.5 text-xs text-gray-600 dark:text-gray-300 font-mono">{v.chassisNo || v.chassis_no || '—'}</td>
+                      <td className="px-2 py-2.5 text-xs text-gray-600 dark:text-gray-300 font-mono">{v.engineNo || v.engine_no || '—'}</td>
+                      <td className="px-2 py-2.5 text-xs text-gray-600 dark:text-gray-300">{v.model || '—'}</td>
+                      <td className="px-2 py-2.5 text-xs text-gray-600 dark:text-gray-300">{v.color || '—'}</td>
+                      <td className="px-2 py-2.5 text-end text-xs font-bold text-gray-800 dark:text-white">Rs. {(v.purchasePrice || v.purchase_price || 0).toLocaleString()}</td>
+                      <td className="px-2 py-2.5 text-end text-xs font-bold text-emerald-600 dark:text-emerald-400">Rs. {(v.price || v.selling_price || 0).toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ========== SKELETON LOADER ==========
 const DashboardSkeleton: React.FC<{ isUrdu: boolean }> = ({ isUrdu }) => (
   <div className="max-w-7xl mx-auto px-3 sm:px-4 pb-10">
@@ -1088,17 +1173,10 @@ const DashboardPage: React.FC = () => {
                 </div>
                 <span className="text-sm font-bold text-gray-900 dark:text-white">{totalCustomers}</span>
               </button>
-              <button onClick={() => setModal({ title: isUrdu ? 'فعال منصوبے' : 'Active Plans', endpoint: '/dashboard/active-installments' })} className="w-full flex items-center justify-between py-2.5 px-2 border-b border-gray-100 dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30 rounded-lg transition-colors cursor-pointer">
+              <button onClick={() => setModal({ title: isUrdu ? 'فعال منصوبے / اقساط' : 'Active Plans / Installments', endpoint: '/dashboard/active-installments' })} className="w-full flex items-center justify-between py-2.5 px-2 border-b border-gray-100 dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30 rounded-lg transition-colors cursor-pointer">
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 rounded-full bg-emerald-500" />
-                  <span className="text-xs text-gray-600 dark:text-gray-300">{isUrdu ? 'فعال منصوبے' : 'Active Plans'}</span>
-                </div>
-                <span className="text-sm font-bold text-gray-900 dark:text-white">{activePlans}</span>
-              </button>
-              <button onClick={() => setModal({ title: isUrdu ? 'فعال اقساط' : 'Active Installments', endpoint: '/dashboard/active-installments' })} className="w-full flex items-center justify-between py-2.5 px-2 border-b border-gray-100 dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30 rounded-lg transition-colors cursor-pointer">
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-purple-500" />
-                  <span className="text-xs text-gray-600 dark:text-gray-300">{isUrdu ? 'فعال اقساط' : 'Active Installments'}</span>
+                  <span className="text-xs text-gray-600 dark:text-gray-300">{isUrdu ? 'فعال منصوبے / اقساط' : 'Active Plans / Installments'}</span>
                 </div>
                 <span className="text-sm font-bold text-gray-900 dark:text-white">{activeInstallments}</span>
               </button>
@@ -1137,7 +1215,7 @@ const DashboardPage: React.FC = () => {
                 </div>
                 <span className="text-sm font-bold text-gray-900 dark:text-white">{totalProducts}</span>
               </button>
-              <button onClick={() => setModal({ title: isUrdu ? 'کم اسٹاک' : 'Low Stock', endpoint: '/products?limit=200' })} className="w-full flex items-center justify-between py-2.5 px-2 border-b border-gray-100 dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30 rounded-lg transition-colors cursor-pointer">
+              <button onClick={() => setModal({ title: isUrdu ? 'کم اسٹاک' : 'Low Stock', endpoint: '/dashboard/low-stock' })} className="w-full flex items-center justify-between py-2.5 px-2 border-b border-gray-100 dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30 rounded-lg transition-colors cursor-pointer">
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 rounded-full bg-red-500" />
                   <span className="text-xs text-gray-600 dark:text-gray-300">{isUrdu ? 'کم اسٹاک' : 'Low Stock'}</span>
@@ -1189,6 +1267,15 @@ const DashboardPage: React.FC = () => {
         <PromisesModal onClose={() => setShowPromisesList(false)} isUrdu={isUrdu} onSuccess={handleRefresh} />
       )}
 
+      {/* Variants Detail Modal — shows individual products for a group */}
+      {selectedGroupName && (
+        <VariantsDetailModal
+          productName={selectedGroupName}
+          onClose={() => setSelectedGroupName(null)}
+          isUrdu={isUrdu}
+        />
+      )}
+
       {/* Product Groups Modal */}
       {showProductGroups && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setShowProductGroups(false)}>
@@ -1231,7 +1318,7 @@ const DashboardPage: React.FC = () => {
                     </thead>
                     <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
                       {productGroups.map((pg: any, idx: number) => (
-                        <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors cursor-pointer" onClick={() => { setSelectedGroupName(pg.name || pg._id); setShowProductGroups(false); }}>
+                        <tr key={idx} className="hover:bg-blue-50/30 dark:hover:bg-blue-900/10 transition-colors cursor-pointer" onClick={() => { setSelectedGroupName(pg.name || pg._id); setShowProductGroups(false); }}>
                           <td className="px-3 py-2.5 text-gray-400 font-mono text-xs text-center">{idx + 1}</td>
                           <td className="px-3 py-2.5">
                             <span className="font-semibold text-gray-800 dark:text-white text-xs">{pg.name || pg._id}</span>

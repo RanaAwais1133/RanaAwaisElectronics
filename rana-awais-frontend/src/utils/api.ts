@@ -32,7 +32,7 @@ console.log('🌐 API Base URL:', BASE_URL);
 
 // ✅ In-memory cache for instant responses (1s TTL - ultra fast UI updates)
 const memoryCache = new Map<string, { data: any; timestamp: number }>();
-const MEMORY_CACHE_TTL = 1000; // 1 second - reduced for faster UI updates
+const MEMORY_CACHE_TTL = 5000; // 5 seconds - balanced between freshness and backend load
 
 const api: AxiosInstance & {
   getTodayInstallments?: () => Promise<any>;

@@ -589,8 +589,28 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 		"inventoryValue":    inventoryValue,
 		"monthlyDueCount":   monthlyDueCount,
 		"productGroups":     productGroups,
-		"ageingInventory":   0,  // placeholder — can be calculated later
+		"ageingInventory":   calculateAgeingInventory(db),
 	})
+}
+
+// ═══════════════════════════════════════════════════════════════
+// calculateAgeingInventory - counts products older than 90 days
+// based on createdat field (stock that hasn't moved in 3+ months)
+// ═══════════════════════════════════════════════════════════════
+
+func calculateAgeingInventory(db *mongo.Database) int64 {
+	if db == nil {
+		return 0
+	}
+	ninetyDaysAgo := time.Now().AddDate(0, 0, -90)
+	count, err := db.Collection("products").CountDocuments(ctx(), bson.M{
+		"createdat": bson.M{"$lt": ninetyDaysAgo},
+		"stockcount": bson.M{"$gt": 0},
+	})
+	if err != nil {
+		return 0
+	}
+	return count
 }
 
 // ═══════════════════════════════════════════════════════════════
