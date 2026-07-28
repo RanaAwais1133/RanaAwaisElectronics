@@ -1240,13 +1240,13 @@ const DashboardPage: React.FC = () => {
                 </div>
                 <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">Rs. {(inventoryValue || 0).toLocaleString()}</span>
               </button>
-              <div className="w-full flex items-center justify-between py-2.5 px-2">
+              <button onClick={() => ageingStock > 0 && setModal({ title: isUrdu ? 'پرانا اسٹاک' : 'Ageing Stock', endpoint: '/dashboard/ageing-stock' })} disabled={ageingStock === 0} className={`w-full flex items-center justify-between py-2.5 px-2 border-b border-gray-100 dark:border-gray-700 last:border-0 rounded-lg transition-colors ${ageingStock > 0 ? 'hover:bg-gray-50 dark:hover:bg-gray-700/30 cursor-pointer' : 'cursor-default opacity-60'}`}>
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 rounded-full bg-orange-500" />
                   <span className="text-xs text-gray-600 dark:text-gray-300">{isUrdu ? 'پرانا اسٹاک' : 'Ageing Stock'}</span>
                 </div>
                 <span className="text-sm font-bold text-orange-600 dark:text-orange-400">{ageingStock}</span>
-              </div>
+              </button>
             </div>
           </div>
         </div>

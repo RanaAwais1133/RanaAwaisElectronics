@@ -494,17 +494,24 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Aggregate products by name to get unique items + stock sums
-	// ✅ FIXED: Use $ifNull to handle missing stockcount/price/purchaseprice fields
-	// Each variant counts as at least 1 in stock unless explicitly set to 0
+	// ✅ FIXED: Use $toInt to handle float/int BSON type issues, default missing stockcount to 1
+	// Each variant counts based on its actual stockcount (0 means out of stock)
 	groupPipe := mongo.Pipeline{
 		{{Key: "$addFields", Value: bson.D{
-			// Normalize stockcount: missing/null → 1, otherwise use actual value
+			// Normalize stockcount: convert to int, missing/null → 1, actual value used as-is
 			{Key: "_stockcnt", Value: bson.D{{Key: "$cond", Value: bson.A{
-				bson.D{{Key: "$gt", Value: bson.A{bson.D{{Key: "$ifNull", Value: bson.A{"$stockcount", 1}}}, 0}}},
-				bson.D{{Key: "$ifNull", Value: bson.A{"$stockcount", 1}}},
+				bson.D{{Key: "$ifNull", Value: bson.A{"$stockcount", false}}},
+				bson.D{{Key: "$convert", Value: bson.D{{Key: "input", Value: "$stockcount"}, {Key: "to", Value: "int"}, {Key: "onError", Value: 1}, {Key: "onNull", Value: 1}}}},
 				1,
 			}}}},
-			// Normalize value per unit: use price if set, else purchaseprice*1.2, else 0
+			// Inventory value uses PURCHASE PRICE (cost), not sale price
+			// If purchaseprice is missing/0, fallback to price * 0.8 as estimated cost
+			{Key: "_unitcost", Value: bson.D{{Key: "$cond", Value: bson.A{
+				bson.D{{Key: "$gt", Value: bson.A{bson.D{{Key: "$ifNull", Value: bson.A{"$purchaseprice", 0}}}, 0}}},
+				bson.D{{Key: "$ifNull", Value: bson.A{"$purchaseprice", 0}}},
+				bson.D{{Key: "$multiply", Value: bson.A{bson.D{{Key: "$ifNull", Value: bson.A{"$price", 0}}}, 0.8}}},
+			}}}},
+			// Sale price for avg price display
 			{Key: "_unitval", Value: bson.D{{Key: "$cond", Value: bson.A{
 				bson.D{{Key: "$gt", Value: bson.A{bson.D{{Key: "$ifNull", Value: bson.A{"$price", 0}}}, 0}}},
 				"$price",
@@ -518,7 +525,7 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 			{Key: "company", Value: bson.D{{Key: "$first", Value: bson.D{{Key: "$ifNull", Value: bson.A{"$company", ""}}}}}},
 			{Key: "category", Value: bson.D{{Key: "$first", Value: "$category"}}},
 			{Key: "totalstock", Value: bson.D{{Key: "$sum", Value: "$_stockcnt"}}},
-			{Key: "totalvalue", Value: bson.D{{Key: "$sum", Value: bson.D{{Key: "$multiply", Value: bson.A{"$_stockcnt", "$_unitval"}}}}}},
+			{Key: "totalvalue", Value: bson.D{{Key: "$sum", Value: bson.D{{Key: "$multiply", Value: bson.A{"$_stockcnt", "$_unitcost"}}}}}},
 			{Key: "avgprice", Value: bson.D{{Key: "$avg", Value: "$_unitval"}}},
 			{Key: "variantcount", Value: bson.D{{Key: "$sum", Value: 1}}},
 		}}},
@@ -865,7 +872,42 @@ func (h *DashboardHandler) LowStockDetails(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	cursor, err := db.Collection("products").Find(ctx(), bson.M{"stockcount": bson.M{"$gt": 0, "$lte": 5}})
+	// ✅ FIXED: Use grouped aggregation to show product groups with low stock
+	// Previously showed each variant as a separate product
+	lowStockPipe := mongo.Pipeline{
+		{{Key: "$addFields", Value: bson.D{
+			{Key: "_stockcnt", Value: bson.D{{Key: "$cond", Value: bson.A{
+				bson.D{{Key: "$ifNull", Value: bson.A{"$stockcount", false}}},
+				bson.D{{Key: "$convert", Value: bson.D{{Key: "input", Value: "$stockcount"}, {Key: "to", Value: "int"}, {Key: "onError", Value: 1}, {Key: "onNull", Value: 1}}}},
+				1,
+			}}}},
+			{Key: "_unitcost", Value: bson.D{{Key: "$cond", Value: bson.A{
+				bson.D{{Key: "$gt", Value: bson.A{bson.D{{Key: "$ifNull", Value: bson.A{"$purchaseprice", 0}}}, 0}}},
+				bson.D{{Key: "$ifNull", Value: bson.A{"$purchaseprice", 0}}},
+				bson.D{{Key: "$multiply", Value: bson.A{bson.D{{Key: "$ifNull", Value: bson.A{"$price", 0}}}, 0.8}}},
+			}}}},
+			{Key: "_unitval", Value: bson.D{{Key: "$cond", Value: bson.A{
+				bson.D{{Key: "$gt", Value: bson.A{bson.D{{Key: "$ifNull", Value: bson.A{"$price", 0}}}, 0}}},
+				"$price",
+				bson.D{{Key: "$multiply", Value: bson.A{bson.D{{Key: "$ifNull", Value: bson.A{"$purchaseprice", 0}}}, 1.2}}},
+			}}}},
+		}}},
+		{{Key: "$group", Value: bson.D{
+			{Key: "_id", Value: bson.D{{Key: "$toLower", Value: "$name"}}},
+			{Key: "name", Value: bson.D{{Key: "$first", Value: "$name"}}},
+			{Key: "nameurdu", Value: bson.D{{Key: "$first", Value: "$nameurdu"}}},
+			{Key: "company", Value: bson.D{{Key: "$first", Value: bson.D{{Key: "$ifNull", Value: bson.A{"$company", ""}}}}}},
+			{Key: "category", Value: bson.D{{Key: "$first", Value: "$category"}}},
+			{Key: "totalstock", Value: bson.D{{Key: "$sum", Value: "$_stockcnt"}}},
+			{Key: "totalvalue", Value: bson.D{{Key: "$sum", Value: bson.D{{Key: "$multiply", Value: bson.A{"$_stockcnt", "$_unitcost"}}}}}},
+			{Key: "avgprice", Value: bson.D{{Key: "$avg", Value: "$_unitval"}}},
+			{Key: "variantcount", Value: bson.D{{Key: "$sum", Value: 1}}},
+		}}},
+		{{Key: "$match", Value: bson.D{{Key: "totalstock", Value: bson.D{{Key: "$gt", Value: 0}, {Key: "$lte", Value: 5}}}}}},
+		{{Key: "$sort", Value: bson.D{{Key: "name", Value: 1}}}},
+	}
+
+	cursor, err := db.Collection("products").Aggregate(ctx(), lowStockPipe)
 	if err != nil {
 		respondJSON(w, http.StatusOK, []interface{}{})
 		return
@@ -874,23 +916,28 @@ func (h *DashboardHandler) LowStockDetails(w http.ResponseWriter, r *http.Reques
 
 	var result []map[string]interface{}
 	for cursor.Next(ctx()) {
-		var prod domain.Product
-		if cursor.Decode(&prod) == nil {
+		var pg struct {
+			Name         string  `bson:"name"`
+			NameUrdu     string  `bson:"nameurdu"`
+			Company      string  `bson:"company"`
+			Category     string  `bson:"category"`
+			TotalStock   int     `bson:"totalstock"`
+			AvgPrice     float64 `bson:"avgprice"`
+			TotalValue   float64 `bson:"totalvalue"`
+			VariantCount int     `bson:"variantcount"`
+		}
+		if cursor.Decode(&pg) == nil {
 			result = append(result, map[string]interface{}{
-				"_type":          "product",
-				"id":             prod.ID,
-				"name":           prod.Name,
-				"name_urdu":      prod.NameUrdu,
-				"category":       prod.Category,
-				"company":        prod.Company,
-				"price":          prod.Price,
-				"purchase_price": prod.PurchasePrice,
-				"stock_count":    prod.StockCount,
-				"in_stock":       prod.InStock,
-				"serial_number":  prod.SerialNumber,
-				"imei":           prod.IMEI,
-				"model":          prod.Model,
-				"color":          prod.Color,
+				"_type":         "product",
+				"name":          pg.Name,
+				"name_urdu":     pg.NameUrdu,
+				"category":      pg.Category,
+				"company":       pg.Company,
+				"price":         pg.AvgPrice,
+				"purchase_price": pg.TotalValue / float64(max(pg.TotalStock, 1)),
+				"stock_count":   pg.TotalStock,
+				"variant_count": pg.VariantCount,
+				"total_value":   pg.TotalValue,
 			})
 		}
 	}
@@ -1609,6 +1656,93 @@ func (h *DashboardHandler) CompletedInstallments(w http.ResponseWriter, r *http.
 		})
 	}
 
+	if result == nil {
+		result = []map[string]interface{}{}
+	}
+	respondJSON(w, http.StatusOK, result)
+}
+
+// ═══════════════════════════════════════════════════════════════
+// AGEING STOCK DETAILS
+// ═══════════════════════════════════════════════════════════════
+
+func (h *DashboardHandler) AgeingStockDetails(w http.ResponseWriter, r *http.Request) {
+	db := getDB()
+	if db == nil {
+		respondJSON(w, http.StatusOK, []interface{}{})
+		return
+	}
+
+	ninetyDaysAgo := time.Now().AddDate(0, 0, -90)
+
+	// Use grouped aggregation to show product groups with ageing stock
+	// Products created > 90 days ago with stock > 0
+	ageingPipe := mongo.Pipeline{
+		{{Key: "$match", Value: bson.D{
+			{Key: "createdat", Value: bson.D{{Key: "$lt", Value: ninetyDaysAgo}}},
+		}}},
+		{{Key: "$addFields", Value: bson.D{
+			{Key: "_stockcnt", Value: bson.D{{Key: "$cond", Value: bson.A{
+				bson.D{{Key: "$ifNull", Value: bson.A{"$stockcount", false}}},
+				bson.D{{Key: "$convert", Value: bson.D{{Key: "input", Value: "$stockcount"}, {Key: "to", Value: "int"}, {Key: "onError", Value: 1}, {Key: "onNull", Value: 1}}}},
+				1,
+			}}}},
+			{Key: "_unitcost", Value: bson.D{{Key: "$cond", Value: bson.A{
+				bson.D{{Key: "$gt", Value: bson.A{bson.D{{Key: "$ifNull", Value: bson.A{"$purchaseprice", 0}}}, 0}}},
+				bson.D{{Key: "$ifNull", Value: bson.A{"$purchaseprice", 0}}},
+				bson.D{{Key: "$multiply", Value: bson.A{bson.D{{Key: "$ifNull", Value: bson.A{"$price", 0}}}, 0.8}}},
+			}}}},
+		}}},
+		{{Key: "$group", Value: bson.D{
+			{Key: "_id", Value: bson.D{{Key: "$toLower", Value: "$name"}}},
+			{Key: "name", Value: bson.D{{Key: "$first", Value: "$name"}}},
+			{Key: "nameurdu", Value: bson.D{{Key: "$first", Value: "$nameurdu"}}},
+			{Key: "company", Value: bson.D{{Key: "$first", Value: bson.D{{Key: "$ifNull", Value: bson.A{"$company", ""}}}}}},
+			{Key: "category", Value: bson.D{{Key: "$first", Value: "$category"}}},
+			{Key: "totalstock", Value: bson.D{{Key: "$sum", Value: "$_stockcnt"}}},
+			{Key: "totalvalue", Value: bson.D{{Key: "$sum", Value: bson.D{{Key: "$multiply", Value: bson.A{"$_stockcnt", "$_unitcost"}}}}}},
+			{Key: "variantcount", Value: bson.D{{Key: "$sum", Value: 1}}},
+			{Key: "oldestdate", Value: bson.D{{Key: "$min", Value: "$createdat"}}},
+		}}},
+		{{Key: "$match", Value: bson.D{{Key: "totalstock", Value: bson.D{{Key: "$gt", Value: 0}}}}}},
+		{{Key: "$sort", Value: bson.D{{Key: "oldestdate", Value: 1}}}},
+	}
+
+	cursor, err := db.Collection("products").Aggregate(ctx(), ageingPipe)
+	if err != nil {
+		respondJSON(w, http.StatusOK, []interface{}{})
+		return
+	}
+	defer cursor.Close(ctx())
+
+	var result []map[string]interface{}
+	for cursor.Next(ctx()) {
+		var pg struct {
+			Name         string    `bson:"name"`
+			NameUrdu     string    `bson:"nameurdu"`
+			Company      string    `bson:"company"`
+			Category     string    `bson:"category"`
+			TotalStock   int       `bson:"totalstock"`
+			TotalValue   float64   `bson:"totalvalue"`
+			VariantCount int       `bson:"variantcount"`
+			OldestDate   time.Time `bson:"oldestdate"`
+		}
+		if cursor.Decode(&pg) == nil {
+			daysOld := int(time.Since(pg.OldestDate).Hours() / 24)
+			result = append(result, map[string]interface{}{
+				"_type":         "product",
+				"name":          pg.Name,
+				"name_urdu":     pg.NameUrdu,
+				"company":       pg.Company,
+				"category":      pg.Category,
+				"stock_count":   pg.TotalStock,
+				"variant_count": pg.VariantCount,
+				"total_value":   pg.TotalValue,
+				"days_old":      daysOld,
+				"oldest_date":   pg.OldestDate.Format("2006-01-02"),
+			})
+		}
+	}
 	if result == nil {
 		result = []map[string]interface{}{}
 	}

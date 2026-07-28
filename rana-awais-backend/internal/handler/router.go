@@ -902,6 +902,7 @@ func SetupRouter(
 	protected.HandleFunc("/dashboard/customers-with-finance", dashboardH.CustomersWithFinance).Methods("GET")
 	protected.HandleFunc("/dashboard/today-due-full", dashboardH.TodayInstallments).Methods("GET")
 	protected.HandleFunc("/dashboard/overdue-full", dashboardH.OverdueDetails).Methods("GET")
+	protected.HandleFunc("/dashboard/ageing-stock", dashboardH.AgeingStockDetails).Methods("GET")
 
 
 	// Reports
