@@ -870,6 +870,8 @@ const DashboardPage: React.FC = () => {
   const [summaryModal, setSummaryModal] = useState<SummaryModalState | null>(null);
   const [showPromiseModal, setShowPromiseModal] = useState(false);
   const [showPromisesList, setShowPromisesList] = useState(false);
+  const [showProductGroups, setShowProductGroups] = useState(false);
+  const [selectedGroupName, setSelectedGroupName] = useState<string | null>(null);
   const navigate = useNavigate();
 
   // ✅ Use offline-first dashboard hook
@@ -881,6 +883,8 @@ const DashboardPage: React.FC = () => {
     isStale,
     refresh: handleRefresh,
   } = useOfflineDashboard();
+
+  const productGroups = (summary as any)?.productGroups || [];
 
   if (loading && !summary) {
     return <DashboardSkeleton isUrdu={isUrdu} />;
