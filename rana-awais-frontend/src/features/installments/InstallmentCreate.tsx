@@ -432,7 +432,7 @@ const InstallmentCreate: React.FC = () => {
                         </div>
                         <div className="text-right flex-shrink-0 ml-2">
                           <div className="font-bold text-emerald-600 dark:text-emerald-400 text-sm">Rs. {p.price?.toLocaleString()}</div>
-                          {p.purchasePrice > 0 && <div className="text-[10px] text-gray-400">{isUrdu ? 'خرید' : 'Buy'}: Rs. {p.purchasePrice?.toLocaleString()}</div>}
+                          {(p.purchasePrice ?? 0) > 0 && <div className="text-[10px] text-gray-400">{isUrdu ? 'خرید' : 'Buy'}: Rs. {(p.purchasePrice ?? 0).toLocaleString()}</div>}
                         </div>
                       </div>
                     </button>
