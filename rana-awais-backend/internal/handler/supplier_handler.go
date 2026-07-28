@@ -28,23 +28,27 @@ func NewSupplierHandler(repo *sqlite.SupplierRepository) *SupplierHandler {
 }
 
 // addToInventory adds product + inventory_item to MongoDB (and SQLite fallback)
-func (h *SupplierHandler) addToInventory(name, serial, imei, chassis, engine, model, color string, purchasePrice, salePrice float64) {
+func (h *SupplierHandler) addToInventory(name, company, serial, imei, chassis, engine, model, color string, purchasePrice, salePrice float64) {
 	productID := uuid.New().String()
 	now := time.Now()
 
+	category := "Purchase"
+	if company != "" {
+		category = company // Use company as category for better grouping
+	}
+
 	// MongoDB primary
 	if config.MongoDatabase != nil {
-		// 1. Add to products collection
 		config.MongoDatabase.Collection("products").InsertOne(context.Background(), domain.Product{
 			ID:   productID,
-			Name: name, NameUrdu: name, Category: "Purchase",
+			Name: name, NameUrdu: name,
+			Category: category, Company: company,
 			Price: salePrice, PurchasePrice: purchasePrice,
 			SerialNumber: serial, IMEI: imei, ChassisNo: chassis,
 			EngineNo: engine, Model: model, Color: color,
 			InStock: true, StockCount: 1,
 			CreatedAt: now, UpdatedAt: now,
 		})
-		// 2. Add to inventory_items collection for full tracking
 		config.MongoDatabase.Collection("inventory_items").InsertOne(context.Background(), domain.InventoryItem{
 			ID:           uuid.New().String(),
 			ProductID:    productID,
@@ -59,10 +63,9 @@ func (h *SupplierHandler) addToInventory(name, serial, imei, chassis, engine, mo
 	}
 	// SQLite backup
 	if db := config.GetSQLiteDB(); db != nil {
-		db.Exec(`INSERT INTO products (id, name, name_urdu, category, price, purchase_price, serial_number, imei, chassis_no, engine_no, model, color, in_stock, stock_count, created_at, updated_at)
-			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			productID, name, name, "Purchase", salePrice, purchasePrice, serial, imei, chassis, engine, model, color, 1, 1, now, now)
-		// Also add to inventory_items for full tracking
+		db.Exec(`INSERT INTO products (id, name, name_urdu, category, company, price, purchase_price, serial_number, imei, chassis_no, engine_no, model, color, in_stock, stock_count, created_at, updated_at)
+			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			productID, name, name, category, company, salePrice, purchasePrice, serial, imei, chassis, engine, model, color, 1, 1, now, now)
 		db.Exec(`INSERT INTO inventory_items (id, product_id, serial_number, imei, chassis_no, engine_no, model, color, status, purchase_date, purchase_price, selling_price, created_at, updated_at)
 			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			uuid.New().String(), productID, serial, imei, chassis, engine, model, color, "in_stock", now, purchasePrice, salePrice, now, now)
@@ -206,7 +209,7 @@ func (h *SupplierHandler) CreatePurchase(w http.ResponseWriter, r *http.Request)
 
 	// Add each item to inventory (MongoDB + SQLite)
 	for _, item := range p.Items {
-		h.addToInventory(item.ProductName, item.SerialNumber, item.IMEI, item.ChassisNo, item.EngineNo, item.Model, item.Color, item.Price, item.SalePrice)
+		h.addToInventory(item.ProductName, item.Company, item.SerialNumber, item.IMEI, item.ChassisNo, item.EngineNo, item.Model, item.Color, item.Price, item.SalePrice)
 	}
 
 	// Auto-create promise for hybrid/credit
@@ -349,7 +352,7 @@ func (h *SupplierHandler) UpdatePurchase(w http.ResponseWriter, r *http.Request)
 	}
 	// Add new items to inventory
 	for _, item := range raw.Items {
-		h.addToInventory(item.ProductName, item.SerialNumber, item.IMEI, item.ChassisNo, item.EngineNo, item.Model, item.Color, item.Price, item.SalePrice)
+		h.addToInventory(item.ProductName, item.Company, item.SerialNumber, item.IMEI, item.ChassisNo, item.EngineNo, item.Model, item.Color, item.Price, item.SalePrice)
 	}
 
 	respondJSON(w, 200, map[string]interface{}{"message": "Purchase updated", "id": id})
