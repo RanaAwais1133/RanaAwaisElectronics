@@ -33,20 +33,29 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
   const dataType: DataType = useMemo(() => {
     if (data.length === 0) return 'unknown';
     const first = data[0];
+    // ✅ PRIORITY: Explicit _type field from backend
     if (first._type === 'accounting') return 'accounting';
-    if (endpoint.includes('/products')) return 'products';
+    if (first._type === 'product') return 'products';
+    // ✅ Endpoint-based detection (more reliable than field-based heuristics)
+    if (endpoint.includes('/dashboard/low-stock') || endpoint.includes('/products')) return 'products';
     if (endpoint.includes('/inventory')) return 'inventory';
     if (endpoint.includes('/customers-with-finance')) return 'customers';
     if (endpoint.includes('/customers')) return 'customers';
     if (endpoint.includes('/installments') || endpoint.includes('/dashboard/today-due') || endpoint.includes('/dashboard/overdue') || endpoint.includes('/dashboard/monthly-due') || endpoint.includes('/dashboard/active-installments') || endpoint.includes('/dashboard/completed-installments')) return 'installments';
     if (endpoint.includes('/payments')) return 'payments';
+    // ✅ Field-based heuristics (used only when endpoint doesn't clearly indicate type)
     if (first.installment_no !== undefined || first.plan_id || first.due_date) return 'installments';
-    if (first.customer_name || first.name_urdu || first.father_name || first.fatherName) return 'customers';
-    if (first.product_name || first.item_name || first.category || first.stock !== undefined || first.quantity !== undefined || first.purchasePrice !== undefined) {
+    // ✅ Only match as customer if there's NO product-type indicator AND has customer-specific fields
+    if (first.customer_name || first.father_name || first.fatherName) {
+      if (!first.stock_count && !first.serial_number && !first.purchase_price && !first.product_name) return 'customers';
+    }
+    if (first.stock_count !== undefined || first.stock !== undefined || first.quantity !== undefined || first.purchase_price !== undefined || first.serial_number || first.imei) {
+      return 'products';
+    }
+    if (first.product_name || first.item_name || first.category || first.purchasePrice !== undefined) {
       if (first.phone === undefined && first.customer_name === undefined) return 'products';
     }
     if (first.transaction_date || first.payment_method) return 'payments';
-    if (first.quantity !== undefined || first.purchase_price) return 'inventory';
     return 'unknown';
   }, [data, endpoint]);
 

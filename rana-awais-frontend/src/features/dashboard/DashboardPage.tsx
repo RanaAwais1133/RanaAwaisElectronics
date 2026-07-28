@@ -957,6 +957,7 @@ const DashboardPage: React.FC = () => {
   const [showPromisesList, setShowPromisesList] = useState(false);
   const [showProductGroups, setShowProductGroups] = useState(false);
   const [selectedGroupName, setSelectedGroupName] = useState<string | null>(null);
+  const [productGroupSearch, setProductGroupSearch] = useState('');
   const navigate = useNavigate();
 
   // ✅ Use offline-first dashboard hook
@@ -970,6 +971,16 @@ const DashboardPage: React.FC = () => {
   } = useOfflineDashboard();
 
   const productGroups = (summary as any)?.productGroups || [];
+
+  // Filter product groups by search
+  const filteredProductGroups = productGroups.filter((pg: any) => {
+    if (!productGroupSearch.trim()) return true;
+    const q = productGroupSearch.toLowerCase();
+    const name = (pg.name || '').toLowerCase();
+    const nameUrdu = (pg.nameUrdu || '').toLowerCase();
+    const company = (pg.company || '').toLowerCase();
+    return name.includes(q) || nameUrdu.includes(q) || company.includes(q);
+  });
 
   if (loading && !summary) {
     return <DashboardSkeleton isUrdu={isUrdu} />;
@@ -1222,13 +1233,13 @@ const DashboardPage: React.FC = () => {
                 </div>
                 <span className="text-sm font-bold text-red-600 dark:text-red-400">{lowStockItems}</span>
               </button>
-              <div className="w-full flex items-center justify-between py-2.5 px-2 border-b border-gray-100 dark:border-gray-700 last:border-0">
+              <button onClick={() => setShowProductGroups(true)} className="w-full flex items-center justify-between py-2.5 px-2 border-b border-gray-100 dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30 rounded-lg transition-colors cursor-pointer">
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 rounded-full bg-emerald-500" />
                   <span className="text-xs text-gray-600 dark:text-gray-300">{isUrdu ? 'انوینٹری ویلیو' : 'Inventory Value'}</span>
                 </div>
                 <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">Rs. {(inventoryValue || 0).toLocaleString()}</span>
-              </div>
+              </button>
               <div className="w-full flex items-center justify-between py-2.5 px-2">
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 rounded-full bg-orange-500" />
@@ -1280,7 +1291,7 @@ const DashboardPage: React.FC = () => {
       {showProductGroups && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setShowProductGroups(false)}>
           <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-4xl w-full max-h-[85vh] flex flex-col border border-gray-200 dark:border-gray-700" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-indigo-50 dark:bg-indigo-900/30 rounded-lg">
                   <svg className="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>
@@ -1294,13 +1305,28 @@ const DashboardPage: React.FC = () => {
                 <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
+            {/* Search Bar */}
+            <div className="px-5 py-3 border-b border-gray-100 dark:border-gray-700">
+              <div className="relative">
+                <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <input
+                  type="text"
+                  value={productGroupSearch}
+                  onChange={(e) => { setProductGroupSearch(e.target.value); }}
+                  placeholder={isUrdu ? 'پروڈکٹ تلاش کریں...' : 'Search products...'}
+                  className="w-full pl-10 pr-3 py-2 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-xs text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                />
+              </div>
+            </div>
             <div className="flex-1 overflow-y-auto p-6">
-              {productGroups.length === 0 ? (
+              {filteredProductGroups.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-16 gap-3">
                   <div className="p-3 bg-gray-100 dark:bg-gray-700 rounded-full">
                     <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" /></svg>
                   </div>
-                  <p className="text-gray-400 font-medium">{isUrdu ? 'کوئی ڈیٹا نہیں' : 'No products'}</p>
+                  <p className="text-gray-400 font-medium">{isUrdu ? 'کوئی مماثلت نہیں' : 'No matching products'}</p>
                 </div>
               ) : (
                 <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700">
@@ -1317,7 +1343,7 @@ const DashboardPage: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
-                      {productGroups.map((pg: any, idx: number) => (
+                      {filteredProductGroups.map((pg: any, idx: number) => (
                         <tr key={idx} className="hover:bg-blue-50/30 dark:hover:bg-blue-900/10 transition-colors cursor-pointer" onClick={() => { setSelectedGroupName(pg.name || pg._id); setShowProductGroups(false); }}>
                           <td className="px-3 py-2.5 text-gray-400 font-mono text-xs text-center">{idx + 1}</td>
                           <td className="px-3 py-2.5">

@@ -494,16 +494,32 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Aggregate products by name to get unique items + stock sums
+	// ✅ FIXED: Use $ifNull to handle missing stockcount/price/purchaseprice fields
+	// Each variant counts as at least 1 in stock unless explicitly set to 0
 	groupPipe := mongo.Pipeline{
+		{{Key: "$addFields", Value: bson.D{
+			// Normalize stockcount: missing/null → 1, otherwise use actual value
+			{Key: "_stockcnt", Value: bson.D{{Key: "$cond", Value: bson.A{
+				bson.D{{Key: "$gt", Value: bson.A{bson.D{{Key: "$ifNull", Value: bson.A{"$stockcount", 1}}}, 0}}},
+				bson.D{{Key: "$ifNull", Value: bson.A{"$stockcount", 1}}},
+				1,
+			}}}},
+			// Normalize value per unit: use price if set, else purchaseprice*1.2, else 0
+			{Key: "_unitval", Value: bson.D{{Key: "$cond", Value: bson.A{
+				bson.D{{Key: "$gt", Value: bson.A{bson.D{{Key: "$ifNull", Value: bson.A{"$price", 0}}}, 0}}},
+				"$price",
+				bson.D{{Key: "$multiply", Value: bson.A{bson.D{{Key: "$ifNull", Value: bson.A{"$purchaseprice", 0}}}, 1.2}}},
+			}}}},
+		}}},
 		{{Key: "$group", Value: bson.D{
 			{Key: "_id", Value: bson.D{{Key: "$toLower", Value: "$name"}}},
 			{Key: "name", Value: bson.D{{Key: "$first", Value: "$name"}}},
 			{Key: "nameurdu", Value: bson.D{{Key: "$first", Value: "$nameurdu"}}},
-			{Key: "company", Value: bson.D{{Key: "$first", Value: bson.D{{Key: "$ifNull", Value: []interface{}{"$company", ""}}}}}},
+			{Key: "company", Value: bson.D{{Key: "$first", Value: bson.D{{Key: "$ifNull", Value: bson.A{"$company", ""}}}}}},
 			{Key: "category", Value: bson.D{{Key: "$first", Value: "$category"}}},
-			{Key: "totalstock", Value: bson.D{{Key: "$sum", Value: bson.D{{Key: "$cond", Value: []interface{}{bson.D{{Key: "$gt", Value: []interface{}{"$stockcount", 0}}}, "$stockcount", 0}}}}}},
-			{Key: "totalvalue", Value: bson.D{{Key: "$sum", Value: bson.D{{Key: "$multiply", Value: []interface{}{"$stockcount", bson.D{{Key: "$cond", Value: []interface{}{bson.D{{Key: "$gt", Value: []interface{}{"$price", 0}}}, "$price", bson.D{{Key: "$multiply", Value: []interface{}{"$purchaseprice", 1.2}}}}}}}}}}}},
-			{Key: "avgprice", Value: bson.D{{Key: "$avg", Value: bson.D{{Key: "$cond", Value: []interface{}{bson.D{{Key: "$gt", Value: []interface{}{"$price", 0}}}, "$price", bson.D{{Key: "$multiply", Value: []interface{}{"$purchaseprice", 1.2}}}}}}}}},
+			{Key: "totalstock", Value: bson.D{{Key: "$sum", Value: "$_stockcnt"}}},
+			{Key: "totalvalue", Value: bson.D{{Key: "$sum", Value: bson.D{{Key: "$multiply", Value: bson.A{"$_stockcnt", "$_unitval"}}}}}},
+			{Key: "avgprice", Value: bson.D{{Key: "$avg", Value: "$_unitval"}}},
 			{Key: "variantcount", Value: bson.D{{Key: "$sum", Value: 1}}},
 		}}},
 		{{Key: "$sort", Value: bson.D{{Key: "name", Value: 1}}}},
@@ -849,7 +865,7 @@ func (h *DashboardHandler) LowStockDetails(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	cursor, err := db.Collection("products").Find(ctx(), bson.M{"stockcount": bson.M{"$lte": 5}})
+	cursor, err := db.Collection("products").Find(ctx(), bson.M{"stockcount": bson.M{"$gt": 0, "$lte": 5}})
 	if err != nil {
 		respondJSON(w, http.StatusOK, []interface{}{})
 		return
@@ -861,10 +877,20 @@ func (h *DashboardHandler) LowStockDetails(w http.ResponseWriter, r *http.Reques
 		var prod domain.Product
 		if cursor.Decode(&prod) == nil {
 			result = append(result, map[string]interface{}{
-				"id": prod.ID, "name": prod.Name, "name_urdu": prod.NameUrdu,
-				"category": prod.Category, "company": prod.Company,
-				"price": prod.Price, "purchase_price": prod.PurchasePrice,
-				"stock_count": prod.StockCount,
+				"_type":          "product",
+				"id":             prod.ID,
+				"name":           prod.Name,
+				"name_urdu":      prod.NameUrdu,
+				"category":       prod.Category,
+				"company":        prod.Company,
+				"price":          prod.Price,
+				"purchase_price": prod.PurchasePrice,
+				"stock_count":    prod.StockCount,
+				"in_stock":       prod.InStock,
+				"serial_number":  prod.SerialNumber,
+				"imei":           prod.IMEI,
+				"model":          prod.Model,
+				"color":          prod.Color,
 			})
 		}
 	}
