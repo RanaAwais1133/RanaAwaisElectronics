@@ -14,7 +14,7 @@ interface Props {
 const SupplierReport: React.FC<Props> = ({ supplierId, onClose }) => {
   const { t, i18n } = useTranslation();
   const isUrdu = i18n.language === 'ur';
-  const { suppliers, fetchPurchases, fetchPayments, fetchPromises, purchases, payments, promises } = useSupplierStore();
+  const { suppliers, fetchPurchases, fetchPayments, fetchPromises, purchases, payments, promises, updatePayment, deletePayment } = useSupplierStore();
   const [paidAmount, setPaidAmount] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [showPayModal, setShowPayModal] = useState(false);
@@ -25,6 +25,11 @@ const SupplierReport: React.FC<Props> = ({ supplierId, onClose }) => {
   const [selectedPurchaseForHistory, setSelectedPurchaseForHistory] = useState<Purchase | null>(null);
   const [showLedger, setShowLedger] = useState(false);
   const [showReminders, setShowReminders] = useState(false);
+  const [editingPayment, setEditingPayment] = useState<any>(null);
+  const [showEditPaymentModal, setShowEditPaymentModal] = useState(false);
+  const [editAmount, setEditAmount] = useState('');
+  const [editMethod, setEditMethod] = useState('cash');
+  const [editLoading, setEditLoading] = useState(false);
 
   const supplier = suppliers.find(s => s.id === supplierId);
   const supplierPromises = promises.filter(p => p.supplierId === supplierId);
@@ -120,6 +125,42 @@ const SupplierReport: React.FC<Props> = ({ supplierId, onClose }) => {
       toast.error(msg);
     }
     finally { setPayLoading(false); }
+  };
+
+  const handleEditPayment = (payment: any) => {
+    setEditingPayment(payment);
+    setShowEditPaymentModal(true);
+    setEditAmount(payment.amount || '');
+    setEditMethod(payment.method || 'cash');
+  };
+
+  const handleUpdatePayment = async () => {
+    if (editLoading) return;
+    const amt = parseFloat(editAmount);
+    if (!amt || amt <= 0) { setPayErr(isUrdu ? 'رقم درج کریں' : 'Enter amount'); return; }
+    setEditLoading(true);
+    try {
+      await updatePayment(editingPayment?.id || '', { amount: amt, method: editMethod });
+      toast.success(isUrdu ? 'ادائیگی محدث' : 'Payment updated');
+      loadData();
+      setShowEditPaymentModal(false);
+    } catch (err: any) {
+      const msg = err?.response?.data?.error || (isUrdu ? 'ناکام' : 'Failed');
+      toast.error(msg);
+    } finally { setEditLoading(false); }
+  };
+
+  const handleDeletePayment = async (paymentId: string) => {
+    if (confirm(isUrdu ? 'آپ کو یقین ہے؟' : 'Are you sure?')) {
+      try {
+        await deletePayment(paymentId);
+        toast.success(isUrdu ? 'ادائیگی حذف' : 'Payment deleted');
+        loadData();
+      } catch (err: any) {
+        const msg = err?.response?.data?.error || (isUrdu ? 'ناکام' : 'Failed');
+        toast.error(msg);
+      }
+    }
   };
 
   const toggleItems = (purchaseId: string) => {
@@ -326,25 +367,65 @@ const SupplierReport: React.FC<Props> = ({ supplierId, onClose }) => {
                     <th className="px-3 py-2.5 text-start">{isUrdu ? 'تاریخ' : 'Date'}</th>
                     <th className="px-3 py-2.5 text-end">{isUrdu ? 'رقم' : 'Amount'}</th>
                     <th className="px-3 py-2.5 text-center">{isUrdu ? 'طریقہ' : 'Method'}</th>
+                    <th className="px-3 py-2.5 text-center">{isUrdu ? 'ایکشن' : 'Action'}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50 bg-white dark:bg-gray-800">
                   {supplierPayments.length === 0 ? (
-                    <tr><td colSpan={3} className="px-3 py-6 text-center text-gray-400 text-xs">{isUrdu ? 'کوئی ادائیگی نہیں' : 'No payments yet'}</td></tr>
+                    <tr><td colSpan={4} className="px-3 py-6 text-center text-gray-400 text-xs">{isUrdu ? 'کوئی ادائیگی نہیں' : 'No payments yet'}</td></tr>
                   ) : supplierPayments.map(pay => (
                     <tr key={pay.id} className="hover:bg-blue-50/30 dark:hover:bg-blue-900/10">
                       <td className="px-3 py-2.5 font-medium whitespace-nowrap">{formatDate(pay.paymentDate)}</td>
                       <td className="px-3 py-2.5 text-end whitespace-nowrap text-emerald-600 font-medium">{pay.amount?.toLocaleString()}</td>
                       <td className="px-3 py-2.5 text-center capitalize">{pay.method || 'cash'}</td>
+                      <td className="px-3 py-2.5 text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          <button onClick={() => handleEditPayment(pay)} className="px-2 py-0.5 bg-amber-500 hover:bg-amber-600 text-white rounded text-xs font-medium transition-colors">
+                            {isUrdu ? 'ترمیم' : 'Edit'}
+                          </button>
+                          <button onClick={() => handleDeletePayment(pay.id)} className="px-2 py-0.5 bg-red-500 hover:bg-red-600 text-white rounded text-xs font-medium transition-colors">
+                            {isUrdu ? 'حذف' : 'Del'}
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
-                </tbody>
-              </table>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Add Payment Modal */}
+          {/* Edit Payment Modal */}
+          {showEditPaymentModal && editingPayment && (
+            <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/50 rounded-3xl" onClick={() => { setShowEditPaymentModal(false); setPayErr(''); }}>
+              <div className="bg-white dark:bg-gray-700 rounded-2xl p-5 w-80 shadow-2xl" onClick={e => e.stopPropagation()}>
+                <h3 className="font-bold text-gray-800 dark:text-white mb-3">{isUrdu ? 'ادائیگی میں ترمیم' : 'Edit Payment'}</h3>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">{isUrdu ? 'رقم' : 'Amount'} *</label>
+                    <input type="number" placeholder="0" value={editAmount} onChange={e => setEditAmount(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-600" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">{isUrdu ? 'طریقہ' : 'Method'}</label>
+                    <select value={editMethod} onChange={e => setEditMethod(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-600">
+                      <option value="cash">{isUrdu ? 'نقد' : 'Cash'}</option>
+                      <option value="bank">{isUrdu ? 'بینک' : 'Bank'}</option>
+                    </select>
+                  </div>
+                  {payErr && <p className="text-red-500 text-xs">{payErr}</p>}
+                  <div className="flex gap-2 pt-1">
+                    <button onClick={() => { setShowEditPaymentModal(false); setPayErr(''); }} className="flex-1 py-2 bg-gray-100 dark:bg-gray-600 rounded-lg text-sm font-medium">{isUrdu ? 'منسوخ' : 'Cancel'}</button>
+                    <button onClick={handleUpdatePayment} disabled={editLoading} className="flex-1 py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-amber-400 text-white rounded-lg text-sm font-medium">
+                      {editLoading ? '...' : isUrdu ? 'اپڈیٹ' : 'Update'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {/* Add Payment Modal */}
         {showPayModal && (
           <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/40 rounded-3xl" onClick={() => setShowPayModal(false)}>
             <div className="bg-white dark:bg-gray-700 rounded-2xl p-5 w-80 shadow-2xl" onClick={e => e.stopPropagation()}>

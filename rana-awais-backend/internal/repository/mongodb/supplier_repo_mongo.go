@@ -12,11 +12,11 @@ import (
 )
 
 type SupplierMongoRepo struct {
-	suppliers   *mongo.Collection
-	purchases   *mongo.Collection
-	pitems      *mongo.Collection
-	payments    *mongo.Collection
-	promises    *mongo.Collection
+	suppliers *mongo.Collection
+	purchases *mongo.Collection
+	pitems    *mongo.Collection
+	payments  *mongo.Collection
+	promises  *mongo.Collection
 }
 
 func NewSupplierMongoRepo(db *mongo.Database) *SupplierMongoRepo {
@@ -31,8 +31,11 @@ func NewSupplierMongoRepo(db *mongo.Database) *SupplierMongoRepo {
 
 // ─── Suppliers ───
 func (r *SupplierMongoRepo) CreateSupplier(ctx context.Context, s *domain.Supplier) error {
-	if s.ID == "" { s.ID = uuid.New().String() }
-	s.CreatedAt = time.Now(); s.UpdatedAt = time.Now()
+	if s.ID == "" {
+		s.ID = uuid.New().String()
+	}
+	s.CreatedAt = time.Now()
+	s.UpdatedAt = time.Now()
 	_, err := r.suppliers.InsertOne(ctx, s)
 	return err
 }
@@ -40,7 +43,9 @@ func (r *SupplierMongoRepo) CreateSupplier(ctx context.Context, s *domain.Suppli
 func (r *SupplierMongoRepo) GetSupplier(ctx context.Context, id string) (*domain.Supplier, error) {
 	var s domain.Supplier
 	err := r.suppliers.FindOne(ctx, bson.M{"_id": id}).Decode(&s)
-	if err != nil { return nil, nil }
+	if err != nil {
+		return nil, nil
+	}
 	return &s, nil
 }
 
@@ -57,20 +62,29 @@ func (r *SupplierMongoRepo) DeleteSupplier(ctx context.Context, id string) error
 
 func (r *SupplierMongoRepo) ListSuppliers(ctx context.Context) ([]domain.Supplier, error) {
 	cursor, err := r.suppliers.Find(ctx, bson.M{}, options.Find().SetSort(bson.D{{Key: "createdat", Value: -1}}))
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	defer cursor.Close(ctx)
 	var list []domain.Supplier
 	cursor.All(ctx, &list)
-	if list == nil { list = []domain.Supplier{} }
+	if list == nil {
+		list = []domain.Supplier{}
+	}
 	return list, nil
 }
 
 // ─── Purchases ───
 func (r *SupplierMongoRepo) CreatePurchase(ctx context.Context, p *domain.Purchase) error {
-	if p.ID == "" { p.ID = uuid.New().String() }
-	p.CreatedAt = time.Now(); p.UpdatedAt = time.Now()
+	if p.ID == "" {
+		p.ID = uuid.New().String()
+	}
+	p.CreatedAt = time.Now()
+	p.UpdatedAt = time.Now()
 	_, err := r.purchases.InsertOne(ctx, p)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	// Insert items
 	for i := range p.Items {
 		p.Items[i].ID = uuid.New().String()
@@ -84,7 +98,9 @@ func (r *SupplierMongoRepo) CreatePurchase(ctx context.Context, p *domain.Purcha
 func (r *SupplierMongoRepo) GetPurchase(ctx context.Context, id string) (*domain.Purchase, error) {
 	var p domain.Purchase
 	err := r.purchases.FindOne(ctx, bson.M{"_id": id}).Decode(&p)
-	if err != nil { return nil, nil }
+	if err != nil {
+		return nil, nil
+	}
 	// Fetch items
 	cursor, _ := r.pitems.Find(ctx, bson.M{"purchaseid": id})
 	if cursor != nil {
@@ -96,13 +112,19 @@ func (r *SupplierMongoRepo) GetPurchase(ctx context.Context, id string) (*domain
 
 func (r *SupplierMongoRepo) ListPurchases(ctx context.Context, supplierID string) ([]domain.Purchase, error) {
 	filter := bson.M{}
-	if supplierID != "" { filter["supplierid"] = supplierID }
+	if supplierID != "" {
+		filter["supplierid"] = supplierID
+	}
 	cursor, err := r.purchases.Find(ctx, filter, options.Find().SetSort(bson.D{{Key: "createdat", Value: -1}}))
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	defer cursor.Close(ctx)
 	var list []domain.Purchase
 	cursor.All(ctx, &list)
-	if list == nil { list = []domain.Purchase{} }
+	if list == nil {
+		list = []domain.Purchase{}
+	}
 	// Fetch items for each purchase
 	if r.pitems != nil {
 		for i := range list {
@@ -110,7 +132,9 @@ func (r *SupplierMongoRepo) ListPurchases(ctx context.Context, supplierID string
 			if itemCursor != nil {
 				var items []domain.PurchaseItem
 				itemCursor.All(ctx, &items)
-				if items == nil { items = []domain.PurchaseItem{} }
+				if items == nil {
+					items = []domain.PurchaseItem{}
+				}
 				list[i].Items = items
 				itemCursor.Close(ctx)
 			}
@@ -129,7 +153,9 @@ func (r *SupplierMongoRepo) UpdatePurchasePaid(ctx context.Context, id string, p
 
 // ─── Payments ───
 func (r *SupplierMongoRepo) CreatePayment(ctx context.Context, pay *domain.SupplierPayment) error {
-	if pay.ID == "" { pay.ID = uuid.New().String() }
+	if pay.ID == "" {
+		pay.ID = uuid.New().String()
+	}
 	pay.CreatedAt = time.Now()
 	_, err := r.payments.InsertOne(ctx, pay)
 	return err
@@ -137,33 +163,69 @@ func (r *SupplierMongoRepo) CreatePayment(ctx context.Context, pay *domain.Suppl
 
 func (r *SupplierMongoRepo) ListPayments(ctx context.Context, supplierID string) ([]domain.SupplierPayment, error) {
 	filter := bson.M{}
-	if supplierID != "" { filter["supplierid"] = supplierID }
+	if supplierID != "" {
+		filter["supplierid"] = supplierID
+	}
 	cursor, err := r.payments.Find(ctx, filter, options.Find().SetSort(bson.D{{Key: "paymentdate", Value: -1}}))
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	defer cursor.Close(ctx)
 	var list []domain.SupplierPayment
 	cursor.All(ctx, &list)
-	if list == nil { list = []domain.SupplierPayment{} }
+	if list == nil {
+		list = []domain.SupplierPayment{}
+	}
 	return list, nil
+}
+
+func (r *SupplierMongoRepo) GetPayment(ctx context.Context, id string) (*domain.SupplierPayment, error) {
+	var pay domain.SupplierPayment
+	err := r.payments.FindOne(ctx, bson.M{"_id": id}).Decode(&pay)
+	if err != nil {
+		return nil, nil
+	}
+	return &pay, nil
+}
+
+func (r *SupplierMongoRepo) UpdatePayment(ctx context.Context, id string, amount float64, method string, paymentDate time.Time, remarks string) error {
+	_, err := r.payments.UpdateOne(ctx, bson.M{"_id": id}, bson.M{"$set": bson.M{
+		"amount": amount, "method": method, "paymentdate": paymentDate, "remarks": remarks, "updatedat": time.Now(),
+	}})
+	return err
+}
+
+func (r *SupplierMongoRepo) DeletePayment(ctx context.Context, id string) error {
+	_, err := r.payments.DeleteOne(ctx, bson.M{"_id": id})
+	return err
 }
 
 // ─── Promises ───
 func (r *SupplierMongoRepo) CreatePromise(ctx context.Context, pr *domain.SupplierPromise) error {
-	if pr.ID == "" { pr.ID = uuid.New().String() }
-	pr.CreatedAt = time.Now(); pr.UpdatedAt = time.Now()
+	if pr.ID == "" {
+		pr.ID = uuid.New().String()
+	}
+	pr.CreatedAt = time.Now()
+	pr.UpdatedAt = time.Now()
 	_, err := r.promises.InsertOne(ctx, pr)
 	return err
 }
 
 func (r *SupplierMongoRepo) ListPromises(ctx context.Context, supplierID string) ([]domain.SupplierPromise, error) {
 	filter := bson.M{}
-	if supplierID != "" { filter["supplierid"] = supplierID }
+	if supplierID != "" {
+		filter["supplierid"] = supplierID
+	}
 	cursor, err := r.promises.Find(ctx, filter, options.Find().SetSort(bson.D{{Key: "duedate", Value: 1}}))
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	defer cursor.Close(ctx)
 	var list []domain.SupplierPromise
 	cursor.All(ctx, &list)
-	if list == nil { list = []domain.SupplierPromise{} }
+	if list == nil {
+		list = []domain.SupplierPromise{}
+	}
 	return list, nil
 }
 

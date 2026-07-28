@@ -6,12 +6,12 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/gorilla/mux"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/config"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/domain"
 	repomongo "github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/repository/mongodb"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/repository/sqlite"
 	"github.com/google/uuid"
+	"github.com/gorilla/mux"
 )
 
 type SupplierHandler struct {
@@ -35,20 +35,20 @@ func (h *SupplierHandler) addToInventory(name, serial, imei, chassis, engine, mo
 	if config.MongoDatabase != nil {
 		// 1. Add to products collection
 		config.MongoDatabase.Collection("products").InsertOne(context.Background(), domain.Product{
-			ID:            productID,
-			Name:          name, NameUrdu: name, Category: "Purchase",
-			Price:         salePrice, PurchasePrice: purchasePrice,
-			SerialNumber:  serial, IMEI: imei, ChassisNo: chassis,
-			EngineNo:      engine, Model: model, Color: color,
+			ID:   productID,
+			Name: name, NameUrdu: name, Category: "Purchase",
+			Price: salePrice, PurchasePrice: purchasePrice,
+			SerialNumber: serial, IMEI: imei, ChassisNo: chassis,
+			EngineNo: engine, Model: model, Color: color,
 			InStock: true, StockCount: 1,
 			CreatedAt: now, UpdatedAt: now,
 		})
 		// 2. Add to inventory_items collection for full tracking
 		config.MongoDatabase.Collection("inventory_items").InsertOne(context.Background(), domain.InventoryItem{
-			ID:            uuid.New().String(),
-			ProductID:     productID,
-			SerialNumber:  serial, IMEI: imei, ChassisNo: chassis,
-			EngineNo:      engine, Model: model, Color: color,
+			ID:           uuid.New().String(),
+			ProductID:    productID,
+			SerialNumber: serial, IMEI: imei, ChassisNo: chassis,
+			EngineNo: engine, Model: model, Color: color,
 			Status:        "in_stock",
 			PurchaseDate:  now,
 			PurchasePrice: purchasePrice,
@@ -75,17 +75,30 @@ func (h *SupplierHandler) useMongo() bool { return h.mongoRepo != nil }
 func (h *SupplierHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var s domain.Supplier
 	json.NewDecoder(r.Body).Decode(&s)
-	if s.Name == "" { respondError(w, r, 400, "Name required", "نام"); return }
-	if h.useMongo() { h.mongoRepo.CreateSupplier(r.Context(), &s) }
+	if s.Name == "" {
+		respondError(w, r, 400, "Name required", "نام")
+		return
+	}
+	if h.useMongo() {
+		h.mongoRepo.CreateSupplier(r.Context(), &s)
+	}
 	h.repo.CreateSupplier(r.Context(), &s)
 	respondJSON(w, 201, s)
 }
 
 func (h *SupplierHandler) Get(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
-	if h.useMongo() { if s, _ := h.mongoRepo.GetSupplier(r.Context(), id); s != nil { respondJSON(w, 200, s); return } }
+	if h.useMongo() {
+		if s, _ := h.mongoRepo.GetSupplier(r.Context(), id); s != nil {
+			respondJSON(w, 200, s)
+			return
+		}
+	}
 	s, err := h.repo.GetSupplier(r.Context(), id)
-	if err != nil || s == nil { respondError(w, r, 404, "Not found", "نہیں"); return }
+	if err != nil || s == nil {
+		respondError(w, r, 404, "Not found", "نہیں")
+		return
+	}
 	respondJSON(w, 200, s)
 }
 
@@ -93,14 +106,21 @@ func (h *SupplierHandler) Update(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
 	var s domain.Supplier
 	json.NewDecoder(r.Body).Decode(&s)
-	if h.useMongo() { h.mongoRepo.UpdateSupplier(r.Context(), id, &s) }
-	if err := h.repo.UpdateSupplier(r.Context(), id, &s); err != nil { respondError(w, r, 500, "Failed", "ناکام"); return }
+	if h.useMongo() {
+		h.mongoRepo.UpdateSupplier(r.Context(), id, &s)
+	}
+	if err := h.repo.UpdateSupplier(r.Context(), id, &s); err != nil {
+		respondError(w, r, 500, "Failed", "ناکام")
+		return
+	}
 	respondJSON(w, 200, s)
 }
 
 func (h *SupplierHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
-	if h.useMongo() { h.mongoRepo.DeleteSupplier(r.Context(), id) }
+	if h.useMongo() {
+		h.mongoRepo.DeleteSupplier(r.Context(), id)
+	}
 	h.repo.DeleteSupplier(r.Context(), id)
 	respondJSON(w, 200, map[string]string{"message": "Deleted"})
 }
@@ -116,8 +136,13 @@ func (h *SupplierHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	// SQLite fallback
 	list, err := h.repo.ListSuppliers(r.Context())
-	if err != nil { respondError(w, r, 500, "Failed", "ناکام"); return }
-	if list == nil { list = []domain.Supplier{} }
+	if err != nil {
+		respondError(w, r, 500, "Failed", "ناکام")
+		return
+	}
+	if list == nil {
+		list = []domain.Supplier{}
+	}
 	respondJSON(w, 200, map[string]interface{}{"data": list, "total": len(list)})
 }
 
@@ -125,19 +150,22 @@ func (h *SupplierHandler) List(w http.ResponseWriter, r *http.Request) {
 func (h *SupplierHandler) CreatePurchase(w http.ResponseWriter, r *http.Request) {
 	// Raw decode to parse date strings properly
 	var raw struct {
-		SupplierID      string                 `json:"supplierId"`
-		TotalAmount     float64                `json:"totalAmount"`
-		PaidAmount      float64                `json:"paidAmount"`
-		RemainingAmount float64                `json:"remainingAmount"`
-		PaymentMode     string                 `json:"paymentMode"`
-		DueDate         string                 `json:"dueDate"`
-		Status          string                 `json:"status"`
-		Remarks         string                 `json:"remarks"`
-		CreatedBy       string                 `json:"createdBy"`
-		Items           []domain.PurchaseItem  `json:"items"`
+		SupplierID      string                `json:"supplierId"`
+		TotalAmount     float64               `json:"totalAmount"`
+		PaidAmount      float64               `json:"paidAmount"`
+		RemainingAmount float64               `json:"remainingAmount"`
+		PaymentMode     string                `json:"paymentMode"`
+		DueDate         string                `json:"dueDate"`
+		Status          string                `json:"status"`
+		Remarks         string                `json:"remarks"`
+		CreatedBy       string                `json:"createdBy"`
+		Items           []domain.PurchaseItem `json:"items"`
 	}
 	json.NewDecoder(r.Body).Decode(&raw)
-	if raw.SupplierID == "" { respondError(w, r, 400, "Supplier required", "سپلائر"); return }
+	if raw.SupplierID == "" {
+		respondError(w, r, 400, "Supplier required", "سپلائر")
+		return
+	}
 
 	// Parse dueDate string
 	var dueDate *time.Time
@@ -168,7 +196,8 @@ func (h *SupplierHandler) CreatePurchase(w http.ResponseWriter, r *http.Request)
 	// MongoDB PRIMARY save
 	if h.useMongo() {
 		if err := h.mongoRepo.CreatePurchase(r.Context(), &p); err != nil {
-			respondError(w, r, 500, err.Error(), "خریداری ناکام"); return
+			respondError(w, r, 500, err.Error(), "خریداری ناکام")
+			return
 		}
 	}
 	// SQLite silent backup
@@ -185,7 +214,9 @@ func (h *SupplierHandler) CreatePurchase(w http.ResponseWriter, r *http.Request)
 			SupplierID: p.SupplierID, PurchaseID: p.ID, Amount: p.RemainingAmount,
 			DueDate: *p.DueDate, Status: "pending",
 		}
-		if h.useMongo() { h.mongoRepo.CreatePromise(r.Context(), &pr) }
+		if h.useMongo() {
+			h.mongoRepo.CreatePromise(r.Context(), &pr)
+		}
 		h.repo.CreatePromise(r.Context(), &pr)
 	}
 	respondJSON(w, 201, p)
@@ -193,9 +224,17 @@ func (h *SupplierHandler) CreatePurchase(w http.ResponseWriter, r *http.Request)
 
 func (h *SupplierHandler) GetPurchase(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
-	if h.useMongo() { if p, _ := h.mongoRepo.GetPurchase(r.Context(), id); p != nil { respondJSON(w, 200, p); return } }
+	if h.useMongo() {
+		if p, _ := h.mongoRepo.GetPurchase(r.Context(), id); p != nil {
+			respondJSON(w, 200, p)
+			return
+		}
+	}
 	p, err := h.repo.GetPurchase(r.Context(), id)
-	if err != nil || p == nil { respondError(w, r, 404, "Not found", "نہیں"); return }
+	if err != nil || p == nil {
+		respondError(w, r, 404, "Not found", "نہیں")
+		return
+	}
 	respondJSON(w, 200, p)
 }
 
@@ -204,11 +243,19 @@ func (h *SupplierHandler) ListPurchases(w http.ResponseWriter, r *http.Request) 
 	// MongoDB PRIMARY for list
 	if h.useMongo() {
 		list, err := h.mongoRepo.ListPurchases(r.Context(), supplierID)
-		if err == nil { respondJSON(w, 200, map[string]interface{}{"data": list, "total": len(list)}); return }
+		if err == nil {
+			respondJSON(w, 200, map[string]interface{}{"data": list, "total": len(list)})
+			return
+		}
 	}
 	list, err := h.repo.ListPurchases(r.Context(), supplierID)
-	if err != nil { respondError(w, r, 500, "Failed", "ناکام"); return }
-	if list == nil { list = []domain.Purchase{} }
+	if err != nil {
+		respondError(w, r, 500, "Failed", "ناکام")
+		return
+	}
+	if list == nil {
+		list = []domain.Purchase{}
+	}
 	respondJSON(w, 200, map[string]interface{}{"data": list, "total": len(list)})
 }
 
@@ -240,9 +287,11 @@ func (h *SupplierHandler) CreatePayment(w http.ResponseWriter, r *http.Request) 
 		SupplierID: raw.SupplierID, PurchaseID: raw.PurchaseID,
 		Amount: raw.Amount, Method: raw.Method,
 		PaymentDate: paymentDate,
-		Remarks: raw.Remarks, CreatedBy: raw.CreatedBy,
+		Remarks:     raw.Remarks, CreatedBy: raw.CreatedBy,
 	}
-	if pay.Method == "" { pay.Method = "cash" }
+	if pay.Method == "" {
+		pay.Method = "cash"
+	}
 
 	// Auto-find purchase if purchaseId not provided: pick first purchase with remaining > 0
 	if pay.PurchaseID == "" && pay.SupplierID != "" {
@@ -269,8 +318,12 @@ func (h *SupplierHandler) CreatePayment(w http.ResponseWriter, r *http.Request) 
 	// Prevent overpayment: cap amount at remaining
 	if pay.PurchaseID != "" {
 		var p *domain.Purchase
-		if h.useMongo() { p, _ = h.mongoRepo.GetPurchase(r.Context(), pay.PurchaseID) }
-		if p == nil { p, _ = h.repo.GetPurchase(r.Context(), pay.PurchaseID) }
+		if h.useMongo() {
+			p, _ = h.mongoRepo.GetPurchase(r.Context(), pay.PurchaseID)
+		}
+		if p == nil {
+			p, _ = h.repo.GetPurchase(r.Context(), pay.PurchaseID)
+		}
 		if p != nil {
 			if p.Status == "completed" {
 				respondError(w, r, 400, "Purchase already fully paid", "خریداری پہلے ہی مکمل ادا شدہ ہے")
@@ -287,20 +340,30 @@ func (h *SupplierHandler) CreatePayment(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Save payment
-	if h.useMongo() { h.mongoRepo.CreatePayment(r.Context(), &pay) }
+	if h.useMongo() {
+		h.mongoRepo.CreatePayment(r.Context(), &pay)
+	}
 	h.repo.CreatePayment(r.Context(), &pay)
 
 	// Update purchase paid_amount
 	if pay.PurchaseID != "" {
 		var p *domain.Purchase
-		if h.useMongo() { p, _ = h.mongoRepo.GetPurchase(r.Context(), pay.PurchaseID) }
-		if p == nil { p, _ = h.repo.GetPurchase(r.Context(), pay.PurchaseID) }
+		if h.useMongo() {
+			p, _ = h.mongoRepo.GetPurchase(r.Context(), pay.PurchaseID)
+		}
+		if p == nil {
+			p, _ = h.repo.GetPurchase(r.Context(), pay.PurchaseID)
+		}
 		if p != nil {
 			newPaid := p.PaidAmount + pay.Amount
 			newRemaining := p.TotalAmount - newPaid
-			if newRemaining < 0 { newRemaining = 0 }
+			if newRemaining < 0 {
+				newRemaining = 0
+			}
 			st := "partial"
-			if newPaid >= p.TotalAmount { st = "completed" }
+			if newPaid >= p.TotalAmount {
+				st = "completed"
+			}
 			h.repo.UpdatePurchasePaid(r.Context(), pay.PurchaseID, newPaid, newRemaining, st)
 			if h.useMongo() {
 				h.mongoRepo.UpdatePurchasePaid(r.Context(), pay.PurchaseID, newPaid, newRemaining, st)
@@ -314,19 +377,159 @@ func (h *SupplierHandler) ListPayments(w http.ResponseWriter, r *http.Request) {
 	supplierID := r.URL.Query().Get("supplierId")
 	if h.useMongo() {
 		list, err := h.mongoRepo.ListPayments(r.Context(), supplierID)
-		if err == nil { respondJSON(w, 200, map[string]interface{}{"data": list, "total": len(list)}); return }
+		if err == nil {
+			respondJSON(w, 200, map[string]interface{}{"data": list, "total": len(list)})
+			return
+		}
 	}
 	list, err := h.repo.ListPayments(r.Context(), supplierID)
-	if err != nil { respondError(w, r, 500, "Failed", "ناکام"); return }
-	if list == nil { list = []domain.SupplierPayment{} }
+	if err != nil {
+		respondError(w, r, 500, "Failed", "ناکام")
+		return
+	}
+	if list == nil {
+		list = []domain.SupplierPayment{}
+	}
 	respondJSON(w, 200, map[string]interface{}{"data": list, "total": len(list)})
+}
+
+func (h *SupplierHandler) UpdatePayment(w http.ResponseWriter, r *http.Request) {
+	id := mux.Vars(r)["id"]
+	var raw struct {
+		Amount      float64 `json:"amount"`
+		Method      string  `json:"method"`
+		PaymentDate string  `json:"paymentDate"`
+		Remarks     string  `json:"remarks"`
+	}
+	json.NewDecoder(r.Body).Decode(&raw)
+
+	paymentDate := time.Now()
+	if raw.PaymentDate != "" {
+		if parsed, err := time.Parse("2006-01-02", raw.PaymentDate); err == nil {
+			paymentDate = parsed
+		} else if parsed, err := time.Parse(time.RFC3339, raw.PaymentDate); err == nil {
+			paymentDate = parsed
+		}
+	}
+
+	var pay *domain.SupplierPayment
+	if h.useMongo() {
+		pay, _ = h.mongoRepo.GetPayment(r.Context(), id)
+	}
+	if pay == nil {
+		pay, _ = h.repo.GetPayment(r.Context(), id)
+	}
+	if pay == nil {
+		respondError(w, r, 404, "Payment not found", "ادائیگی نہیں ملی")
+		return
+	}
+
+	oldAmount := pay.Amount
+	diff := raw.Amount - oldAmount
+
+	if h.useMongo() {
+		h.mongoRepo.UpdatePayment(r.Context(), id, raw.Amount, raw.Method, paymentDate, raw.Remarks)
+	}
+	if err := h.repo.UpdatePayment(r.Context(), id, raw.Amount, raw.Method, paymentDate, raw.Remarks); err != nil {
+		respondError(w, r, 500, "Failed to update payment", "ناکام")
+		return
+	}
+
+	if pay.PurchaseID != "" && diff != 0 {
+		var p *domain.Purchase
+		if h.useMongo() {
+			p, _ = h.mongoRepo.GetPurchase(r.Context(), pay.PurchaseID)
+		}
+		if p == nil {
+			p, _ = h.repo.GetPurchase(r.Context(), pay.PurchaseID)
+		}
+		if p != nil {
+			newPaid := p.PaidAmount + diff
+			if newPaid < 0 {
+				newPaid = 0
+			}
+			newRemaining := p.TotalAmount - newPaid
+			if newRemaining < 0 {
+				newRemaining = 0
+			}
+			st := "partial"
+			if newRemaining <= 0 {
+				st = "completed"
+			}
+			h.repo.UpdatePurchasePaid(r.Context(), pay.PurchaseID, newPaid, newRemaining, st)
+			if h.useMongo() {
+				h.mongoRepo.UpdatePurchasePaid(r.Context(), pay.PurchaseID, newPaid, newRemaining, st)
+			}
+		}
+	}
+
+	respondJSON(w, 200, map[string]interface{}{"message": "Payment updated", "id": id})
+}
+
+func (h *SupplierHandler) DeletePayment(w http.ResponseWriter, r *http.Request) {
+	id := mux.Vars(r)["id"]
+
+	var pay *domain.SupplierPayment
+	if h.useMongo() {
+		pay, _ = h.mongoRepo.GetPayment(r.Context(), id)
+	}
+	if pay == nil {
+		pay, _ = h.repo.GetPayment(r.Context(), id)
+	}
+	if pay == nil {
+		respondError(w, r, 404, "Payment not found", "ادائیگی نہیں ملی")
+		return
+	}
+
+	if h.useMongo() {
+		h.mongoRepo.DeletePayment(r.Context(), id)
+	}
+	if err := h.repo.DeletePayment(r.Context(), id); err != nil {
+		respondError(w, r, 500, "Failed to delete payment", "ناکام")
+		return
+	}
+
+	if pay.PurchaseID != "" {
+		var p *domain.Purchase
+		if h.useMongo() {
+			p, _ = h.mongoRepo.GetPurchase(r.Context(), pay.PurchaseID)
+		}
+		if p == nil {
+			p, _ = h.repo.GetPurchase(r.Context(), pay.PurchaseID)
+		}
+		if p != nil {
+			newPaid := p.PaidAmount - pay.Amount
+			if newPaid < 0 {
+				newPaid = 0
+			}
+			newRemaining := p.TotalAmount - newPaid
+			if newRemaining < 0 {
+				newRemaining = 0
+			}
+			st := "partial"
+			if p.Status == "completed" && newRemaining > 0 {
+				st = "partial"
+			}
+			if newRemaining <= 0 {
+				st = "completed"
+			}
+			h.repo.UpdatePurchasePaid(r.Context(), pay.PurchaseID, newPaid, newRemaining, st)
+			if h.useMongo() {
+				h.mongoRepo.UpdatePurchasePaid(r.Context(), pay.PurchaseID, newPaid, newRemaining, st)
+			}
+		}
+	}
+
+	respondJSON(w, 200, map[string]interface{}{"message": "Payment deleted", "id": id})
 }
 
 // ─── Promises ───
 func (h *SupplierHandler) CreatePromise(w http.ResponseWriter, r *http.Request) {
 	var pr domain.SupplierPromise
 	json.NewDecoder(r.Body).Decode(&pr)
-	if h.useMongo() { h.mongoRepo.CreatePromise(r.Context(), &pr) }
+	if h.useMongo() {
+		h.mongoRepo.CreatePromise(r.Context(), &pr)
+	}
 	h.repo.CreatePromise(r.Context(), &pr)
 	respondJSON(w, 201, pr)
 }
@@ -335,7 +538,10 @@ func (h *SupplierHandler) ListPromises(w http.ResponseWriter, r *http.Request) {
 	supplierID := r.URL.Query().Get("supplierId")
 	if h.useMongo() {
 		list, err := h.mongoRepo.ListPromises(r.Context(), supplierID)
-		if err == nil { respondJSON(w, 200, map[string]interface{}{"data": list, "total": len(list)}); return }
+		if err == nil {
+			respondJSON(w, 200, map[string]interface{}{"data": list, "total": len(list)})
+			return
+		}
 	}
 	_, _ = h.repo, supplierID // unused in fallback
 	respondJSON(w, 200, map[string]interface{}{"data": []domain.SupplierPromise{}, "total": 0})
@@ -345,7 +551,9 @@ func (h *SupplierHandler) UpdatePromise(w http.ResponseWriter, r *http.Request) 
 	id := mux.Vars(r)["id"]
 	var pr domain.SupplierPromise
 	json.NewDecoder(r.Body).Decode(&pr)
-	if h.useMongo() { h.mongoRepo.UpdatePromise(r.Context(), id, pr.PaidAmount, pr.Status) }
+	if h.useMongo() {
+		h.mongoRepo.UpdatePromise(r.Context(), id, pr.PaidAmount, pr.Status)
+	}
 	h.repo.UpdatePromise(r.Context(), id, &pr)
 	respondJSON(w, 200, pr)
 }
@@ -353,7 +561,10 @@ func (h *SupplierHandler) UpdatePromise(w http.ResponseWriter, r *http.Request) 
 // ─── Supplier Ledger ───
 func (h *SupplierHandler) GetLedger(w http.ResponseWriter, r *http.Request) {
 	supplierID := mux.Vars(r)["id"]
-	if supplierID == "" { respondError(w, r, 400, "Supplier required", "سپلائر"); return }
+	if supplierID == "" {
+		respondError(w, r, 400, "Supplier required", "سپلائر")
+		return
+	}
 
 	type LedgerEntry struct {
 		Date        time.Time `json:"date"`
@@ -408,8 +619,13 @@ func (h *SupplierHandler) GetLedger(w http.ResponseWriter, r *http.Request) {
 		if len(p.Items) > 0 {
 			names := ""
 			for i, item := range p.Items {
-				if i > 0 { names += ", " }
-				if i >= 3 { names += "..."; break }
+				if i > 0 {
+					names += ", "
+				}
+				if i >= 3 {
+					names += "..."
+					break
+				}
 				names += item.ProductName
 			}
 			desc = "Purchase - " + names
@@ -419,13 +635,15 @@ func (h *SupplierHandler) GetLedger(w http.ResponseWriter, r *http.Request) {
 
 	for _, pay := range pays {
 		method := pay.Method
-		if method == "" { method = "cash" }
+		if method == "" {
+			method = "cash"
+		}
 		raw = append(raw, rawEntry{ts: pay.PaymentDate, description: "Payment (" + method + ")", debit: 0, credit: pay.Amount, typ: "payment", refID: pay.ID})
 	}
 
 	// Sort by date ascending
 	for i := 0; i < len(raw); i++ {
-		for j := i+1; j < len(raw); j++ {
+		for j := i + 1; j < len(raw); j++ {
 			if raw[j].ts.Before(raw[i].ts) {
 				raw[i], raw[j] = raw[j], raw[i]
 			}
@@ -441,24 +659,122 @@ func (h *SupplierHandler) GetLedger(w http.ResponseWriter, r *http.Request) {
 			Balance: balance, Type: e.typ, RefID: e.refID,
 		})
 	}
-	if entries == nil { entries = []LedgerEntry{} }
+	if entries == nil {
+		entries = []LedgerEntry{}
+	}
 
 	// Calculate summary
 	totalPurchased := 0.0
 	totalPaid := 0.0
 	totalPromises := 0.0
-	for _, p := range purchases { totalPurchased += p.TotalAmount }
-	for _, pay := range pays { totalPaid += pay.Amount }
-	for _, pr := range promis { if pr.Status != "paid" { totalPromises += pr.Amount - pr.PaidAmount } }
+	for _, p := range purchases {
+		totalPurchased += p.TotalAmount
+	}
+	for _, pay := range pays {
+		totalPaid += pay.Amount
+	}
+	for _, pr := range promis {
+		if pr.Status != "paid" {
+			totalPromises += pr.Amount - pr.PaidAmount
+		}
+	}
 
 	respondJSON(w, 200, map[string]interface{}{
 		"entries": entries,
 		"summary": map[string]interface{}{
-			"totalPurchased": totalPurchased,
-			"totalPaid":      totalPaid,
-			"totalRemaining": totalPurchased - totalPaid,
+			"totalPurchased":  totalPurchased,
+			"totalPaid":       totalPaid,
+			"totalRemaining":  totalPurchased - totalPaid,
 			"pendingPromises": totalPromises,
-			"balance":        balance,
+			"balance":         balance,
 		},
+	})
+}
+
+// ─── Product History for Supplier ───
+func (h *SupplierHandler) GetProductHistory(w http.ResponseWriter, r *http.Request) {
+	supplierID := r.URL.Query().Get("supplierId")
+
+	// Get all purchases for this supplier from MongoDB
+	var purchases []domain.Purchase
+	if h.useMongo() {
+		var err error
+		purchases, err = h.mongoRepo.ListPurchases(r.Context(), supplierID)
+		if err != nil || len(purchases) == 0 {
+			// Fallback to SQLite
+			purchases, _ = h.repo.ListPurchases(r.Context(), supplierID)
+		}
+	} else {
+		purchases, _ = h.repo.ListPurchases(r.Context(), supplierID)
+	}
+
+	// Collect unique product names with their details
+	type productHistoryItem struct {
+		ProductName   string  `json:"productName"`
+		Company       string  `json:"company,omitempty"`
+		SerialNumber  string  `json:"serialNumber,omitempty"`
+		IMEI          string  `json:"imei,omitempty"`
+		ChassisNo     string  `json:"chassisNo,omitempty"`
+		EngineNo      string  `json:"engineNo,omitempty"`
+		Model         string  `json:"model,omitempty"`
+		Color         string  `json:"color,omitempty"`
+		PurchasePrice float64 `json:"purchasePrice"`
+		SalePrice     float64 `json:"salePrice"`
+		LastPurchased string  `json:"lastPurchased"`
+	}
+
+	productMap := make(map[string]*productHistoryItem)
+	for _, purchase := range purchases {
+		for _, item := range purchase.Items {
+			key := item.ProductName
+			if existing, ok := productMap[key]; ok {
+				// Update with latest pricing
+				if item.Price > 0 {
+					existing.PurchasePrice = item.Price
+				}
+				if item.SalePrice > 0 {
+					existing.SalePrice = item.SalePrice
+				}
+				existing.LastPurchased = purchase.CreatedAt.Format("2006-01-02")
+			} else {
+				productMap[key] = &productHistoryItem{
+					ProductName:   item.ProductName,
+					Company:       item.Company,
+					SerialNumber:  item.SerialNumber,
+					IMEI:          item.IMEI,
+					ChassisNo:     item.ChassisNo,
+					EngineNo:      item.EngineNo,
+					Model:         item.Model,
+					Color:         item.Color,
+					PurchasePrice: item.Price,
+					SalePrice:     item.SalePrice,
+					LastPurchased: purchase.CreatedAt.Format("2006-01-02"),
+				}
+			}
+		}
+	}
+
+	// Convert to slice
+	var result []*productHistoryItem
+	for _, item := range productMap {
+		result = append(result, item)
+	}
+
+	// Sort by product name
+	for i := 0; i < len(result); i++ {
+		for j := i + 1; j < len(result); j++ {
+			if result[i].ProductName > result[j].ProductName {
+				result[i], result[j] = result[j], result[i]
+			}
+		}
+	}
+
+	if result == nil {
+		result = []*productHistoryItem{}
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"data":  result,
+		"total": len(result),
 	})
 }

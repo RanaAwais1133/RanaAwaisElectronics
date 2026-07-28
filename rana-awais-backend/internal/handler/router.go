@@ -902,6 +902,7 @@ func SetupRouter(
 	protected.HandleFunc("/dashboard/customers-with-finance", dashboardH.CustomersWithFinance).Methods("GET")
 	protected.HandleFunc("/dashboard/today-due-full", dashboardH.TodayInstallments).Methods("GET")
 	protected.HandleFunc("/dashboard/overdue-full", dashboardH.OverdueDetails).Methods("GET")
+	protected.HandleFunc("/dashboard/products-grouped", dashboardH.ProductsGrouped).Methods("GET")
 
 	// Reports
 	reportH := NewReportHandler()
@@ -946,6 +947,9 @@ func SetupRouter(
 	protected.HandleFunc("/supplier-promises", supplierH.ListPromises).Methods("GET")
 	protected.HandleFunc("/supplier-promises/{id}", supplierH.UpdatePromise).Methods("PUT")
 	protected.HandleFunc("/suppliers/{id}/ledger", supplierH.GetLedger).Methods("GET")
+	protected.HandleFunc("/supplier-payments/{id}", supplierH.UpdatePayment).Methods("PUT")
+	protected.HandleFunc("/supplier-payments/{id}", supplierH.DeletePayment).Methods("DELETE")
+	protected.HandleFunc("/suppliers/product-history", supplierH.GetProductHistory).Methods("GET")
 
 	// ========== PROMISES ==========
 	protected.HandleFunc("/promises", promiseH.Create).Methods("POST")

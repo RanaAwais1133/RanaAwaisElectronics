@@ -153,7 +153,6 @@ func (r *AccountingRepository) GetRevenueAndProfit(ctx context.Context, start, e
 	return revenue, profit, nil
 }
 
-
 func (r *AccountingRepository) DeleteByPlanID(ctx context.Context, planID string) error {
 	_, err := r.db.ExecContext(ctx, "DELETE FROM accounting_entries WHERE related_plan_id = ?", planID)
 	return err

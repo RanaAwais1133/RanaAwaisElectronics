@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import api from '../../utils/api';
 import InventoryCreate from './InventoryCreate';
@@ -196,10 +197,11 @@ const InventoryList: React.FC = () => {
   const { t, i18n } = useTranslation();
   const isUrdu = i18n.language === 'ur';
   const currentUser = useAuthStore((state) => state.user);
+  const [searchParams, setSearchParams] = useSearchParams();
   
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(searchParams.get('search') || ''); // ✅ Read search from URL
   const [ageingDays, setAgeingDays] = useState(90);
   const [ageingReport, setAgeingReport] = useState<any[]>([]);
   const [showAgeing, setShowAgeing] = useState(false);
@@ -278,6 +280,16 @@ const InventoryList: React.FC = () => {
     );
   }, [items, search]);
 
+  // ✅ Update URL when search changes
+  const handleSearchChange = (value: string) => {
+    setSearch(value);
+    if (value) {
+      setSearchParams({ search: value });
+    } else {
+      setSearchParams({});
+    }
+  };
+
   // ✅ Loading state
   if (loading) {
     return (
@@ -326,12 +338,12 @@ const InventoryList: React.FC = () => {
           type="text"
           placeholder={isUrdu ? 'انوینٹری تلاش کریں...' : `${t('search')} inventory...`}
           value={search}
-          onChange={e => setSearch(e.target.value)}
+          onChange={e => handleSearchChange(e.target.value)}
           className={`w-full ${isUrdu ? 'pr-12 pl-4' : 'pl-12 pr-4'} py-3 border border-gray-300 dark:border-gray-600 rounded-2xl bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-400 focus:border-transparent shadow-sm transition-all`}
         />
         {search && (
           <button
-            onClick={() => setSearch('')}
+            onClick={() => handleSearchChange('')}
             className={`absolute inset-y-0 ${isUrdu ? 'left-0 pl-4' : 'right-0 pr-4'} flex items-center text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors`}
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -506,6 +506,104 @@ const TodayInstallmentsCard: React.FC<{ isUrdu: boolean }> = ({ isUrdu }) => {
   );
 };
 
+// ========== PRODUCT GROUPS MODAL ==========
+interface ProductGroupsModalProps {
+  isUrdu: boolean;
+  onClose: () => void;
+  navigate: (path: string) => void;
+}
+
+const ProductGroupsModal: React.FC<ProductGroupsModalProps> = ({ isUrdu, onClose, navigate }) => {
+  const [groups, setGroups] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.get('/dashboard/products-grouped')
+      .then(res => { if (!cancelled) setGroups(res.data || []); })
+      .catch(() => { if (!cancelled) setGroups([]); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const handleProductClick = (productId: string, productName: string) => {
+    navigate(`/inventory?search=${encodeURIComponent(productName)}`);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col border border-gray-200 dark:border-gray-700" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-indigo-50 dark:bg-indigo-900/30 rounded-lg">
+              <svg className="w-5 h-5 text-indigo-600 dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+              </svg>
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-gray-900 dark:text-white">{isUrdu ? 'مصنوعات' : 'Products'}</h2>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{isUrdu ? 'نام کے مطابق گروپ کیا گیا' : 'Grouped by product name'}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors">
+            <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-6">
+          {loading ? (
+            <div className="flex flex-col items-center justify-center py-16 gap-3">
+              <div className="w-10 h-10 border-4 border-gray-900 dark:border-white border-t-transparent rounded-full animate-spin" />
+              <p className="text-sm text-gray-400">{isUrdu ? 'لوڈ ہو رہا ہے...' : 'Loading...'}</p>
+            </div>
+          ) : groups.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 gap-3">
+              <div className="p-3 bg-gray-100 dark:bg-gray-700 rounded-full">
+                <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>
+              </div>
+              <p className="text-gray-400 font-medium">{isUrdu ? 'کوئی مصنوعات نہیں' : 'No products found'}</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {groups.map((g, idx) => (
+                <button
+                  key={g.productId || idx}
+                  onClick={() => handleProductClick(g.productId, g.productName)}
+                  className="bg-white dark:bg-gray-700/50 rounded-xl p-4 border border-gray-200 dark:border-gray-600 hover:border-indigo-300 dark:hover:border-indigo-600 hover:shadow-md transition-all text-left cursor-pointer"
+                >
+                  <div className="flex items-start justify-between mb-2">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-bold text-gray-900 dark:text-white text-sm truncate">
+                        {isUrdu ? (g.productNameUrdu || g.productName) : g.productName}
+                      </h3>
+                      {g.category && (
+                        <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">{isUrdu ? 'زمرہ' : 'Category'}: {g.category}</p>
+                      )}
+                    </div>
+                    <span className="flex-shrink-0 inline-flex items-center justify-center w-10 h-10 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-bold text-sm">
+                      {g.totalStock || 0}
+                    </span>
+                  </div>
+                  <div className="flex gap-3 text-[10px]">
+                    <span className="text-emerald-600 dark:text-emerald-400">
+                      {isUrdu ? 'اسٹاک میں' : 'In Stock'}: <strong>{g.inStockItems || 0}</strong>
+                    </span>
+                    <span className="text-red-500">
+                      {isUrdu ? 'فروخت شدہ' : 'Sold'}: <strong>{g.soldItems || 0}</strong>
+                    </span>
+                  </div>
+                  <div className="mt-1 text-[10px] text-gray-500">
+                    {isUrdu ? 'کل قیمت' : 'Total Value'}: Rs. {(g.totalValue || 0).toLocaleString()}
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ========== MONTHLY REPORT MODAL ==========
 interface MonthlyReportModalProps {
   onClose: () => void;
@@ -870,6 +968,7 @@ const DashboardPage: React.FC = () => {
   const [summaryModal, setSummaryModal] = useState<SummaryModalState | null>(null);
   const [showPromiseModal, setShowPromiseModal] = useState(false);
   const [showPromisesList, setShowPromisesList] = useState(false);
+  const [showProductGroups, setShowProductGroups] = useState(false);
   const navigate = useNavigate();
 
   // ✅ Use offline-first dashboard hook
@@ -1115,14 +1214,22 @@ const DashboardPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Inventory Quick View */}
+          {/* Inventory Quick View - UPDATED with grouped products */}
           <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5">
             <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4">{isUrdu ? 'انوینٹری' : 'Inventory'}</h3>
             <div className="space-y-1">
-              <button onClick={() => setModal({ title: isUrdu ? 'کل مصنوعات' : 'Total Products', endpoint: '/products?limit=200' })} className="w-full flex items-center justify-between py-2.5 px-2 border-b border-gray-100 dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30 rounded-lg transition-colors cursor-pointer">
+              {/* New: Products Grouped by Name - clickable */}
+              <button onClick={() => setShowProductGroups(true)} className="w-full flex items-center justify-between py-2.5 px-2 border-b border-gray-100 dark:border-gray-700 border-t-0 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-colors cursor-pointer bg-indigo-50/50 dark:bg-indigo-900/10">
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 rounded-full bg-indigo-500" />
-                  <span className="text-xs text-gray-600 dark:text-gray-300">{isUrdu ? 'کل مصنوعات' : 'Total Products'}</span>
+                  <span className="text-xs font-semibold text-indigo-700 dark:text-indigo-300">{isUrdu ? 'مصنوعات (گروپ)' : 'Products (Grouped)'}</span>
+                </div>
+                <span className="text-sm font-bold text-indigo-600 dark:text-indigo-400">{totalProducts}</span>
+              </button>
+              <button onClick={() => setModal({ title: isUrdu ? 'کل مصنوعات' : 'Total Products', endpoint: '/products?limit=200' })} className="w-full flex items-center justify-between py-2.5 px-2 border-b border-gray-100 dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30 rounded-lg transition-colors cursor-pointer">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-gray-500" />
+                  <span className="text-xs text-gray-600 dark:text-gray-300">{isUrdu ? 'کل مصنوعات (فہرست)' : 'All Products (List)'}</span>
                 </div>
                 <span className="text-sm font-bold text-gray-900 dark:text-white">{totalProducts}</span>
               </button>
@@ -1152,8 +1259,6 @@ const DashboardPage: React.FC = () => {
         </div>
       </div>
 
-
-
       {/* Modals */}
       {modal && (
         <DashboardModal
@@ -1176,6 +1281,9 @@ const DashboardPage: React.FC = () => {
       )}
       {showPromisesList && (
         <PromisesModal onClose={() => setShowPromisesList(false)} isUrdu={isUrdu} onSuccess={handleRefresh} />
+      )}
+      {showProductGroups && (
+        <ProductGroupsModal isUrdu={isUrdu} onClose={() => setShowProductGroups(false)} navigate={navigate} />
       )}
     </div>
   );

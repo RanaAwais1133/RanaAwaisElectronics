@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 import { useSupplierStore } from '../../store/useSupplierStore';
 import { useAuthStore } from '../../store/useAuthStore';
+import api from '../../utils/api';
 
 interface Props {
   onClose: () => void;
@@ -42,6 +43,13 @@ const BulkPurchase: React.FC<Props> = ({ onClose, onSuccess }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  // Product history suggestions state
+  const [productSuggestions, setProductSuggestions] = useState<any[]>([]);
+  const [showProductSuggestions, setShowProductSuggestions] = useState(false);
+  const [activeProductIndex, setActiveProductIndex] = useState<number | null>(null);
+  const [fetchingSuggestions, setFetchingSuggestions] = useState(false);
+  const productInputRefs = useRef<(HTMLInputElement | null)[]>([]);
+
   useEffect(() => {
     if (suppliers.length === 0) fetchSuppliers();
   }, []); // eslint-disable-line
@@ -49,10 +57,18 @@ const BulkPurchase: React.FC<Props> = ({ onClose, onSuccess }) => {
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (supplierDropdownRef.current && !supplierDropdownRef.current.contains(e.target as Node)) setShowSupplierDropdown(false);
+      // Close product suggestions when clicking outside
+      if (activeProductIndex !== null) {
+        const input = productInputRefs.current[activeProductIndex];
+        if (input && !input.closest('.product-suggestion-wrapper')) {
+          setShowProductSuggestions(false);
+          setActiveProductIndex(null);
+        }
+      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  }, [activeProductIndex]);
 
   const filteredSuppliers = useMemo(() => {
     if (!supplierSearch) return suppliers;
@@ -67,6 +83,51 @@ const BulkPurchase: React.FC<Props> = ({ onClose, onSuccess }) => {
   const addRow = () => setItems([...items, { ...BlankItem, id: Date.now().toString() }]);
   const removeRow = (id: string) => { if (items.length <= 1) return; setItems(items.filter(i => i.id !== id)); };
   const updateRow = (id: string, field: keyof ItemRow, value: string) => setItems(items.map(i => i.id === id ? { ...i, [field]: value } : i));
+
+  // Fetch product history when supplier is selected and product input is focused
+  const fetchProductHistory = async (supplierId: string) => {
+    if (!supplierId) return;
+    setFetchingSuggestions(true);
+    try {
+      const res = await api.get(`/suppliers/product-history?supplierId=${supplierId}`);
+      setProductSuggestions(res.data?.data || []);
+    } catch {
+      setProductSuggestions([]);
+    } finally {
+      setFetchingSuggestions(false);
+    }
+  };
+
+  // Handle product name click - show suggestions
+  const handleProductNameFocus = async (index: number, supplierId: string) => {
+    setActiveProductIndex(index);
+    if (productSuggestions.length === 0 && supplierId) {
+      await fetchProductHistory(supplierId);
+    }
+    setShowProductSuggestions(true);
+  };
+
+  // Handle selecting a product from suggestions
+  const handleSelectSuggestion = (index: number, suggestion: any) => {
+    const newItems = [...items];
+    newItems[index] = {
+      ...newItems[index],
+      productName: suggestion.productName,
+      company: suggestion.company || '',
+      serialNumber: suggestion.serialNumber || '',
+      imei: suggestion.imei || '',
+      chassisNo: suggestion.chassisNo || '',
+      engineNo: suggestion.engineNo || '',
+      model: suggestion.model || '',
+      color: suggestion.color || '',
+      purchasePrice: suggestion.purchasePrice?.toString() || '',
+      salePrice: suggestion.salePrice?.toString() || '',
+    };
+    setItems(newItems);
+    setShowProductSuggestions(false);
+    setActiveProductIndex(null);
+    toast.success(isUrdu ? 'پروڈکٹ کی تفصیلات خودکار طور پر بھر دی گئیں' : 'Product details auto-filled');
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -95,6 +156,13 @@ const BulkPurchase: React.FC<Props> = ({ onClose, onSuccess }) => {
     finally { setLoading(false); }
   };
 
+  // Filter suggestions based on current input
+  const getFilteredSuggestions = (inputValue: string) => {
+    if (!inputValue) return productSuggestions;
+    const q = inputValue.toLowerCase();
+    return productSuggestions.filter(s => s.productName?.toLowerCase().includes(q));
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/50 backdrop-blur-sm" onClick={onClose}>
       <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl w-full max-w-5xl max-h-[95vh] overflow-y-auto mx-2" onClick={e => e.stopPropagation()}>
@@ -117,7 +185,7 @@ const BulkPurchase: React.FC<Props> = ({ onClose, onSuccess }) => {
               {showSupplierDropdown && (
                 <div className="absolute z-20 mt-1 w-full bg-white dark:bg-gray-700 border rounded-xl shadow-lg max-h-48 overflow-y-auto">
                   {filteredSuppliers.map(s => (
-                    <button key={s.id} type="button" onClick={() => { setSupplierId(s.id); setSupplierSearch(''); setShowSupplierDropdown(false); }}
+                    <button key={s.id} type="button" onClick={() => { setSupplierId(s.id); setSupplierSearch(''); setShowSupplierDropdown(false); fetchProductHistory(s.id); }}
                       className="w-full text-left px-4 py-3 text-sm hover:bg-blue-50 dark:hover:bg-blue-900/20 border-b last:border-0">
                       <div className="font-semibold">{s.name}</div><div className="text-xs text-gray-500">{s.phone} {s.company ? `| ${s.company}` : ''}</div>
                     </button>
@@ -142,9 +210,48 @@ const BulkPurchase: React.FC<Props> = ({ onClose, onSuccess }) => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {items.map((item) => (
+                  {items.map((item, idx) => (
                     <tr key={item.id} className="hover:bg-blue-50/30">
-                      <td className="px-2 py-1"><input type="text" value={item.productName} onChange={e => updateRow(item.id, 'productName', e.target.value)} className="w-full border rounded px-2 py-1.5 text-xs bg-white dark:bg-gray-700" placeholder="Name" /></td>
+                      <td className="px-2 py-1 relative product-suggestion-wrapper">
+                        <input
+                          ref={el => productInputRefs.current[idx] = el}
+                          type="text"
+                          value={item.productName}
+                          onChange={e => {
+                            updateRow(item.id, 'productName', e.target.value);
+                            setShowProductSuggestions(true);
+                          }}
+                          onFocus={() => handleProductNameFocus(idx, supplierId)}
+                          className="w-full border rounded px-2 py-1.5 text-xs bg-white dark:bg-gray-700"
+                          placeholder={isUrdu ? 'نام درج کریں یا تجویز منتخب کریں' : 'Type name or select suggestion'}
+                        />
+                        {showProductSuggestions && activeProductIndex === idx && productSuggestions.length > 0 && (
+                          <div className="absolute z-30 left-0 top-full mt-0.5 w-80 bg-white dark:bg-gray-700 border rounded-xl shadow-xl max-h-48 overflow-y-auto">
+                            {fetchingSuggestions ? (
+                              <div className="px-4 py-3 text-xs text-gray-500">{isUrdu ? 'لوڈ ہو رہا ہے...' : 'Loading...'}</div>
+                            ) : getFilteredSuggestions(item.productName).length === 0 ? (
+                              <div className="px-4 py-3 text-xs text-gray-500">{isUrdu ? 'کوئی تجویز نہیں' : 'No suggestions'}</div>
+                            ) : (
+                              getFilteredSuggestions(item.productName).map((s: any, si: number) => (
+                                <button
+                                  key={si}
+                                  type="button"
+                                  onClick={() => handleSelectSuggestion(idx, s)}
+                                  className="w-full text-left px-3 py-2.5 text-xs hover:bg-blue-50 dark:hover:bg-blue-900/20 border-b last:border-0 transition-colors"
+                                >
+                                  <div className="font-semibold text-gray-900 dark:text-white">{s.productName}</div>
+                                  <div className="flex flex-wrap gap-1.5 mt-0.5 text-[10px] text-gray-500">
+                                    {s.company && <span>Co: {s.company}</span>}
+                                    {s.purchasePrice > 0 && <span>{isUrdu ? 'قیمت' : 'Price'}: Rs.{s.purchasePrice}</span>}
+                                    {s.salePrice > 0 && <span>{isUrdu ? 'فروخت' : 'Sale'}: Rs.{s.salePrice}</span>}
+                                    {s.lastPurchased && <span>{isUrdu ? 'آخری خرید' : 'Last'}: {s.lastPurchased}</span>}
+                                  </div>
+                                </button>
+                              ))
+                            )}
+                          </div>
+                        )}
+                      </td>
                       <td className="px-2 py-1"><input type="text" value={item.company} onChange={e => updateRow(item.id, 'company', e.target.value)} className="w-full border rounded px-2 py-1.5 text-xs bg-white dark:bg-gray-700" placeholder="Company" /></td>
                       <td className="px-2 py-1"><input type="text" value={item.serialNumber} onChange={e => updateRow(item.id, 'serialNumber', e.target.value)} className="w-full border rounded px-2 py-1.5 text-xs bg-white dark:bg-gray-700" /></td>
                       <td className="px-2 py-1"><input type="text" value={item.imei} onChange={e => updateRow(item.id, 'imei', e.target.value)} className="w-full border rounded px-2 py-1.5 text-xs bg-white dark:bg-gray-700" /></td>

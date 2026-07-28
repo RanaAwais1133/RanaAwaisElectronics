@@ -87,6 +87,8 @@ interface SupplierState {
   fetchPromises: (status?: string) => Promise<void>;
   createPromise: (data: any) => Promise<void>;
   updatePromise: (id: string, data: any) => Promise<void>;
+  updatePayment: (id: string, data: any) => Promise<void>;
+  deletePayment: (id: string) => Promise<void>;
   fetchLedger: (supplierId: string) => Promise<any>;
 }
 
@@ -163,6 +165,20 @@ export const useSupplierStore = create<SupplierState>()((set, get) => ({
   createPayment: async (data) => {
     try {
       await api.post('/supplier-payments', data);
+      get().fetchPayments();
+    } catch {}
+  },
+
+  updatePayment: async (id: string, data: any) => {
+    try {
+      await api.put(`/supplier-payments/${id}`, data);
+      get().fetchPayments();
+    } catch {}
+  },
+
+  deletePayment: async (id: string) => {
+    try {
+      await api.delete(`/supplier-payments/${id}`);
       get().fetchPayments();
     } catch {}
   },

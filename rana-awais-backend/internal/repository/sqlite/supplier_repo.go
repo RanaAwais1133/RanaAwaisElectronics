@@ -252,6 +252,36 @@ func (r *SupplierRepository) ListPayments(ctx context.Context, supplierID string
 	return list, nil
 }
 
+func (r *SupplierRepository) GetPayment(ctx context.Context, id string) (*domain.SupplierPayment, error) {
+	p := &domain.SupplierPayment{}
+	var purchaseID, remarks, createdBy sql.NullString
+	err := r.db.QueryRowContext(ctx,
+		`SELECT id, supplier_id, purchase_id, amount, method, payment_date, remarks, created_by, created_at FROM supplier_payments WHERE id=?`, id).
+		Scan(&p.ID, &p.SupplierID, &purchaseID, &p.Amount, &p.Method, &p.PaymentDate, &remarks, &createdBy, &p.CreatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	p.PurchaseID = purchaseID.String
+	p.Remarks = remarks.String
+	p.CreatedBy = createdBy.String
+	return p, nil
+}
+
+func (r *SupplierRepository) UpdatePayment(ctx context.Context, id string, amount float64, method string, paymentDate time.Time, remarks string) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE supplier_payments SET amount=?, method=?, payment_date=?, remarks=? WHERE id=?`,
+		amount, method, paymentDate, remarks, id)
+	return err
+}
+
+func (r *SupplierRepository) DeletePayment(ctx context.Context, id string) error {
+	_, err := r.db.ExecContext(ctx, "DELETE FROM supplier_payments WHERE id=?", id)
+	return err
+}
+
 // ─── Supplier Promises ───
 func (r *SupplierRepository) CreatePromise(ctx context.Context, pr *domain.SupplierPromise) error {
 	if pr.ID == "" {

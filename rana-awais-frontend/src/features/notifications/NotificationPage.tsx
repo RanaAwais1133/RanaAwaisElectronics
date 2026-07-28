@@ -1,46 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 import api from '../../utils/api';
 import { APP_CONFIG } from '../../config/app';
 import { useAuthStore } from '../../store/useAuthStore';
-
-// ✅ Notification Stats Component
-const NotificationStats: React.FC<{ 
-  totalSent: number; 
-  totalFailed: number; 
-  lastSent: string | null;
-  isUrdu: boolean;
-}> = ({ totalSent, totalFailed, lastSent, isUrdu }) => {
-  if (totalSent === 0 && totalFailed === 0) {
-    return null;
-  }
-
-  return (
-    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
-      <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-xl p-3 text-center">
-        <p className="text-xs text-gray-500 dark:text-gray-400">
-          {isUrdu ? 'کامیاب' : 'Sent'}
-        </p>
-        <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400">{totalSent}</p>
-      </div>
-      <div className="bg-red-50 dark:bg-red-900/20 rounded-xl p-3 text-center">
-        <p className="text-xs text-gray-500 dark:text-gray-400">
-          {isUrdu ? 'ناکام' : 'Failed'}
-        </p>
-        <p className="text-lg font-bold text-red-600 dark:text-red-400">{totalFailed}</p>
-      </div>
-      <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-3 text-center">
-        <p className="text-xs text-gray-500 dark:text-gray-400">
-          {isUrdu ? 'آخری بار' : 'Last Sent'}
-        </p>
-        <p className="text-sm font-semibold text-blue-600 dark:text-blue-400">
-          {lastSent || (isUrdu ? 'کبھی نہیں' : 'Never')}
-        </p>
-      </div>
-    </div>
-  );
-};
 
 const NotificationPage: React.FC = () => {
   const { t, i18n } = useTranslation();
@@ -48,34 +11,11 @@ const NotificationPage: React.FC = () => {
   const currentUser = useAuthStore((state) => state.user);
   
   const [loading, setLoading] = useState(false);
-  const [stats, setStats] = useState({
-    totalSent: 0,
-    totalFailed: 0,
-    lastSent: null as string | null,
-  });
-  const [fetchingStats, setFetchingStats] = useState(false);
 
   // ✅ Page title
-  useEffect(() => {
+  React.useEffect(() => {
     document.title = `${isUrdu ? 'نوٹیفیکیشنز' : 'Notifications'} | ${APP_CONFIG.companyName}`;
   }, [isUrdu]);
-
-  // ✅ Fetch notification stats
-  const fetchStats = async () => {
-    setFetchingStats(true);
-    try {
-      const res = await api.get('/notifications/stats');
-      setStats(res.data || { totalSent: 0, totalFailed: 0, lastSent: null });
-    } catch (err) {
-      // Silent fail for stats
-    } finally {
-      setFetchingStats(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchStats();
-  }, []);
 
   // ✅ Trigger reminders
   const triggerReminders = async () => {
@@ -85,18 +25,6 @@ const NotificationPage: React.FC = () => {
         triggered_by: currentUser?.displayName || currentUser?.username || '',
       });
       toast.success(isUrdu ? 'یاد دہانیاں بھیج دی گئیں' : t('reminders_sent'));
-      
-      // Update stats after sending
-      if (res.data?.sentCount !== undefined) {
-        setStats(prev => ({
-          ...prev,
-          totalSent: prev.totalSent + (res.data.sentCount || 0),
-          totalFailed: prev.totalFailed + (res.data.failedCount || 0),
-          lastSent: new Date().toISOString(),
-        }));
-      } else {
-        fetchStats();
-      }
     } catch (err: any) {
       const errorMsg = err?.response?.data?.error || err?.response?.data?.message || 
                        (isUrdu ? 'یاد دہانیاں بھیجنے میں ناکامی' : t('reminders_failed'));
@@ -104,19 +32,6 @@ const NotificationPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
-
-  // ✅ Format date
-  const formatDate = (dateStr: string | null) => {
-    if (!dateStr) return isUrdu ? 'کبھی نہیں' : 'Never';
-    const d = new Date(dateStr);
-    return d.toLocaleDateString(isUrdu ? 'ur-PK' : 'en-PK', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
   };
 
   return (
@@ -162,16 +77,6 @@ const NotificationPage: React.FC = () => {
               {isUrdu ? 'خودکار یاد دہانی' : 'Automatic Reminder'}
             </div>
           </div>
-
-          {/* ✅ Stats */}
-          {!fetchingStats && (stats.totalSent > 0 || stats.totalFailed > 0) && (
-            <NotificationStats
-              totalSent={stats.totalSent}
-              totalFailed={stats.totalFailed}
-              lastSent={stats.lastSent}
-              isUrdu={isUrdu}
-            />
-          )}
 
           {/* ✅ Send Button */}
           <button
