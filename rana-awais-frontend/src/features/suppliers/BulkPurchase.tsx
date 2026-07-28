@@ -173,11 +173,15 @@ const BulkPurchase: React.FC<Props> = ({ onClose, onSuccess }) => {
     finally { setLoading(false); }
   };
 
-  // Filter suggestions based on current input
+  // Filter suggestions based on current input (search product name + company)
   const getFilteredSuggestions = (inputValue: string) => {
     if (!inputValue) return productSuggestions;
     const q = inputValue.toLowerCase();
-    return productSuggestions.filter(s => s.productName?.toLowerCase().includes(q));
+    return productSuggestions.filter(s => 
+      s.productName?.toLowerCase().includes(q) || 
+      s.company?.toLowerCase().includes(q) ||
+      s.model?.toLowerCase().includes(q)
+    );
   };
 
   return (
