@@ -974,7 +974,14 @@ const DashboardPage: React.FC = () => {
             {isUrdu ? 'وعدہ شامل کریں' : 'Add Promise'}
           </button>
           <button
-            onClick={handleRefresh}
+            onClick={async () => {
+              // ✅ Clear IndexedDB cache first, then force refresh from server
+              try {
+                const { offlineDB } = await import('../../db/indexeddb');
+                await offlineDB.clearDashboardCache();
+              } catch {}
+              handleRefresh();
+            }}
             className="inline-flex items-center gap-1.5 px-3 py-2 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-xl text-xs font-semibold hover:bg-gray-200 dark:hover:bg-gray-600 transition-all"
           >
             <svg className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>

@@ -469,6 +469,10 @@ class RanaAwaisDB extends Dexie {
     return null;
   }
 
+  async clearDashboardCache(): Promise<void> {
+    await this.dashboardSummary.clear();
+  }
+
   // ═══════════════════════════════════════════
   // 📊 STATS
   // ═══════════════════════════════════════════
