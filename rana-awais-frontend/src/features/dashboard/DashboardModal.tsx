@@ -19,61 +19,6 @@ const displayName = (item: any, isUrdu: boolean): string => {
   return item.customer_name || item.name || item.name_urdu || item.customer_urdu || '—';
 };
 
-// ✅ STRONG SEARCH: Search through ALL possible fields in the data
-const matchesSearch = (item: any, query: string, isUrdu: boolean): boolean => {
-  if (!query.trim()) return true;
-  const q = query.toLowerCase().trim();
-  
-  const searchableFields = [
-    'name', 'name_urdu', 'customer_name', 'customer_name_urdu', 'customer_urdu',
-    'father_name', 'fatherName', 'phone', 'cnic', 'address', 'address_urdu',
-    'product_name', 'product_name_urdu', 'product', 'category', 'company', 'company_urdu',
-    'serial_number', 'serialNumber', 'imei', 'engine_no', 'engineNo', 'chassis_no', 'chassisNo',
-    'model', 'color', 'status', 'payment_method', 'method', 'reference_no', 'check_no',
-    'transaction_id', 'receipt_number', 'collected_by', 'created_by', 'remarks',
-    'installment_no', 'plan_id', 'customer_id', 'product_id', 'id',
-    'label', 'label_urdu', 'description', 'type', 'sku',
-    'stock_count', 'stockCount', 'stock', 'quantity',
-    'total_amount', 'amount', 'price', 'purchase_price', 'purchasePrice',
-    'paid_amount', 'pending_amount', 'remaining_amount', 'down_payment',
-    'num_installments', 'total_installments', 'installment_count',
-    'due_date', 'date', 'created_at', 'createdAt', 'purchase_date',
-    'payment_date', 'transaction_date', 'paid_date',
-    'city', 'area', 'district', 'province',
-  ];
-
-  for (const field of searchableFields) {
-    const val = item[field];
-    if (val !== undefined && val !== null) {
-      const strVal = String(val).toLowerCase();
-      if (strVal.includes(q)) {
-        return true;
-      }
-    }
-  }
-
-  // ✅ Check nested objects
-  for (const key in item) {
-    if (Object.prototype.hasOwnProperty.call(item, key)) {
-      const val = item[key];
-      if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
-        for (const nestedKey in val) {
-          if (Object.prototype.hasOwnProperty.call(val, nestedKey)) {
-            const nestedVal = val[nestedKey];
-            if (nestedVal !== undefined && nestedVal !== null && typeof nestedVal !== 'object') {
-              if (String(nestedVal).toLowerCase().includes(q)) {
-                return true;
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-
-  return false;
-};
-
 const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClose, isUrdu }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -208,17 +153,10 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
     printWindow.document.close();
   };
 
-  // ✅ FIX: Apply search filter to data before pagination
-  const filteredData = useMemo(() => {
-    if (dataType === 'accounting') return data; // accounting data doesn't need search
-    const rawData = dataType === 'inventory' ? groupedData : data;
-    if (!searchQuery.trim()) return rawData;
-    return rawData.filter(item => matchesSearch(item, searchQuery, isUrdu));
-  }, [data, dataType, groupedData, searchQuery, isUrdu]);
-
-  const totalPages = Math.ceil(filteredData.length / PER_PAGE);
+  const rawData = dataType === 'inventory' ? groupedData : data;
+  const totalPages = Math.ceil(rawData.length / PER_PAGE);
   const startIdx = (page - 1) * PER_PAGE;
-  const displayData = filteredData.slice(startIdx, startIdx + PER_PAGE);
+  const displayData = rawData.slice(startIdx, startIdx + PER_PAGE);
 
   const pagesArr: number[] = [];
   for (let i = Math.max(1, page - 2); i <= Math.min(totalPages, page + 2); i++) pagesArr.push(i);
@@ -254,49 +192,22 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-6xl max-h-[85vh] flex flex-col border border-gray-200 dark:border-gray-700" onClick={e => e.stopPropagation()}>
+      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-5xl max-h-[85vh] flex flex-col border border-gray-200 dark:border-gray-700" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 gap-3 flex-wrap">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-gray-100 dark:bg-gray-700 rounded-lg"><svg className="w-5 h-5 text-gray-700 dark:text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" /></svg></div>
-            <div><h2 className="text-lg font-bold text-gray-900 dark:text-white">{title}</h2><p className="text-xs text-gray-500 dark:text-gray-400">{filteredData.length} {isUrdu ? 'ریکارڈز' : 'records'} {searchQuery && `(filtered from ${(dataType === 'inventory' ? groupedData : data).length})`} — {dataType}</p></div>
+            <div><h2 className="text-lg font-bold text-gray-900 dark:text-white">{title}</h2><p className="text-xs text-gray-500 dark:text-gray-400">{rawData.length} {isUrdu ? 'ریکارڈز' : 'records'} — {dataType}</p></div>
           </div>
           <div className="flex items-center gap-2">
-            {!loading && filteredData.length > 0 && <button onClick={handlePrint} className="inline-flex items-center gap-1.5 px-3 py-2 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-xl text-xs font-semibold hover:bg-gray-800 dark:hover:bg-gray-100 transition-all"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>{isUrdu ? 'پرنٹ' : 'Print'}</button>}
+            {!loading && rawData.length > 0 && <button onClick={handlePrint} className="inline-flex items-center gap-1.5 px-3 py-2 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-xl text-xs font-semibold hover:bg-gray-800 dark:hover:bg-gray-100 transition-all"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>{isUrdu ? 'پرنٹ' : 'Print'}</button>}
             <button onClick={onClose} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"><svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
           </div>
-          {dataType !== 'accounting' && (
-            <div className="w-full relative">
-              <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
-                placeholder={isUrdu ? 'نام، فون، پروڈکٹ، سیریل، آئی ڈی، کسی بھی چیز سے تلاش کریں...' : 'Search by name, phone, product, serial, ID, anything...'}
-                className="w-full pl-9 pr-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => { setSearchQuery(''); setPage(1); }}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                </button>
-              )}
-            </div>
+          {(dataType !== 'accounting' && rawData.length > 0) && (
+            <div className="w-full sm:w-auto relative"><svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg><input type="text" value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }} placeholder={isUrdu ? 'تلاش...' : 'Search...'} className="w-full pl-9 pr-3 py-1.5 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-xs text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500" /></div>
           )}
         </div>
         <div className="flex-1 overflow-auto p-6">
-          {loading ? (<div className="flex flex-col items-center justify-center py-16 gap-3"><div className="w-10 h-10 border-4 border-gray-900 dark:border-white border-t-transparent rounded-full animate-spin" /><p className="text-sm text-gray-400">{isUrdu ? 'لوڈ ہو رہا ہے...' : 'Loading...'}</p></div>) : error ? (<div className="flex flex-col items-center justify-center py-16 gap-3"><div className="p-3 bg-red-50 dark:bg-red-900/30 rounded-full"><svg className="w-8 h-8 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg></div><p className="text-red-500 font-medium">{error}</p></div>) : filteredData.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 gap-3">
-              <div className="p-3 bg-gray-100 dark:bg-gray-700 rounded-full">
-                <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-              </div>
-              <p className="text-gray-400 font-medium">{isUrdu ? (searchQuery ? 'کچھ نہیں ملا' : 'کوئی ڈیٹا نہیں') : (searchQuery ? 'No results found' : 'No data found')}</p>
-              {searchQuery && (
-                <button onClick={() => { setSearchQuery(''); setPage(1); }} className="text-xs text-blue-500 hover:underline">{isUrdu ? 'تلاش صاف کریں' : 'Clear search'}</button>
-              )}
-            </div>
-          ) : (
+          {loading ? (<div className="flex flex-col items-center justify-center py-16 gap-3"><div className="w-10 h-10 border-4 border-gray-900 dark:border-white border-t-transparent rounded-full animate-spin" /><p className="text-sm text-gray-400">{isUrdu ? 'لوڈ ہو رہا ہے...' : 'Loading...'}</p></div>) : error ? (<div className="flex flex-col items-center justify-center py-16 gap-3"><div className="p-3 bg-red-50 dark:bg-red-900/30 rounded-full"><svg className="w-8 h-8 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg></div><p className="text-red-500 font-medium">{error}</p></div>) : rawData.length === 0 ? (<div className="flex flex-col items-center justify-center py-16 gap-3"><div className="p-3 bg-gray-100 dark:bg-gray-700 rounded-full"><svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg></div><p className="text-gray-400 font-medium">{isUrdu ? 'کوئی ڈیٹا نہیں' : 'No data found'}</p></div>) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead><tr className="bg-gray-50 dark:bg-gray-700/50">
@@ -315,12 +226,9 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
         </div>
         {totalPages > 1 && (
           <div className="flex items-center justify-between px-6 py-3 border-t border-gray-200 dark:border-gray-700">
-            <div className="text-xs text-gray-500">{isUrdu ? 'صفحہ' : 'Page'} {page} {isUrdu ? 'از' : 'of'} {totalPages} ({filteredData.length} {isUrdu ? 'ریکارڈز' : 'records'})</div>
-            <div className="flex items-center gap-1">
-              <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="px-3 py-1.5 text-xs font-semibold bg-gray-100 dark:bg-gray-700 rounded-lg disabled:opacity-30 hover:bg-gray-200 dark:hover:bg-gray-600 transition-all">{isUrdu ? 'پچھلا' : 'Prev'}</button>
-              {pagesArr.map(p => <button key={p} onClick={() => setPage(p)} className={`w-8 h-8 rounded-lg text-xs font-bold transition-all ${p === page ? 'bg-gray-900 dark:bg-white text-white dark:text-gray-900' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'}`}>{p}</button>)}
-              <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="px-3 py-1.5 text-xs font-semibold bg-gray-100 dark:bg-gray-700 rounded-lg disabled:opacity-30 hover:bg-gray-200 dark:hover:bg-gray-600 transition-all">{isUrdu ? 'اگلا' : 'Next'}</button>
-            </div>
+            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="px-3 py-1.5 text-xs font-semibold bg-gray-100 dark:bg-gray-700 rounded-lg disabled:opacity-30 hover:bg-gray-200 dark:hover:bg-gray-600 transition-all">{isUrdu ? 'پچھلا' : 'Prev'}</button>
+            <div className="flex items-center gap-1">{pagesArr.map(p => <button key={p} onClick={() => setPage(p)} className={`w-8 h-8 rounded-lg text-xs font-bold transition-all ${p === page ? 'bg-gray-900 dark:bg-white text-white dark:text-gray-900' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'}`}>{p}</button>)}</div>
+            <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="px-3 py-1.5 text-xs font-semibold bg-gray-100 dark:bg-gray-700 rounded-lg disabled:opacity-30 hover:bg-gray-200 dark:hover:bg-gray-600 transition-all">{isUrdu ? 'اگلا' : 'Next'}</button>
           </div>
         )}
       </div>
