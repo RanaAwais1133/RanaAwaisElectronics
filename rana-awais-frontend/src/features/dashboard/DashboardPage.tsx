@@ -1123,10 +1123,11 @@ const DashboardPage: React.FC = () => {
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 rounded-full bg-indigo-500" />
                   <span className="text-xs text-gray-600 dark:text-gray-300">{isUrdu ? 'کل مصنوعات' : 'Total Products'}</span>
+                  <span className="text-[9px] text-gray-400">({isUrdu ? 'گروپ شدہ' : 'grouped'})</span>
                 </div>
                 <span className="text-sm font-bold text-gray-900 dark:text-white">{totalProducts}</span>
               </button>
-              <button onClick={() => setModal({ title: isUrdu ? 'کم اسٹاک' : 'Low Stock', endpoint: '/dashboard/low-stock' })} className="w-full flex items-center justify-between py-2.5 px-2 border-b border-gray-100 dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30 rounded-lg transition-colors cursor-pointer">
+              <button onClick={() => setModal({ title: isUrdu ? 'کم اسٹاک' : 'Low Stock', endpoint: '/products?limit=200' })} className="w-full flex items-center justify-between py-2.5 px-2 border-b border-gray-100 dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30 rounded-lg transition-colors cursor-pointer">
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 rounded-full bg-red-500" />
                   <span className="text-xs text-gray-600 dark:text-gray-300">{isUrdu ? 'کم اسٹاک' : 'Low Stock'}</span>
