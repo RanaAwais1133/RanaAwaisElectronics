@@ -80,6 +80,8 @@ interface SupplierState {
 
   fetchPurchases: (supplierId?: string) => Promise<void>;
   createPurchase: (data: any) => Promise<Purchase | null>;
+  updatePurchase: (id: string, data: any) => Promise<any>;
+  deletePurchase: (id: string) => Promise<any>;
 
   fetchPayments: (supplierId?: string) => Promise<void>;
   createPayment: (data: any) => Promise<void>;
@@ -153,6 +155,29 @@ export const useSupplierStore = create<SupplierState>()((set, get) => ({
     } catch { return null; }
   },
 
+  updatePurchase: async (id: string, data: any) => {
+    const res = await api.put(`/purchases/${id}`, data);
+    const state = get();
+    // Refresh purchases and products
+    if (data.supplierId) state.fetchPurchases(data.supplierId);
+    try {
+      const { useProductStore } = await import('./useProductStore');
+      useProductStore.getState().fetchProducts(true);
+    } catch {}
+    return res.data;
+  },
+
+  deletePurchase: async (id: string) => {
+    const res = await api.delete(`/purchases/${id}`);
+    const state = get();
+    state.fetchPurchases();
+    try {
+      const { useProductStore } = await import('./useProductStore');
+      useProductStore.getState().fetchProducts(true);
+    } catch {}
+    return res.data;
+  },
+
   fetchPayments: async (supplierId) => {
     try {
       const params = supplierId ? `?supplierId=${supplierId}` : '';
@@ -170,17 +195,28 @@ export const useSupplierStore = create<SupplierState>()((set, get) => ({
   },
 
   updatePayment: async (id: string, data: any) => {
-    try {
-      await api.put(`/supplier-payments/${id}`, data);
-      get().fetchPayments();
-    } catch {}
+    const res = await api.put(`/supplier-payments/${id}`, data);
+    const state = get();
+    state.fetchPayments();
+    // Also refresh purchases to update paid amounts
+    const pay = state.payments.find(p => p.id === id);
+    if (pay?.purchaseId || pay?.supplierId) {
+      state.fetchPurchases(pay.supplierId);
+    }
+    return res.data;
   },
 
   deletePayment: async (id: string) => {
-    try {
-      await api.delete(`/supplier-payments/${id}`);
-      get().fetchPayments();
-    } catch {}
+    const state = get();
+    const pay = state.payments.find(p => p.id === id);
+    const supplierId = pay?.supplierId;
+    const res = await api.delete(`/supplier-payments/${id}`);
+    state.fetchPayments();
+    // Also refresh purchases to update paid amounts
+    if (supplierId) {
+      state.fetchPurchases(supplierId);
+    }
+    return res.data;
   },
 
   fetchPromises: async (status) => {

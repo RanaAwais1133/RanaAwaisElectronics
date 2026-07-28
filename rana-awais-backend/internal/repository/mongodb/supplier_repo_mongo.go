@@ -151,6 +151,21 @@ func (r *SupplierMongoRepo) UpdatePurchasePaid(ctx context.Context, id string, p
 	return err
 }
 
+func (r *SupplierMongoRepo) UpdatePurchaseFull(ctx context.Context, id string, totalAmount, paidAmount, remainingAmount float64, paymentMode string, dueDate *time.Time, status, remarks string) error {
+	update := bson.M{
+		"totalamount": totalAmount, "paidamount": paidAmount,
+		"remainingamount": remainingAmount, "paymentmode": paymentMode,
+		"status": status, "remarks": remarks, "updatedat": time.Now(),
+	}
+	if dueDate != nil {
+		update["duedate"] = dueDate
+	} else {
+		update["duedate"] = nil
+	}
+	_, err := r.purchases.UpdateOne(ctx, bson.M{"_id": id}, bson.M{"$set": update})
+	return err
+}
+
 // ─── Payments ───
 func (r *SupplierMongoRepo) CreatePayment(ctx context.Context, pay *domain.SupplierPayment) error {
 	if pay.ID == "" {

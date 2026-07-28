@@ -84,6 +84,23 @@ const BulkPurchase: React.FC<Props> = ({ onClose, onSuccess }) => {
   const removeRow = (id: string) => { if (items.length <= 1) return; setItems(items.filter(i => i.id !== id)); };
   const updateRow = (id: string, field: keyof ItemRow, value: string) => setItems(items.map(i => i.id === id ? { ...i, [field]: value } : i));
 
+  // Duplicate a row - copy all data and insert right below the source row
+  const duplicateRow = (sourceId: string) => {
+    const sourceIndex = items.findIndex(i => i.id === sourceId);
+    if (sourceIndex === -1) return;
+    const sourceItem = items[sourceIndex];
+    const newItem: ItemRow = {
+      ...sourceItem,
+      id: Date.now().toString() + '_' + Math.random().toString(36).substr(2, 5),
+      // Keep all data except clear serial/IMEI/chassis/engine (those should be unique per item)
+      // User can easily change them
+    };
+    const newItems = [...items];
+    newItems.splice(sourceIndex + 1, 0, newItem);
+    setItems(newItems);
+    toast.success(isUrdu ? 'قطار ڈپلیکیٹ ہو گئی' : 'Row duplicated');
+  };
+
   // Fetch product history when supplier is selected and product input is focused
   const fetchProductHistory = async (supplierId: string) => {
     if (!supplierId) return;
@@ -219,7 +236,12 @@ const BulkPurchase: React.FC<Props> = ({ onClose, onSuccess }) => {
                           value={item.productName}
                           onChange={e => {
                             updateRow(item.id, 'productName', e.target.value);
+                            setActiveProductIndex(idx);
                             setShowProductSuggestions(true);
+                            // Auto-fetch suggestions if typing and no suggestions yet
+                            if (productSuggestions.length === 0 && supplierId && !fetchingSuggestions) {
+                              fetchProductHistory(supplierId);
+                            }
                           }}
                           onFocus={() => handleProductNameFocus(idx, supplierId)}
                           className="w-full border rounded px-2 py-1.5 text-xs bg-white dark:bg-gray-700"
@@ -261,7 +283,20 @@ const BulkPurchase: React.FC<Props> = ({ onClose, onSuccess }) => {
                       <td className="px-2 py-1"><input type="text" value={item.color} onChange={e => updateRow(item.id, 'color', e.target.value)} className="w-full border rounded px-2 py-1.5 text-xs bg-white dark:bg-gray-700" /></td>
                       <td className="px-2 py-1"><input type="number" value={item.purchasePrice} onChange={e => updateRow(item.id, 'purchasePrice', e.target.value)} className="w-20 border rounded px-2 py-1.5 text-xs bg-white dark:bg-gray-700" placeholder="0" /></td>
                       <td className="px-2 py-1"><input type="number" value={item.salePrice} onChange={e => updateRow(item.id, 'salePrice', e.target.value)} className="w-20 border rounded px-2 py-1.5 text-xs bg-white dark:bg-gray-700" placeholder="0" /></td>
-                      <td className="px-2 py-1"><button type="button" onClick={() => removeRow(item.id)} className="text-red-500 hover:text-red-700 text-xs">✕</button></td>
+                      <td className="px-2 py-1">
+                        <div className="flex items-center gap-1">
+                          <button type="button" onClick={() => duplicateRow(item.id)}
+                            className="p-1.5 rounded-lg bg-blue-50 dark:bg-blue-900/30 text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
+                            title={isUrdu ? 'ڈپلیکیٹ قطار' : 'Duplicate Row'}>
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            </svg>
+                          </button>
+                          <button type="button" onClick={() => removeRow(item.id)} className="p-1.5 rounded-lg bg-red-50 dark:bg-red-900/30 text-red-600 hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors" title={isUrdu ? 'حذف کریں' : 'Delete'}>
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

@@ -329,6 +329,27 @@ func (r *SupplierRepository) UpdatePurchasePaid(ctx context.Context, id string, 
 	return err
 }
 
+func (r *SupplierRepository) UpdatePurchaseFull(ctx context.Context, id string, totalAmount, paidAmount, remainingAmount float64, paymentMode string, dueDate *time.Time, status, remarks string, items []domain.PurchaseItem) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE purchases SET total_amount=?, paid_amount=?, remaining_amount=?, payment_mode=?, due_date=?, status=?, remarks=?, updated_at=? WHERE id=?`,
+		totalAmount, paidAmount, remainingAmount, paymentMode, dueDate, status, remarks, time.Now(), id)
+	if err != nil {
+		return err
+	}
+	// Delete old items and re-insert
+	r.db.ExecContext(ctx, `DELETE FROM purchase_items WHERE purchase_id=?`, id)
+	for _, item := range items {
+		item.ID = uuid.New().String()
+		item.PurchaseID = id
+		item.CreatedAt = time.Now()
+		r.db.ExecContext(ctx,
+			`INSERT INTO purchase_items (id, purchase_id, product_name, company, serial_number, imei, chassis_no, engine_no, model, color, price, sale_price, created_at)
+			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			item.ID, item.PurchaseID, item.ProductName, item.Company, item.SerialNumber, item.IMEI, item.ChassisNo, item.EngineNo, item.Model, item.Color, item.Price, item.SalePrice, item.CreatedAt)
+	}
+	return nil
+}
+
 func (r *SupplierRepository) CreateProductFromPurchase(ctx context.Context, item domain.PurchaseItem) error {
 	var serialNumber, imei, chassisNo, engineNo, model, color sql.NullString
 	if item.SerialNumber != "" { serialNumber.String = item.SerialNumber; serialNumber.Valid = true }

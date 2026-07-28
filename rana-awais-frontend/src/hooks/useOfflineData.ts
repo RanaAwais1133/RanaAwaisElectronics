@@ -4,12 +4,12 @@ import { offlineDB } from '../db/indexeddb';
 
 // ✅ Cache TTL in milliseconds
 const CACHE_TTL = {
-  DASHBOARD: 5 * 60 * 1000, // 5 minutes
+  DASHBOARD: 2 * 60 * 1000, // 2 minutes (was 5 — faster dashboard updates)
   CUSTOMERS: 10 * 60 * 1000, // 10 minutes
   PRODUCTS: 10 * 60 * 1000,
-  INSTALLMENTS: 5 * 60 * 1000,
-  PAYMENTS: 5 * 60 * 1000,
-  PROMISES: 5 * 60 * 1000,
+  INSTALLMENTS: 2 * 60 * 1000, // 2 minutes (was 5)
+  PAYMENTS: 2 * 60 * 1000, // 2 minutes (was 5)
+  PROMISES: 2 * 60 * 1000, // 2 minutes (was 5)
 };
 
 interface OfflineDataState<T> {

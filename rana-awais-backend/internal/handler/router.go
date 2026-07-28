@@ -941,6 +941,8 @@ func SetupRouter(
 	protected.HandleFunc("/purchases", supplierH.CreatePurchase).Methods("POST")
 	protected.HandleFunc("/purchases", supplierH.ListPurchases).Methods("GET")
 	protected.HandleFunc("/purchases/{id}", supplierH.GetPurchase).Methods("GET")
+	protected.HandleFunc("/purchases/{id}", supplierH.UpdatePurchase).Methods("PUT")
+	protected.HandleFunc("/purchases/{id}", supplierH.DeletePurchase).Methods("DELETE")
 	protected.HandleFunc("/supplier-payments", supplierH.CreatePayment).Methods("POST")
 	protected.HandleFunc("/supplier-payments", supplierH.ListPayments).Methods("GET")
 	protected.HandleFunc("/supplier-promises", supplierH.CreatePromise).Methods("POST")

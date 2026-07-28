@@ -61,8 +61,37 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
   const [paymentDetails, setPaymentDetails] = useState<PaymentDetail[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
 
-  // Handle click on a pending customer - navigate to installments page for that customer
+  // Filter payment details by search query
+  const filteredPayments = paymentDetails.filter(p => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return (p.customer_name || '').toLowerCase().includes(q) ||
+      (p.customer_name_urdu || '').toLowerCase().includes(q) ||
+      (p.father_name || '').toLowerCase().includes(q) ||
+      (p.phone || '').includes(q) ||
+      (p.product_name || '').toLowerCase().includes(q) ||
+      (p.payment_type || '').toLowerCase().includes(q) ||
+      String(p.amount || '').includes(q) ||
+      String(p.installment_no || '').includes(q);
+  });
+
+  // Filter pending customers by search query
+  const filteredCustomers = customers.filter(c => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return (c.customer_name || '').toLowerCase().includes(q) ||
+      (c.customer_name_urdu || '').toLowerCase().includes(q) ||
+      (c.father_name || '').toLowerCase().includes(q) ||
+      (c.phone || '').includes(q) ||
+      (c.product_name || '').toLowerCase().includes(q) ||
+      (c.address || '').toLowerCase().includes(q) ||
+      (c.address_urdu || '').toLowerCase().includes(q) ||
+      (c.cnic || '').includes(q) ||
+      String(c.pending_amount || '').includes(q);
+  });
+
   const handleCustomerClick = useCallback((customerId: string) => {
     onClose();
     navigate(`/installments?customerId=${customerId}`);
@@ -85,7 +114,6 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
         const d = res.data;
         const items: DetailItem[] = [];
 
-        // If response is an array (edge case), wrap it
         if (Array.isArray(d)) {
           setDetails([]);
           setCustomers([]);
@@ -97,29 +125,24 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
           const revenue = d.revenue ?? d.todayRevenue ?? d.total_revenue ?? d.totalIncome ?? 0;
           const profit = d.profit ?? d.total_profit ?? d.netProfit ?? 0;
 
-          // Show Revenue
           items.push({
             label: isUrdu ? `${prefix} کی کل آمدنی` : `${prefix} Total Revenue`,
             value: `Rs. ${revenue.toLocaleString()}`,
             rawValue: revenue,
           });
 
-          // Set payment details from backend response
           if (d.details && Array.isArray(d.details)) {
             setPaymentDetails(d.details);
           }
-          // Show profit as a separate item (not included in total)
           if (profit > 0) {
             items.push({
               label: isUrdu ? `${prefix} کا کل منافع` : `${prefix} Total Profit`,
               value: `Rs. ${profit.toLocaleString()}`,
-              rawValue: 0, // rawValue 0 so it doesn't affect total
+              rawValue: 0,
               isNegative: profit < 0,
             });
           }
         } else {
-
-          // Pending type - show total and customer-wise list
           const pendingTotal = d.pending_total ?? d.totalPending ?? 0;
           items.push({
             label: isUrdu ? 'کل بقایا رقم' : 'Total Pending Amount',
@@ -139,7 +162,6 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
         if (!cancelled) setDetails(items);
       })
       .catch(() => {
-        // ✅ OFFLINE FALLBACK: Try to serve from cached dashboard summary
         if (!cancelled) {
           import('../../db/indexeddb').then(({ offlineDB }) => {
             offlineDB.getCachedDashboardSummary().then(cached => {
@@ -157,7 +179,6 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
                     rawValue: cached.todayProfit || 0,
                     isNegative: (cached.todayProfit || 0) < 0,
                   });
-                  // Today's Collection is not shown separately - revenue already covers it
                 } else if (type === 'month') {
                   items.push({
                     label: isUrdu ? 'ماہ کی کل آمدنی' : "Month's Total Revenue",
@@ -171,7 +192,6 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
                     isNegative: (cached.monthProfit || 0) < 0,
                   });
                 } else {
-                  // Pending
                   items.push({
                     label: isUrdu ? 'کل بقایا رقم' : 'Total Pending Amount',
                     value: `Rs. ${(cached.totalPending || 0).toLocaleString()}`,
@@ -208,16 +228,13 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
       </tr>
     `).join('');
 
-    // Calculate total using raw numeric values (skip profit items to avoid double-counting)
     const totalValue = details.reduce((sum, item) => {
-      // Skip profit items in total calculation since profit is already part of revenue
       if (item.label.toLowerCase().includes('profit') || item.label.toLowerCase().includes('منافع')) {
         return sum;
       }
       return sum + (item.rawValue || 0);
     }, 0);
 
-    // Build payment details table rows for print
     const paymentRows = paymentDetails.map((p, idx) => {
       let typeLabel = 'Installment';
       if (p.payment_type === 'down_payment') typeLabel = 'Down Payment';
@@ -362,6 +379,29 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
           </div>
         </div>
 
+        {/* Search Bar */}
+        {(paymentDetails.length > 0 || customers.length > 0) && (
+          <div className="px-5 py-2 border-b border-gray-100 dark:border-gray-700">
+            <div className="relative">
+              <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder={isUrdu ? `${type === 'pending' ? 'گاہک تلاش کریں...' : 'ادائیگی تلاش کریں...'}` : `Search ${type === 'pending' ? 'customers' : 'payments'}...`}
+                className="w-full pl-10 pr-3 py-2 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-xs text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+              />
+              {searchQuery && (
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-gray-400">
+                  {type === 'pending' ? `${filteredCustomers.length}/${customers.length}` : `${filteredPayments.length}/${paymentDetails.length}`}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-5">
           {loading ? (
@@ -418,19 +458,17 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
                 </div>
               ))}
 
-              {/* Total - skip profit items and count items to avoid double-counting */}
+              {/* Total */}
               <div className="flex items-center justify-between p-4 bg-gray-900 dark:bg-white rounded-xl mt-4">
                 <span className="text-sm font-bold text-white dark:text-gray-900 uppercase tracking-wider">
                   {isUrdu ? 'کل' : 'Total'}
                 </span>
                 <span className="text-lg font-extrabold text-white dark:text-gray-900">
                   Rs. {details.reduce((sum, item) => {
-                    // Skip profit items in total since profit is derived from revenue
                     if (item.label.toLowerCase().includes('profit') || item.label.toLowerCase().includes('منافع')) {
                       return sum;
                     }
-                    // Skip count/quantity items (like "Affected Customers", "Transactions") - only sum financial values
-                    if (item.label.toLowerCase().includes('متاثرہ گاہک') || item.label.toLowerCase().includes('affected customers') || item.label.toLowerCase().includes('transactions') || item.label.toLowerCase().includes('لین دین')) {
+                    if (item.label.toLowerCase().includes('متاثرہ گاہک') || item.label.toLowerCase().includes('affected customers')) {
                       return sum;
                     }
                     return sum + (item.rawValue || 0);
@@ -443,7 +481,11 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
                 <div className="mt-6">
                   <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-3 uppercase tracking-wider">
                     {isUrdu ? 'ادائیگیوں کی تفصیل' : 'Payment Details'}
+                    {searchQuery && <span className="ml-2 text-[10px] font-normal text-gray-400">({filteredPayments.length} of {paymentDetails.length})</span>}
                   </h3>
+                  {filteredPayments.length === 0 ? (
+                    <div className="text-center py-6 text-xs text-gray-400">{isUrdu ? 'کوئی مماثلت نہیں' : 'No matches found'}</div>
+                  ) : (
                   <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700">
                     <table className="w-full text-sm">
                       <thead>
@@ -459,8 +501,7 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
-                        {paymentDetails.map((p, idx) => {
-                          // Determine payment type label
+                        {filteredPayments.map((p, idx) => {
                           let typeLabel = isUrdu ? 'قسط' : 'Installment';
                           if (p.payment_type === 'down_payment') {
                             typeLabel = isUrdu ? 'ایڈوانس' : 'Down Payment';
@@ -508,18 +549,22 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
                       </tbody>
                     </table>
                   </div>
+                  )}
                 </div>
               )}
 
               {/* Customer-wise pending list for pending type */}
               {type === 'pending' && customers.length > 0 && (
-
                 <div className="mt-6">
                   <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-3 uppercase tracking-wider">
                     {isUrdu ? 'گاہک کے لحاظ سے بقایا جات' : 'Customer-wise Pending'}
+                    {searchQuery && <span className="ml-2 text-[10px] font-normal text-gray-400">({filteredCustomers.length} of {customers.length})</span>}
                   </h3>
+                  {filteredCustomers.length === 0 ? (
+                    <div className="text-center py-6 text-xs text-gray-400">{isUrdu ? 'کوئی مماثلت نہیں' : 'No matches found'}</div>
+                  ) : (
                   <div className="space-y-3">
-                    {customers.map((cust, idx) => (
+                    {filteredCustomers.map((cust, idx) => (
                       <div
                         key={cust.customer_id}
                         className="p-4 bg-white dark:bg-gray-700 rounded-xl border border-gray-200 dark:border-gray-600 shadow-sm hover:shadow-md hover:border-amber-300 dark:hover:border-amber-600 cursor-pointer transition-all"
@@ -558,6 +603,7 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
                       </div>
                     ))}
                   </div>
+                  )}
                 </div>
               )}
             </div>
@@ -568,4 +614,4 @@ const DashboardSummaryModal: React.FC<DashboardSummaryModalProps> = ({ title, ty
   );
 };
 
-export default DashboardSummaryModal; 
+export default DashboardSummaryModal;

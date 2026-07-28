@@ -154,9 +154,36 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ title, endpoint, onClos
   };
 
   const rawData = dataType === 'inventory' ? groupedData : data;
-  const totalPages = Math.ceil(rawData.length / PER_PAGE);
+
+  // ✅ SEARCH/FILTER LOGIC (was missing — search bar tha but filtering nahi thi)
+  const filteredData = useMemo(() => {
+    if (!searchQuery.trim()) return rawData;
+    const q = searchQuery.toLowerCase();
+    return rawData.filter((item: any) => {
+      // Search across common fields
+      const name = (item.name || item.customer_name || item.product_name || item.label || '').toLowerCase();
+      const nameUrdu = (item.name_urdu || item.customer_urdu || item.customer_name_urdu || item.label_urdu || '').toLowerCase();
+      const father = (item.father_name || item.fatherName || '').toLowerCase();
+      const phone = (item.phone || item.customer_phone || '').toLowerCase();
+      const address = (item.address || item.address_urdu || '').toLowerCase();
+      const product = (item.product_name || '').toLowerCase();
+      const company = (item.company || '').toLowerCase();
+      const category = (item.category || '').toLowerCase();
+      const status = (item.status || '').toLowerCase();
+      const cnic = (item.cnic || '').toLowerCase();
+      const amount = String(item.amount || item.total_amount || item.total || item.pending_amount || item.paid_amount || '');
+      const refNo = (item.reference_no || item.check_no || item.transaction_id || item.receipt_number || '').toLowerCase();
+
+      return name.includes(q) || nameUrdu.includes(q) || father.includes(q) ||
+        phone.includes(q) || address.includes(q) || product.includes(q) ||
+        company.includes(q) || category.includes(q) || status.includes(q) ||
+        cnic.includes(q) || amount.includes(q) || refNo.includes(q);
+    });
+  }, [rawData, searchQuery]);
+
+  const totalPages = Math.ceil(filteredData.length / PER_PAGE);
   const startIdx = (page - 1) * PER_PAGE;
-  const displayData = rawData.slice(startIdx, startIdx + PER_PAGE);
+  const displayData = filteredData.slice(startIdx, startIdx + PER_PAGE);
 
   const pagesArr: number[] = [];
   for (let i = Math.max(1, page - 2); i <= Math.min(totalPages, page + 2); i++) pagesArr.push(i);

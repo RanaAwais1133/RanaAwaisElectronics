@@ -343,46 +343,62 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// ─────────────────────────────────────────────────────────────
-	// PENDING CALCULATION: Payment-based (consistent with modal)
-	// TotalAmount - all payments (includes down payment which is in payments collection)
+	// PENDING CALCULATION: Single aggregation with $lookup (was N+1 queries)
+	// SPEED FIX: Replaced per-plan queries with a single pipeline
 	// ─────────────────────────────────────────────────────────────
 	pendingTotal := 0.0
 	pendingCustomersCount := 0
 	pendingCustSet := make(map[string]bool)
 
-	// Fetch all active plans
-	pendingCur, err := db.Collection("installment_plans").Find(ctx(), bson.M{"status": bson.M{"$in": []string{"active", "Active", "Open"}}})
+	pendingPipe := mongo.Pipeline{
+		{{Key: "$match", Value: bson.D{{Key: "status", Value: bson.M{"$in": []string{"active", "Active", "Open"}}}}}},
+		{{Key: "$lookup", Value: bson.D{
+			{Key: "from", Value: "payments"},
+			{Key: "let", Value: bson.D{{Key: "planId", Value: "$_id"}}},
+			{Key: "pipeline", Value: mongo.Pipeline{
+				{{Key: "$match", Value: bson.D{
+					{Key: "$expr", Value: bson.D{
+						{Key: "$or", Value: []bson.D{
+							{{Key: "$eq", Value: []interface{}{"$installmentplanid", "$$planId"}}},
+							{{Key: "$eq", Value: []interface{}{"$installmentPlanId", "$$planId"}}},
+						}},
+					}},
+				}}},
+				{{Key: "$group", Value: bson.D{
+					{Key: "_id", Value: nil},
+					{Key: "total", Value: bson.D{{Key: "$sum", Value: "$amount"}}},
+				}}},
+			}},
+			{Key: "as", Value: "paymentSummary"},
+		}}},
+	}
+	type pendingPlanResult struct {
+		ID             string `bson:"_id"`
+		CustomerID     string `bson:"customerid"`
+		TotalAmount    float64 `bson:"totalamount"`
+		PaymentSummary []struct {
+			Total float64 `bson:"total"`
+		} `bson:"paymentSummary"`
+	}
+	pendingCur, err := db.Collection("installment_plans").Aggregate(ctx(), pendingPipe)
 	if err == nil {
 		for pendingCur.Next(ctx()) {
-			var plan domain.InstallmentPlan
-			if pendingCur.Decode(&plan) != nil {
+			var pr pendingPlanResult
+			if pendingCur.Decode(&pr) != nil {
 				continue
 			}
-			// Calculate total paid from payments collection (includes down payment)
 			totalPaid := 0.0
-			payCur, payErr := db.Collection("payments").Find(ctx(), bson.M{
-				"$or": []interface{}{
-					bson.M{"installmentplanid": plan.ID},
-					bson.M{"installmentPlanId": plan.ID},
-				},
-			})
-			if payErr == nil {
-				for payCur.Next(ctx()) {
-					var pay domain.Payment
-					if payCur.Decode(&pay) == nil {
-						totalPaid += pay.Amount
-					}
-				}
-				payCur.Close(ctx())
+			if len(pr.PaymentSummary) > 0 {
+				totalPaid = pr.PaymentSummary[0].Total
 			}
-			planRemaining := plan.TotalAmount - totalPaid
+			planRemaining := pr.TotalAmount - totalPaid
 			if planRemaining < 0 {
 				planRemaining = 0
 			}
 			if planRemaining > 0 {
 				pendingTotal += planRemaining
-				if !pendingCustSet[plan.CustomerID] {
-					pendingCustSet[plan.CustomerID] = true
+				if !pendingCustSet[pr.CustomerID] {
+					pendingCustSet[pr.CustomerID] = true
 					pendingCustomersCount++
 				}
 			}
@@ -461,30 +477,55 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 		todayDueCur.Close(ctx())
 	}
 
-	// Total products & low stock
+	// Total products (unique names) & low stock (grouped)
 	totalProducts := int64(0)
 	lowStock := int64(0)
 	inventoryValue := 0.0
-	if count, err := db.Collection("products").CountDocuments(ctx(), bson.M{}); err == nil {
-		totalProducts = count
+
+	type ProductGroup struct {
+		Name        string  `json:"name" bson:"_id"`
+		NameUrdu    string  `json:"nameUrdu" bson:"nameurdu"`
+		Company     string  `json:"company" bson:"company"`
+		Category    string  `json:"category" bson:"category"`
+		TotalStock  int     `json:"totalStock" bson:"totalstock"`
+		AvgPrice    float64 `json:"avgPrice" bson:"avgprice"`
+		TotalValue  float64 `json:"totalValue" bson:"totalvalue"`
+		VariantCount int    `json:"variantCount" bson:"variantcount"`
 	}
-	if count, err := db.Collection("products").CountDocuments(ctx(), bson.M{"stockcount": bson.M{"$lte": 5}}); err == nil {
-		lowStock = count
+
+	// Aggregate products by name to get unique items + stock sums
+	groupPipe := mongo.Pipeline{
+		{{Key: "$group", Value: bson.D{
+			{Key: "_id", Value: bson.D{{Key: "$toLower", Value: "$name"}}},
+			{Key: "name", Value: bson.D{{Key: "$first", Value: "$name"}}},
+			{Key: "nameurdu", Value: bson.D{{Key: "$first", Value: "$nameurdu"}}},
+			{Key: "company", Value: bson.D{{Key: "$first", Value: bson.D{{Key: "$ifNull", Value: []interface{}{"$company", ""}}}}}},
+			{Key: "category", Value: bson.D{{Key: "$first", Value: "$category"}}},
+			{Key: "totalstock", Value: bson.D{{Key: "$sum", Value: bson.D{{Key: "$cond", Value: []interface{}{bson.D{{Key: "$gt", Value: []interface{}{"$stockcount", 0}}}, "$stockcount", 0}}}}}},
+			{Key: "totalvalue", Value: bson.D{{Key: "$sum", Value: bson.D{{Key: "$multiply", Value: []interface{}{"$stockcount", bson.D{{Key: "$cond", Value: []interface{}{bson.D{{Key: "$gt", Value: []interface{}{"$price", 0}}}, "$price", bson.D{{Key: "$multiply", Value: []interface{}{"$purchaseprice", 1.2}}}}}}}}}}}},
+			{Key: "avgprice", Value: bson.D{{Key: "$avg", Value: bson.D{{Key: "$cond", Value: []interface{}{bson.D{{Key: "$gt", Value: []interface{}{"$price", 0}}}, "$price", bson.D{{Key: "$multiply", Value: []interface{}{"$purchaseprice", 1.2}}}}}}}}},
+			{Key: "variantcount", Value: bson.D{{Key: "$sum", Value: 1}}},
+		}}},
+		{{Key: "$sort", Value: bson.D{{Key: "name", Value: 1}}}},
 	}
-	// Calculate total inventory value (stock_count × selling price)
-	prodCursor, prodErr := db.Collection("products").Find(ctx(), bson.M{})
-	if prodErr == nil {
-		for prodCursor.Next(ctx()) {
-			var p domain.Product
-			if prodCursor.Decode(&p) == nil && p.StockCount > 0 {
-				price := p.Price
-				if price <= 0 {
-					price = p.PurchasePrice * 1.2 // fallback: estimate selling price
+	groupCursor, groupErr := db.Collection("products").Aggregate(ctx(), groupPipe)
+	var productGroups []ProductGroup
+	if groupErr == nil {
+		for groupCursor.Next(ctx()) {
+			var pg ProductGroup
+			if groupCursor.Decode(&pg) == nil {
+				productGroups = append(productGroups, pg)
+				totalProducts++
+				if pg.TotalStock <= 5 {
+					lowStock++
 				}
-				inventoryValue += float64(p.StockCount) * price
+				inventoryValue += pg.TotalValue
 			}
 		}
-		prodCursor.Close(ctx())
+		groupCursor.Close(ctx())
+	}
+	if productGroups == nil {
+		productGroups = []ProductGroup{}
 	}
 
 	// Monthly due count
@@ -547,6 +588,8 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 		"lowStock":          lowStock,
 		"inventoryValue":    inventoryValue,
 		"monthlyDueCount":   monthlyDueCount,
+		"productGroups":     productGroups,
+		"ageingInventory":   0,  // placeholder — can be calculated later
 	})
 }
 

@@ -5,6 +5,7 @@ import { useSupplierStore, Purchase, PurchaseItem } from '../../store/useSupplie
 import api from '../../utils/api';
 import SupplierLedger from './SupplierLedger';
 import SupplierReminders from './SupplierReminders';
+import BulkPurchase from './BulkPurchase';
 
 interface Props {
   supplierId: string;
@@ -14,7 +15,7 @@ interface Props {
 const SupplierReport: React.FC<Props> = ({ supplierId, onClose }) => {
   const { t, i18n } = useTranslation();
   const isUrdu = i18n.language === 'ur';
-  const { suppliers, fetchPurchases, fetchPayments, fetchPromises, purchases, payments, promises, updatePayment, deletePayment } = useSupplierStore();
+  const { suppliers, fetchPurchases, fetchPayments, fetchPromises, purchases, payments, promises, updatePayment, deletePayment, updatePurchase, deletePurchase } = useSupplierStore();
   const [paidAmount, setPaidAmount] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [showPayModal, setShowPayModal] = useState(false);
@@ -79,7 +80,6 @@ const SupplierReport: React.FC<Props> = ({ supplierId, onClose }) => {
     }
     setPayLoading(true); setPayErr('');
     try {
-      // Get today's date in YYYY-MM-DD format
       const today = new Date();
       const paymentDate = today.getFullYear() + '-' +
         String(today.getMonth() + 1).padStart(2, '0') + '-' +
@@ -90,7 +90,7 @@ const SupplierReport: React.FC<Props> = ({ supplierId, onClose }) => {
         paymentDate,
       });
       toast.success(isUrdu ? 'ادائیگی محفوظ' : 'Payment saved');
-      loadData();
+      await loadData();
       setShowPayModal(false); setPaidAmount('');
     } catch (err: any) {
       const msg = err?.response?.data?.error || err?.response?.data?.message || (isUrdu ? 'ناکام' : 'Failed');
@@ -99,10 +99,12 @@ const SupplierReport: React.FC<Props> = ({ supplierId, onClose }) => {
     finally { setPayLoading(false); }
   };
 
-  const handlePayPromise = async (promiseId: string) => {
+  const handlePayPromise = async (promiseId: string, partialAmount?: number) => {
     if (payLoading) return;
     const pr = promises.find(p => p.id === promiseId);
     if (!pr || pr.status === 'paid') return;
+    const payAmount = partialAmount || pr.amount - (pr.paidAmount || 0);
+    if (payAmount <= 0) return;
     setPayLoading(true);
     try {
       const today = new Date();
@@ -113,18 +115,37 @@ const SupplierReport: React.FC<Props> = ({ supplierId, onClose }) => {
       await api.post('/supplier-payments', {
         supplierId: pr.supplierId,
         purchaseId: pr.purchaseId,
-        amount: pr.amount,
+        amount: payAmount,
         method: 'cash',
         paymentDate,
       });
-      await api.put(`/supplier-promises/${promiseId}`, { status: 'paid', paidAmount: pr.amount });
+      const newPaidAmount = (pr.paidAmount || 0) + payAmount;
+      const newStatus = newPaidAmount >= pr.amount ? 'paid' : 'partial';
+      await api.put(`/supplier-promises/${promiseId}`, { status: newStatus, paidAmount: newPaidAmount });
       toast.success(isUrdu ? 'ادا شدہ' : 'Marked paid');
-      loadData();
+      await loadData();
     } catch (err: any) {
       const msg = err?.response?.data?.error || (isUrdu ? 'ناکام' : 'Failed');
       toast.error(msg);
     }
     finally { setPayLoading(false); }
+  };
+
+  const [promisePayModal, setPromisePayModal] = useState<string | null>(null);
+  const [promisePayAmount, setPromisePayAmount] = useState('');
+  const [deletePurchaseConfirm, setDeletePurchaseConfirm] = useState<string | null>(null);
+  const [editPurchase, setEditPurchase] = useState<Purchase | null>(null);
+
+  const handleDeletePurchaseAction = async (purchaseId: string) => {
+    try {
+      await deletePurchase(purchaseId);
+      toast.success(isUrdu ? 'خریداری حذف ہو گئی' : 'Purchase deleted');
+      loadData();
+      setDeletePurchaseConfirm(null);
+    } catch (err: any) {
+      const msg = err?.response?.data?.error || (isUrdu ? 'ناکام' : 'Failed');
+      toast.error(msg);
+    }
   };
 
   const handleEditPayment = (payment: any) => {
@@ -270,12 +291,23 @@ const SupplierReport: React.FC<Props> = ({ supplierId, onClose }) => {
                           </span>
                         </td>
                         <td className="px-3 py-2.5 text-center">
-                          <button
-                            onClick={(e) => { e.stopPropagation(); openHistoryModal(p); }}
-                            className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs transition-colors"
-                          >
-                            {isUrdu ? 'ہسٹری' : 'History'}
-                          </button>
+                          <div className="flex items-center justify-center gap-1">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); openHistoryModal(p); }}
+                              className="px-2 py-0.5 bg-blue-500 hover:bg-blue-600 text-white rounded text-xs transition-colors"
+                              title={isUrdu ? 'ہسٹری' : 'History'}
+                            >📋</button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setEditPurchase(p); }}
+                              className="px-2 py-0.5 bg-amber-500 hover:bg-amber-600 text-white rounded text-xs transition-colors"
+                              title={isUrdu ? 'ترمیم' : 'Edit'}
+                            >✏️</button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setDeletePurchaseConfirm(p.id); }}
+                              className="px-2 py-0.5 bg-red-500 hover:bg-red-600 text-white rounded text-xs transition-colors"
+                              title={isUrdu ? 'حذف' : 'Delete'}
+                            >🗑</button>
+                          </div>
                         </td>
                       </tr>
                       {/* Expandable items row */}
@@ -345,9 +377,16 @@ const SupplierReport: React.FC<Props> = ({ supplierId, onClose }) => {
                       </td>
                       <td className="px-3 py-2.5 text-center">
                         {pr.status !== 'paid' && (
-                          <button onClick={() => handlePayPromise(pr.id)} disabled={payLoading} className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white rounded text-xs font-medium transition-colors">
-                            {payLoading ? '...' : isUrdu ? 'ادا کریں' : 'Pay Now'}
-                          </button>
+                          <div className="flex items-center justify-center gap-1">
+                            <button onClick={() => { setPromisePayModal(pr.id); setPromisePayAmount(String(pr.amount - (pr.paidAmount || 0))); }} 
+                              className="px-2 py-0.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-medium transition-colors">
+                              {isUrdu ? 'پورا ادا' : 'Pay Full'}
+                            </button>
+                            <button onClick={() => { setPromisePayModal(pr.id); setPromisePayAmount(''); }} 
+                              className="px-2 py-0.5 bg-blue-500 hover:bg-blue-600 text-white rounded text-xs font-medium transition-colors">
+                              {isUrdu ? 'جزوی' : 'Partial'}
+                            </button>
+                          </div>
                         )}
                       </td>
                     </tr>
@@ -529,6 +568,91 @@ const SupplierReport: React.FC<Props> = ({ supplierId, onClose }) => {
         {/* Supplier Reminders Modal */}
         {showReminders && (
           <SupplierReminders onClose={() => setShowReminders(false)} />
+        )}
+
+        {/* Promise Payment Modal */}
+        {promisePayModal && (() => {
+          const pr = promises.find(p => p.id === promisePayModal);
+          if (!pr) return null;
+          const remaining = pr.amount - (pr.paidAmount || 0);
+          return (
+            <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/50 rounded-3xl" onClick={() => { setPromisePayModal(null); setPromisePayAmount(''); }}>
+              <div className="bg-white dark:bg-gray-700 rounded-2xl p-5 w-80 shadow-2xl" onClick={e => e.stopPropagation()}>
+                <h3 className="font-bold text-gray-800 dark:text-white mb-3">{isUrdu ? 'وعدے کی ادائیگی' : 'Pay Promise'}</h3>
+                <div className="space-y-3">
+                  <div className="bg-amber-50 dark:bg-amber-900/20 rounded-lg p-2 text-xs">
+                    <div className="flex justify-between"><span>{isUrdu ? 'کل وعدہ' : 'Total Promise'}:</span> <strong>Rs. {pr.amount?.toLocaleString()}</strong></div>
+                    <div className="flex justify-between"><span>{isUrdu ? 'ادا شدہ' : 'Already Paid'}:</span> <strong className="text-emerald-600">Rs. {(pr.paidAmount || 0).toLocaleString()}</strong></div>
+                    <div className="flex justify-between border-t pt-1 mt-1"><span>{isUrdu ? 'بقایا' : 'Remaining'}:</span> <strong className="text-red-600">Rs. {remaining.toLocaleString()}</strong></div>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">{isUrdu ? 'رقم' : 'Amount'} *</label>
+                    <input type="number" placeholder="0" value={promisePayAmount} onChange={e => setPromisePayAmount(e.target.value)}
+                      className="w-full border rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-600" />
+                    <p className="text-[10px] text-gray-400 mt-1">{isUrdu ? 'زیادہ سے زیادہ' : 'Max'}: Rs. {remaining.toLocaleString()}</p>
+                  </div>
+                  {payErr && <p className="text-red-500 text-xs">{payErr}</p>}
+                  <div className="flex gap-2 pt-1">
+                    <button onClick={() => { setPromisePayModal(null); setPromisePayAmount(''); }} className="flex-1 py-2 bg-gray-100 dark:bg-gray-600 rounded-lg text-sm font-medium">{isUrdu ? 'منسوخ' : 'Cancel'}</button>
+                    <button onClick={() => {
+                      const amt = parseFloat(promisePayAmount) || remaining;
+                      if (amt <= 0 || amt > remaining) {
+                        setPayErr(isUrdu ? 'غلط رقم' : 'Invalid amount');
+                        return;
+                      }
+                      setPromisePayModal(null);
+                      setPromisePayAmount('');
+                      handlePayPromise(pr.id, amt);
+                    }} disabled={payLoading}
+                      className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white rounded-lg text-sm font-medium">
+                      {payLoading ? '...' : isUrdu ? 'ادا کریں' : 'Pay'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Delete Purchase Confirmation Modal */}
+        {deletePurchaseConfirm && (() => {
+          const p = supplierPurchases.find(x => x.id === deletePurchaseConfirm);
+          if (!p) { setDeletePurchaseConfirm(null); return null; }
+          return (
+            <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 rounded-3xl" onClick={() => setDeletePurchaseConfirm(null)}>
+              <div className="bg-white dark:bg-gray-700 rounded-2xl p-6 w-96 shadow-2xl" onClick={e => e.stopPropagation()}>
+                <div className="text-center mb-4">
+                  <div className="w-14 h-14 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-3">
+                    <svg className="w-7 h-7 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </div>
+                  <h3 className="text-lg font-bold text-gray-800 dark:text-white">{isUrdu ? 'خریداری حذف کریں؟' : 'Delete Purchase?'}</h3>
+                  <p className="text-sm text-gray-500 mt-1">{isUrdu ? 'یہ کارروائی واپس نہیں ہو سکتی' : 'This action cannot be undone'}</p>
+                </div>
+                <div className="bg-red-50 dark:bg-red-900/10 rounded-xl p-3 mb-4 text-xs space-y-1">
+                  <div className="flex justify-between"><span className="text-gray-500">{isUrdu ? 'تاریخ' : 'Date'}:</span> <strong>{formatDate(p.createdAt)}</strong></div>
+                  <div className="flex justify-between"><span className="text-gray-500">{isUrdu ? 'کل رقم' : 'Total'}:</span> <strong>Rs. {p.totalAmount?.toLocaleString()}</strong></div>
+                  <div className="flex justify-between"><span className="text-gray-500">{isUrdu ? 'ادا شدہ' : 'Paid'}:</span> <strong className="text-emerald-600">Rs. {p.paidAmount?.toLocaleString()}</strong></div>
+                  <div className="flex justify-between border-t pt-1 mt-1"><span className="text-gray-500">{isUrdu ? 'اشیاء' : 'Items'}:</span> <strong>{(p.items || []).map(i => i.productName).join(', ') || 'N/A'}</strong></div>
+                </div>
+                <div className="flex gap-3">
+                  <button onClick={() => setDeletePurchaseConfirm(null)} className="flex-1 py-2.5 bg-gray-100 dark:bg-gray-600 rounded-xl text-sm font-medium">{isUrdu ? 'منسوخ' : 'Cancel'}</button>
+                  <button onClick={() => handleDeletePurchaseAction(deletePurchaseConfirm)} className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-bold shadow-lg">
+                    {isUrdu ? 'حذف کریں' : 'Delete'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Edit Purchase Modal - reuse BulkPurchase for editing */}
+        {editPurchase && (
+          <BulkPurchase
+            onClose={() => setEditPurchase(null)}
+            onSuccess={() => { setEditPurchase(null); loadData(); }}
+          />
         )}
       </div>
     </div>

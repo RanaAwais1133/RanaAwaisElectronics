@@ -12,6 +12,7 @@ import (
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/repository/sqlite"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
+	"go.mongodb.org/mongo-driver/bson"
 )
 
 type SupplierHandler struct {
@@ -259,6 +260,178 @@ func (h *SupplierHandler) ListPurchases(w http.ResponseWriter, r *http.Request) 
 	respondJSON(w, 200, map[string]interface{}{"data": list, "total": len(list)})
 }
 
+// UpdatePurchase handles updating an existing purchase
+func (h *SupplierHandler) UpdatePurchase(w http.ResponseWriter, r *http.Request) {
+	id := mux.Vars(r)["id"]
+
+	// Get existing purchase
+	var existing *domain.Purchase
+	if h.useMongo() {
+		existing, _ = h.mongoRepo.GetPurchase(r.Context(), id)
+	}
+	if existing == nil {
+		existing, _ = h.repo.GetPurchase(r.Context(), id)
+	}
+	if existing == nil {
+		respondError(w, r, 404, "Purchase not found", "خریداری نہیں ملی")
+		return
+	}
+
+	// Inventory safety: Check if any items from this purchase have been sold
+	for _, item := range existing.Items {
+		if item.SerialNumber != "" || item.IMEI != "" || item.ChassisNo != "" || item.EngineNo != "" {
+			if config.MongoDatabase != nil {
+				count, _ := config.MongoDatabase.Collection("inventory_items").CountDocuments(r.Context(),
+					bson.M{"$or": []bson.M{
+						{"serialnumber": item.SerialNumber},
+						{"imei": item.IMEI},
+						{"chassisno": item.ChassisNo},
+						{"engineno": item.EngineNo},
+					}, "status": bson.M{"$ne": "in_stock"}},
+				)
+				if count > 0 {
+					respondError(w, r, 400, "Cannot edit purchase: Some products have already been sold. یہ پراڈکٹ پہلے ہی فروخت ہو چکی ہے", "یہ پراڈکٹ پہلے ہی فروخت ہو چکی ہے")
+					return
+				}
+			}
+		}
+	}
+
+	// Decode new data
+	var raw struct {
+		TotalAmount     float64               `json:"totalAmount"`
+		PaidAmount      float64               `json:"paidAmount"`
+		RemainingAmount float64               `json:"remainingAmount"`
+		PaymentMode     string                `json:"paymentMode"`
+		DueDate         string                `json:"dueDate"`
+		Status          string                `json:"status"`
+		Remarks         string                `json:"remarks"`
+		Items           []domain.PurchaseItem `json:"items"`
+	}
+	json.NewDecoder(r.Body).Decode(&raw)
+
+	// Parse dueDate string
+	var dueDate *time.Time
+	if raw.DueDate != "" {
+		if parsed, err := time.Parse("2006-01-02", raw.DueDate); err == nil {
+			dueDate = &parsed
+		} else if parsed, err := time.Parse(time.RFC3339, raw.DueDate); err == nil {
+			dueDate = &parsed
+		}
+	}
+
+	// Smart status detection
+	status := raw.Status
+	if raw.PaidAmount >= raw.TotalAmount {
+		status = "completed"
+	} else if raw.PaidAmount > 0 {
+		status = "partial"
+	} else {
+		status = "pending"
+	}
+
+	// Update in MongoDB
+	if h.useMongo() {
+		h.mongoRepo.UpdatePurchaseFull(r.Context(), id, raw.TotalAmount, raw.PaidAmount, raw.RemainingAmount, raw.PaymentMode, dueDate, status, raw.Remarks)
+	}
+	// Update in SQLite
+	h.repo.UpdatePurchaseFull(r.Context(), id, raw.TotalAmount, raw.PaidAmount, raw.RemainingAmount, raw.PaymentMode, dueDate, status, raw.Remarks, raw.Items)
+
+	// Update inventory - remove old items, add new ones
+	if h.useMongo() {
+		// Remove old inventory items for this purchase
+		for _, item := range existing.Items {
+			if item.SerialNumber != "" {
+				config.MongoDatabase.Collection("inventory_items").DeleteMany(r.Context(), bson.M{"serialnumber": item.SerialNumber, "status": "in_stock"})
+				config.MongoDatabase.Collection("products").DeleteMany(r.Context(), bson.M{"serialnumber": item.SerialNumber, "category": "Purchase"})
+			}
+		}
+	}
+	// Add new items to inventory
+	for _, item := range raw.Items {
+		h.addToInventory(item.ProductName, item.SerialNumber, item.IMEI, item.ChassisNo, item.EngineNo, item.Model, item.Color, item.Price, item.SalePrice)
+	}
+
+	respondJSON(w, 200, map[string]interface{}{"message": "Purchase updated", "id": id})
+}
+
+// DeletePurchase handles deleting a purchase
+func (h *SupplierHandler) DeletePurchase(w http.ResponseWriter, r *http.Request) {
+	id := mux.Vars(r)["id"]
+
+	// Get existing purchase
+	var existing *domain.Purchase
+	if h.useMongo() {
+		existing, _ = h.mongoRepo.GetPurchase(r.Context(), id)
+	}
+	if existing == nil {
+		existing, _ = h.repo.GetPurchase(r.Context(), id)
+	}
+	if existing == nil {
+		respondError(w, r, 404, "Purchase not found", "خریداری نہیں ملی")
+		return
+	}
+
+	// Inventory safety: Check if any items from this purchase have been sold
+	for _, item := range existing.Items {
+		if item.SerialNumber != "" || item.IMEI != "" || item.ChassisNo != "" || item.EngineNo != "" {
+			if config.MongoDatabase != nil {
+				count, _ := config.MongoDatabase.Collection("inventory_items").CountDocuments(r.Context(),
+					bson.M{"$or": []bson.M{
+						{"serialnumber": item.SerialNumber},
+						{"imei": item.IMEI},
+						{"chassisno": item.ChassisNo},
+						{"engineno": item.EngineNo},
+					}, "status": bson.M{"$ne": "in_stock"}},
+				)
+				if count > 0 {
+					respondError(w, r, 400, "Cannot delete purchase: Some products have already been sold. یہ پراڈکٹ پہلے ہی فروخت ہو چکی ہے", "یہ پراڈکٹ پہلے ہی فروخت ہو چکی ہے")
+					return
+				}
+			}
+			if db := config.GetSQLiteDB(); db != nil {
+				var soldCount int
+				db.QueryRow(`SELECT COUNT(*) FROM inventory_items WHERE (serial_number=? OR imei=? OR chassis_no=? OR engine_no=?) AND status != 'in_stock'`,
+					item.SerialNumber, item.IMEI, item.ChassisNo, item.EngineNo).Scan(&soldCount)
+				if soldCount > 0 {
+					respondError(w, r, 400, "Cannot delete purchase: Some products have already been sold. یہ پراڈکٹ پہلے ہی فروخت ہو چکی ہے", "یہ پراڈکٹ پہلے ہی فروخت ہو چکی ہے")
+					return
+				}
+			}
+		}
+	}
+
+	// Delete associated payments
+	if h.useMongo() {
+		config.MongoDatabase.Collection("supplier_payments").DeleteMany(r.Context(), bson.M{"purchaseid": id})
+		config.MongoDatabase.Collection("supplier_promises").DeleteMany(r.Context(), bson.M{"purchaseid": id})
+		config.MongoDatabase.Collection("purchase_items").DeleteMany(r.Context(), bson.M{"purchaseid": id})
+		config.MongoDatabase.Collection("purchases").DeleteOne(r.Context(), bson.M{"_id": id})
+	}
+	// Delete from SQLite
+	if db := config.GetSQLiteDB(); db != nil {
+		db.Exec("DELETE FROM supplier_payments WHERE purchase_id=?", id)
+		db.Exec("DELETE FROM supplier_promises WHERE purchase_id=?", id)
+		db.Exec("DELETE FROM purchase_items WHERE purchase_id=?", id)
+		db.Exec("DELETE FROM purchases WHERE id=?", id)
+	}
+
+	// Remove inventory items
+	if h.useMongo() {
+		for _, item := range existing.Items {
+			if item.SerialNumber != "" {
+				config.MongoDatabase.Collection("inventory_items").DeleteMany(r.Context(), bson.M{"serialnumber": item.SerialNumber, "status": "in_stock"})
+				config.MongoDatabase.Collection("products").DeleteMany(r.Context(), bson.M{"serialnumber": item.SerialNumber, "category": "Purchase"})
+			} else if item.IMEI != "" {
+				config.MongoDatabase.Collection("inventory_items").DeleteMany(r.Context(), bson.M{"imei": item.IMEI, "status": "in_stock"})
+				config.MongoDatabase.Collection("products").DeleteMany(r.Context(), bson.M{"imei": item.IMEI, "category": "Purchase"})
+			}
+		}
+	}
+
+	respondJSON(w, 200, map[string]interface{}{"message": "Purchase deleted", "id": id})
+}
+
 // ─── Payments ───
 func (h *SupplierHandler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 	// Use a raw decode first to handle date string properly
@@ -479,6 +652,49 @@ func (h *SupplierHandler) DeletePayment(w http.ResponseWriter, r *http.Request) 
 	if pay == nil {
 		respondError(w, r, 404, "Payment not found", "ادائیگی نہیں ملی")
 		return
+	}
+
+	// Inventory safety check: Don't allow deleting payment if purchase items are already sold
+	if pay.PurchaseID != "" {
+		var p *domain.Purchase
+		if h.useMongo() {
+			p, _ = h.mongoRepo.GetPurchase(r.Context(), pay.PurchaseID)
+		}
+		if p == nil {
+			p, _ = h.repo.GetPurchase(r.Context(), pay.PurchaseID)
+		}
+		if p != nil {
+			// Check each item from the purchase - if any is sold, block deletion
+			for _, item := range p.Items {
+				if item.SerialNumber != "" || item.IMEI != "" || item.ChassisNo != "" || item.EngineNo != "" {
+					// Check MongoDB inventory_items
+					if config.MongoDatabase != nil {
+						count, _ := config.MongoDatabase.Collection("inventory_items").CountDocuments(r.Context(),
+							bson.M{"$or": []bson.M{
+								{"serialnumber": item.SerialNumber},
+								{"imei": item.IMEI},
+								{"chassisno": item.ChassisNo},
+								{"engineno": item.EngineNo},
+							}, "status": bson.M{"$ne": "in_stock"}},
+						)
+						if count > 0 {
+							respondError(w, r, 400, "Cannot delete payment: Some products from this purchase have already been sold. يہ پراڈکٹ پہلے ہی فروخت ہو چکی ہے", "یہ پراڈکٹ پہلے ہی فروخت ہو چکی ہے")
+							return
+						}
+					}
+					// Check SQLite products
+					if db := config.GetSQLiteDB(); db != nil {
+						var soldCount int
+						db.QueryRow(`SELECT COUNT(*) FROM inventory_items WHERE (serial_number=? OR imei=? OR chassis_no=? OR engine_no=?) AND status != 'in_stock'`,
+							item.SerialNumber, item.IMEI, item.ChassisNo, item.EngineNo).Scan(&soldCount)
+						if soldCount > 0 {
+							respondError(w, r, 400, "Cannot delete payment: Some products from this purchase have already been sold. يہ پراڈکٹ پہلے ہی فروخت ہو چکی ہے", "یہ پراڈکٹ پہلے ہی فروخت ہو چکی ہے")
+							return
+						}
+					}
+				}
+			}
+		}
 	}
 
 	if h.useMongo() {
