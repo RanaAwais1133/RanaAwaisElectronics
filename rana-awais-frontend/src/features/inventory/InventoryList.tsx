@@ -201,7 +201,7 @@ const InventoryList: React.FC = () => {
   
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
-  const [search, setSearch] = useState(searchParams.get('search') || ''); // ✅ Read search from URL
+  const [search, setSearch] = useState(searchParams.get('search') || '');
   const [ageingDays, setAgeingDays] = useState(90);
   const [ageingReport, setAgeingReport] = useState<any[]>([]);
   const [showAgeing, setShowAgeing] = useState(false);
@@ -257,6 +257,8 @@ const InventoryList: React.FC = () => {
       await api.delete(`/inventory/${id}`);
       toast.success(isUrdu ? 'آئٹم ڈیلیٹ ہو گیا' : t('inventory_item_deleted'));
       await fetchInventory();
+      // ✅ Notify dashboard to refresh inventory stats
+      window.dispatchEvent(new CustomEvent('inventoryUpdated'));
     } catch {
       toast.error(isUrdu ? 'آئٹم ڈیلیٹ کرنے میں ناکامی' : t('error_deleting_inventory'));
     } finally {
@@ -447,6 +449,7 @@ const InventoryList: React.FC = () => {
           onSuccess={() => {
             fetchInventory();
             setShowCreate(false);
+            window.dispatchEvent(new CustomEvent('inventoryUpdated'));
           }}
         />
       )}
@@ -458,6 +461,7 @@ const InventoryList: React.FC = () => {
           onSuccess={() => {
             fetchInventory();
             setEditItemId(null);
+            window.dispatchEvent(new CustomEvent('inventoryUpdated'));
           }}
         />
       )}

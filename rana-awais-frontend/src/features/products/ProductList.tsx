@@ -70,8 +70,13 @@ const ProductList: React.FC = () => {
 
   const handleDelete = useCallback(async (id: string) => {
     setIsDeleting(true); setDeleteConfirm(null);
-    if (await deleteProduct(id)) toast.success(isUrdu ? 'پروڈکٹ ڈیلیٹ' : 'Deleted');
-    else toast.error(isUrdu ? 'ناکام' : 'Failed');
+    if (await deleteProduct(id)) {
+      toast.success(isUrdu ? 'پروڈکٹ ڈیلیٹ' : 'Deleted');
+      // ✅ Notify dashboard to refresh inventory stats
+      window.dispatchEvent(new CustomEvent('inventoryUpdated'));
+    } else {
+      toast.error(isUrdu ? 'ناکام' : 'Failed');
+    }
     setIsDeleting(false);
   }, [deleteProduct, isUrdu]);
 
@@ -124,8 +129,8 @@ const ProductList: React.FC = () => {
         </div>
       )}
 
-      {showCreate && <ProductCreate onClose={() => setShowCreate(false)} onSuccess={() => { fetchProducts(true); setShowCreate(false); }} />}
-      {editProduct && <ProductCreate initialData={editProduct} onClose={() => setEditProduct(null)} onSuccess={() => { fetchProducts(true); setEditProduct(null); }} />}
+      {showCreate && <ProductCreate onClose={() => setShowCreate(false)} onSuccess={() => { fetchProducts(true); setShowCreate(false); window.dispatchEvent(new CustomEvent('inventoryUpdated')); }} />}
+      {editProduct && <ProductCreate initialData={editProduct} onClose={() => setEditProduct(null)} onSuccess={() => { fetchProducts(true); setEditProduct(null); window.dispatchEvent(new CustomEvent('inventoryUpdated')); }} />}
 
       {deleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">

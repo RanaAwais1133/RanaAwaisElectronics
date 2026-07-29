@@ -12,6 +12,9 @@ import AddPromiseModal from './AddPromiseModal';
 import PromisesModal from '../promises/PromisesModal';
 import ProductGroupsModal from './ProductGroupsModal';
 
+// ✅ Listen for inventory updates from other pages
+const INVENTORY_UPDATE_EVENT = 'inventoryUpdated';
+
 const LS_CACHE_KEY = 'dashboard_summary_cache';
 const LS_CACHE_TTL = 5 * 60 * 1000;
 
@@ -970,6 +973,16 @@ const DashboardPage: React.FC = () => {
     isStale,
     refresh: handleRefresh,
   } = useOfflineDashboard();
+
+  // ✅ Auto-refresh dashboard when inventory is updated
+  useEffect(() => {
+    const handleInventoryUpdate = () => {
+      handleRefresh();
+    };
+
+    window.addEventListener(INVENTORY_UPDATE_EVENT, handleInventoryUpdate);
+    return () => window.removeEventListener(INVENTORY_UPDATE_EVENT, handleInventoryUpdate);
+  }, [handleRefresh]);
 
   if (loading && !summary) {
     return <DashboardSkeleton isUrdu={isUrdu} />;

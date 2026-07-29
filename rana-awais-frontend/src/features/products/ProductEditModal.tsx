@@ -378,6 +378,8 @@ const ProductEditModal: React.FC<Props> = ({ productId, onClose, onSuccess }) =>
                 // Silently ignore fetch errors
               });
             setShowAddStock(false);
+            // ✅ Notify dashboard to refresh inventory stats
+            window.dispatchEvent(new CustomEvent('inventoryUpdated'));
           }}
         />
       )}
