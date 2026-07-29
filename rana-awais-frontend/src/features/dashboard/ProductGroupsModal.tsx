@@ -13,13 +13,15 @@ const ProductGroupsModal: React.FC<ProductGroupsModalProps> = ({ isUrdu, lowStoc
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Fetch fresh data when modal opens
+  // Fetch fresh data when modal opens - use fast endpoint
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setSearchQuery('');
     
-    api.get('/dashboard/summary')
+    const endpoint = lowStockOnly ? '/dashboard/low-stock-products' : '/dashboard/product-groups';
+    
+    api.get(endpoint)
       .then(res => {
         if (!cancelled) {
           const groups = res.data?.productGroups || [];

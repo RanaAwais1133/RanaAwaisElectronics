@@ -50,6 +50,7 @@ func SetupRouter(
 	authH := NewAuthHandler(userSvc, cfg)
 	adminH := NewAdminHandler(userSvc, settingsRepo)
 	dashboardH := NewDashboardHandler()
+	productGroupsH := NewProductGroupsHandler()
 	expenseH := NewExpenseHandler()
 	promiseH := NewPromiseHandler()
 
@@ -903,6 +904,11 @@ func SetupRouter(
 	protected.HandleFunc("/dashboard/today-due-full", dashboardH.TodayInstallments).Methods("GET")
 	protected.HandleFunc("/dashboard/overdue-full", dashboardH.OverdueDetails).Methods("GET")
 	protected.HandleFunc("/dashboard/ageing-stock", dashboardH.AgeingStockDetails).Methods("GET")
+	
+	// Fast product groups endpoints (lightweight, no heavy dashboard queries)
+	protected.HandleFunc("/dashboard/product-groups", productGroupsH.GetProductGroups).Methods("GET")
+	protected.HandleFunc("/dashboard/low-stock-products", productGroupsH.GetLowStockProducts).Methods("GET")
+	protected.HandleFunc("/dashboard/ageing-products", productGroupsH.GetAgeingStock).Methods("GET")
 
 
 	// Reports
