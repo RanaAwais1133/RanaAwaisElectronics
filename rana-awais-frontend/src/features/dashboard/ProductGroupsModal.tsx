@@ -5,9 +5,10 @@ interface ProductGroupsModalProps {
   isUrdu: boolean;
   lowStockOnly?: boolean;
   onClose: () => void;
+  onSelectProduct?: (productName: string) => void;
 }
 
-const ProductGroupsModal: React.FC<ProductGroupsModalProps> = ({ isUrdu, lowStockOnly = false, onClose }) => {
+const ProductGroupsModal: React.FC<ProductGroupsModalProps> = ({ isUrdu, lowStockOnly = false, onClose, onSelectProduct }) => {
   const [productGroups, setProductGroups] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -127,8 +128,8 @@ const ProductGroupsModal: React.FC<ProductGroupsModalProps> = ({ isUrdu, lowStoc
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
-                  {filteredGroups.map((pg: any, idx: number) => (
-                    <tr key={idx} className="hover:bg-blue-50/30 dark:hover:bg-blue-900/10 transition-colors cursor-pointer" onClick={() => { window.location.hash = `product-${pg.name || pg._id}`; onClose(); }}>
+                    {filteredGroups.map((pg: any, idx: number) => (
+                    <tr key={idx} className="hover:bg-blue-50/30 dark:hover:bg-blue-900/10 transition-colors cursor-pointer" onClick={() => { if (onSelectProduct) onSelectProduct(pg.name || pg._id); onClose(); }}>
                       <td className="px-3 py-2.5 text-gray-400 font-mono text-xs text-center">{idx + 1}</td>
                       <td className="px-3 py-2.5">
                         <span className="font-semibold text-gray-800 dark:text-white text-xs">{pg.name || pg._id}</span>

@@ -1282,6 +1282,11 @@ const DashboardPage: React.FC = () => {
           isUrdu={isUrdu}
           lowStockOnly={lowStockFilter}
           onClose={() => { setShowProductGroups(false); setLowStockFilter(false); }}
+          onSelectProduct={(productName) => {
+            setSelectedGroupName(productName);
+            setShowProductGroups(false);
+            setLowStockFilter(false);
+          }}
         />
       )}
     </div>
