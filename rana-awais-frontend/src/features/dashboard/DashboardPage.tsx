@@ -958,6 +958,7 @@ const DashboardPage: React.FC = () => {
   const [showProductGroups, setShowProductGroups] = useState(false);
   const [selectedGroupName, setSelectedGroupName] = useState<string | null>(null);
   const [productGroupSearch, setProductGroupSearch] = useState('');
+  const [lowStockFilter, setLowStockFilter] = useState(false);
   const navigate = useNavigate();
 
   // ✅ Use offline-first dashboard hook
@@ -972,14 +973,23 @@ const DashboardPage: React.FC = () => {
 
   const productGroups = (summary as any)?.productGroups || [];
 
-  // Filter product groups by search
+  // Filter product groups by search and low stock filter
   const filteredProductGroups = productGroups.filter((pg: any) => {
-    if (!productGroupSearch.trim()) return true;
-    const q = productGroupSearch.toLowerCase();
-    const name = (pg.name || '').toLowerCase();
-    const nameUrdu = (pg.nameUrdu || '').toLowerCase();
-    const company = (pg.company || '').toLowerCase();
-    return name.includes(q) || nameUrdu.includes(q) || company.includes(q);
+    // Search filter
+    if (productGroupSearch.trim()) {
+      const q = productGroupSearch.toLowerCase();
+      const name = (pg.name || '').toLowerCase();
+      const nameUrdu = (pg.nameUrdu || '').toLowerCase();
+      const company = (pg.company || '').toLowerCase();
+      if (!name.includes(q) && !nameUrdu.includes(q) && !company.includes(q)) {
+        return false;
+      }
+    }
+    // Low stock filter (only show products with stock <= 5)
+    if (lowStockFilter && (pg.totalStock || 0) > 5) {
+      return false;
+    }
+    return true;
   });
 
   if (loading && !summary) {
@@ -1219,21 +1229,21 @@ const DashboardPage: React.FC = () => {
           <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5">
             <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4">{isUrdu ? 'انوینٹری' : 'Inventory'}</h3>
             <div className="space-y-1">
-              <button onClick={() => setShowProductGroups(true)} className="w-full flex items-center justify-between py-2.5 px-2 border-b border-gray-100 dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30 rounded-lg transition-colors cursor-pointer">
+              <button onClick={() => { setLowStockFilter(false); setShowProductGroups(true); }} className="w-full flex items-center justify-between py-2.5 px-2 border-b border-gray-100 dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30 rounded-lg transition-colors cursor-pointer">
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 rounded-full bg-indigo-500" />
                   <span className="text-xs text-gray-600 dark:text-gray-300">{isUrdu ? 'کل مصنوعات' : 'Total Products'}</span>
                 </div>
                 <span className="text-sm font-bold text-gray-900 dark:text-white">{totalProducts}</span>
               </button>
-              <button onClick={() => setModal({ title: isUrdu ? 'کم اسٹاک' : 'Low Stock', endpoint: '/dashboard/low-stock' })} className="w-full flex items-center justify-between py-2.5 px-2 border-b border-gray-100 dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30 rounded-lg transition-colors cursor-pointer">
+              <button onClick={() => { setLowStockFilter(true); setShowProductGroups(true); }} className="w-full flex items-center justify-between py-2.5 px-2 border-b border-gray-100 dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30 rounded-lg transition-colors cursor-pointer">
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 rounded-full bg-red-500" />
                   <span className="text-xs text-gray-600 dark:text-gray-300">{isUrdu ? 'کم اسٹاک' : 'Low Stock'}</span>
                 </div>
                 <span className="text-sm font-bold text-red-600 dark:text-red-400">{lowStockItems}</span>
               </button>
-              <button onClick={() => setShowProductGroups(true)} className="w-full flex items-center justify-between py-2.5 px-2 border-b border-gray-100 dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30 rounded-lg transition-colors cursor-pointer">
+              <button onClick={() => { setLowStockFilter(false); setShowProductGroups(true); }} className="w-full flex items-center justify-between py-2.5 px-2 border-b border-gray-100 dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30 rounded-lg transition-colors cursor-pointer">
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 rounded-full bg-emerald-500" />
                   <span className="text-xs text-gray-600 dark:text-gray-300">{isUrdu ? 'انوینٹری ویلیو' : 'Inventory Value'}</span>
@@ -1289,7 +1299,7 @@ const DashboardPage: React.FC = () => {
 
       {/* Product Groups Modal */}
       {showProductGroups && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setShowProductGroups(false)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => { setShowProductGroups(false); setLowStockFilter(false); }}>
           <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-4xl w-full max-h-[85vh] flex flex-col border border-gray-200 dark:border-gray-700" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
               <div className="flex items-center gap-3">
@@ -1297,11 +1307,17 @@ const DashboardPage: React.FC = () => {
                   <svg className="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>
                 </div>
                 <div>
-                  <h2 className="text-lg font-bold text-gray-900 dark:text-white">{isUrdu ? 'مصنوعات کے گروپ' : 'Product Groups'}</h2>
-                  <p className="text-xs text-gray-500">{productGroups.length} {isUrdu ? 'مصنوعات' : 'products'} — {isUrdu ? 'کل اسٹاک' : 'Total Stock'}: {productGroups.reduce((s: number, g: any) => s + (g.totalStock || 0), 0)}</p>
+                  <h2 className="text-lg font-bold text-gray-900 dark:text-white">
+                    {lowStockFilter ? (isUrdu ? 'کم اسٹاک والے مصنوعات' : 'Low Stock Products') : (isUrdu ? 'مصنوعات کے گروپ' : 'Product Groups')}
+                  </h2>
+                  <p className="text-xs text-gray-500">
+                    {filteredProductGroups.length} {isUrdu ? 'گروپس' : 'groups'} — 
+                    {isUrdu ? 'کل اسٹاک' : 'Total Stock'}: {filteredProductGroups.reduce((s: number, g: any) => s + (g.totalStock || 0), 0)} — 
+                    {isUrdu ? 'کل ویلیو' : 'Total Value'}: Rs. {filteredProductGroups.reduce((s: number, g: any) => s + (g.totalValue || 0), 0).toLocaleString()}
+                  </p>
                 </div>
               </div>
-              <button onClick={() => setShowProductGroups(false)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors">
+              <button onClick={() => { setShowProductGroups(false); setLowStockFilter(false); }} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors">
                 <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
@@ -1326,7 +1342,9 @@ const DashboardPage: React.FC = () => {
                   <div className="p-3 bg-gray-100 dark:bg-gray-700 rounded-full">
                     <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" /></svg>
                   </div>
-                  <p className="text-gray-400 font-medium">{isUrdu ? 'کوئی مماثلت نہیں' : 'No matching products'}</p>
+                  <p className="text-gray-400 font-medium">
+                    {lowStockFilter ? (isUrdu ? 'کوئی کم اسٹاک والا مصنوعات نہیں' : 'No low stock products') : (isUrdu ? 'کوئی مماثلت نہیں' : 'No matching products')}
+                  </p>
                 </div>
               ) : (
                 <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700">
@@ -1344,7 +1362,7 @@ const DashboardPage: React.FC = () => {
                     </thead>
                     <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
                       {filteredProductGroups.map((pg: any, idx: number) => (
-                        <tr key={idx} className="hover:bg-blue-50/30 dark:hover:bg-blue-900/10 transition-colors cursor-pointer" onClick={() => { setSelectedGroupName(pg.name || pg._id); setShowProductGroups(false); }}>
+                        <tr key={idx} className="hover:bg-blue-50/30 dark:hover:bg-blue-900/10 transition-colors cursor-pointer" onClick={() => { setSelectedGroupName(pg.name || pg._id); setShowProductGroups(false); setLowStockFilter(false); }}>
                           <td className="px-3 py-2.5 text-gray-400 font-mono text-xs text-center">{idx + 1}</td>
                           <td className="px-3 py-2.5">
                             <span className="font-semibold text-gray-800 dark:text-white text-xs">{pg.name || pg._id}</span>
@@ -1352,7 +1370,7 @@ const DashboardPage: React.FC = () => {
                           </td>
                           <td className="px-3 py-2.5 text-xs text-gray-600 dark:text-gray-300">{pg.company || '—'}</td>
                           <td className="px-3 py-2.5 text-end">
-                            <span className={`font-bold text-xs ${pg.totalStock <= 5 ? 'text-red-600' : 'text-gray-800 dark:text-white'}`}>{pg.totalStock || 0}</span>
+                            <span className={`font-bold text-xs ${(pg.totalStock || 0) <= 5 ? 'text-red-600' : 'text-gray-800 dark:text-white'}`}>{pg.totalStock || 0}</span>
                           </td>
                           <td className="px-3 py-2.5 text-end text-xs text-gray-600">Rs. {Math.round(pg.avgPrice || 0).toLocaleString()}</td>
                           <td className="px-3 py-2.5 text-end">
