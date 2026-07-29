@@ -1,66 +1,58 @@
-import React, { useEffect, useState } from 'react';
-import api from '../../utils/api';
+import React, { useState, useMemo } from 'react';
+
+interface ProductGroup {
+  name: string;
+  nameUrdu?: string;
+  company?: string;
+  category?: string;
+  totalStock: number;
+  avgPrice: number;
+  totalValue: number;
+  variantCount: number;
+}
 
 interface ProductGroupsModalProps {
   isUrdu: boolean;
   lowStockOnly?: boolean;
   onClose: () => void;
   onSelectProduct?: (productName: string) => void;
+  productGroups?: ProductGroup[];
 }
 
-const ProductGroupsModal: React.FC<ProductGroupsModalProps> = ({ isUrdu, lowStockOnly = false, onClose, onSelectProduct }) => {
-  const [productGroups, setProductGroups] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+const ProductGroupsModal: React.FC<ProductGroupsModalProps> = ({ 
+  isUrdu, 
+  lowStockOnly = false, 
+  onClose, 
+  onSelectProduct,
+  productGroups = [] 
+}) => {
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Fetch fresh data when modal opens - use fast endpoint
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setSearchQuery('');
-    
-    const endpoint = lowStockOnly ? '/dashboard/low-stock-products' : '/dashboard/product-groups';
-    
-    api.get(endpoint)
-      .then(res => {
-        if (!cancelled) {
-          const groups = res.data?.productGroups || [];
-          setProductGroups(groups);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setProductGroups([]);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-
-    return () => { cancelled = true; };
-  }, [lowStockOnly]);
-
   // Filter product groups
-  const filteredGroups = productGroups.filter((pg: any) => {
+  const filteredGroups = useMemo(() => {
+    let groups = productGroups;
+    
+    // Low stock filter
+    if (lowStockOnly) {
+      groups = groups.filter((pg: ProductGroup) => (pg.totalStock || 0) <= 5);
+    }
+    
     // Search filter
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
-      const name = (pg.name || '').toLowerCase();
-      const nameUrdu = (pg.nameUrdu || '').toLowerCase();
-      const company = (pg.company || '').toLowerCase();
-      if (!name.includes(q) && !nameUrdu.includes(q) && !company.includes(q)) {
-        return false;
-      }
+      groups = groups.filter((pg: ProductGroup) => {
+        const name = (pg.name || '').toLowerCase();
+        const nameUrdu = (pg.nameUrdu || '').toLowerCase();
+        const company = (pg.company || '').toLowerCase();
+        return name.includes(q) || nameUrdu.includes(q) || company.includes(q);
+      });
     }
-    // Low stock filter
-    if (lowStockOnly && (pg.totalStock || 0) > 5) {
-      return false;
-    }
-    return true;
-  });
+    
+    return groups;
+  }, [productGroups, lowStockOnly, searchQuery]);
 
-  const totalStock = filteredGroups.reduce((s: number, g: any) => s + (g.totalStock || 0), 0);
-  const totalValue = filteredGroups.reduce((s: number, g: any) => s + (g.totalValue || 0), 0);
+  const totalStock = filteredGroups.reduce((s: number, g: ProductGroup) => s + (g.totalStock || 0), 0);
+  const totalValue = filteredGroups.reduce((s: number, g: ProductGroup) => s + (g.totalValue || 0), 0);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
@@ -101,12 +93,7 @@ const ProductGroupsModal: React.FC<ProductGroupsModalProps> = ({ isUrdu, lowStoc
           </div>
         </div>
         <div className="flex-1 overflow-y-auto p-6">
-          {loading ? (
-            <div className="flex flex-col items-center justify-center py-16 gap-3">
-              <div className="w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-              <p className="text-sm text-gray-400">{isUrdu ? 'لوڈ ہو رہا ہے...' : 'Loading...'}</p>
-            </div>
-          ) : filteredGroups.length === 0 ? (
+          {filteredGroups.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 gap-3">
               <div className="p-3 bg-gray-100 dark:bg-gray-700 rounded-full">
                 <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" /></svg>
@@ -130,11 +117,11 @@ const ProductGroupsModal: React.FC<ProductGroupsModalProps> = ({ isUrdu, lowStoc
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
-                    {filteredGroups.map((pg: any, idx: number) => (
-                    <tr key={idx} className="hover:bg-blue-50/30 dark:hover:bg-blue-900/10 transition-colors cursor-pointer" onClick={() => { if (onSelectProduct) onSelectProduct(pg.name || pg._id); onClose(); }}>
+                    {filteredGroups.map((pg: ProductGroup, idx: number) => (
+                    <tr key={idx} className="hover:bg-blue-50/30 dark:hover:bg-blue-900/10 transition-colors cursor-pointer" onClick={() => { if (onSelectProduct) onSelectProduct(pg.name || ''); onClose(); }}>
                       <td className="px-3 py-2.5 text-gray-400 font-mono text-xs text-center">{idx + 1}</td>
                       <td className="px-3 py-2.5">
-                        <span className="font-semibold text-gray-800 dark:text-white text-xs">{pg.name || pg._id}</span>
+                        <span className="font-semibold text-gray-800 dark:text-white text-xs">{pg.name || ''}</span>
                         {pg.nameUrdu && pg.nameUrdu !== pg.name && <span className="text-[10px] text-gray-400 block">{pg.nameUrdu}</span>}
                       </td>
                       <td className="px-3 py-2.5 text-xs text-gray-600 dark:text-gray-300">{pg.company || '—'}</td>

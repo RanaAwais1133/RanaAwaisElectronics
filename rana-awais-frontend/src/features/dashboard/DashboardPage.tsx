@@ -1289,11 +1289,12 @@ const DashboardPage: React.FC = () => {
         />
       )}
 
-      {/* Product Groups Modal */}
+      {/* Product Groups Modal - uses data from dashboard summary */}
       {showProductGroups && (
         <ProductGroupsModal
           isUrdu={isUrdu}
           lowStockOnly={lowStockFilter}
+          productGroups={summary?.productGroups || []}
           onClose={() => { setShowProductGroups(false); setLowStockFilter(false); }}
           onSelectProduct={(productName) => {
             setSelectedGroupName(productName);
