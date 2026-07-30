@@ -130,7 +130,7 @@ const generateSchedule = (
   const totalCalculated = perInstallment * months;
   const adjustment = roundMoney(remaining - totalCalculated);
 
-  const schedule: InstallmentDetail[] = [];
+  const schedule: Array<InstallmentDetail> = [];
   let totalAllocated = 0;
 
   for (let i = 0; i < months; i++) {
