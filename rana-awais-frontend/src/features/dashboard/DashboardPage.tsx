@@ -1226,38 +1226,48 @@ const DashboardPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Inventory Quick View */}
-          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5">
-            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4">{isUrdu ? 'انوینٹری' : 'Inventory'}</h3>
-            <div className="space-y-1">
-              <button onClick={() => { setLowStockFilter(false); setShowProductGroups(true); }} className="w-full flex items-center justify-between py-2.5 px-2 border-b border-gray-100 dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30 rounded-lg transition-colors cursor-pointer">
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-indigo-500" />
-                  <span className="text-xs text-gray-600 dark:text-gray-300">{isUrdu ? 'کل مصنوعات' : 'Total Products'}</span>
+          {/* Inventory Cards - distinct styled */}
+          <div className="grid grid-cols-2 gap-3">
+            {/* Total Products */}
+            <div onClick={() => { setLowStockFilter(false); setShowProductGroups(true); }} className="bg-white dark:bg-gray-800 border-2 border-indigo-100 dark:border-indigo-900 rounded-2xl p-4 hover:shadow-lg transition-all cursor-pointer">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="p-2 bg-indigo-50 dark:bg-indigo-900/30 rounded-xl">
+                  <svg className="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>
                 </div>
-                <span className="text-sm font-bold text-gray-900 dark:text-white">{totalProducts}</span>
-              </button>
-              <button onClick={() => { setLowStockFilter(true); setShowProductGroups(true); }} className="w-full flex items-center justify-between py-2.5 px-2 border-b border-gray-100 dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30 rounded-lg transition-colors cursor-pointer">
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-red-500" />
-                  <span className="text-xs text-gray-600 dark:text-gray-300">{isUrdu ? 'کم اسٹاک' : 'Low Stock'}</span>
+                <div>
+                  <p className="text-[10px] text-gray-500 uppercase font-semibold">{isUrdu ? 'کل مصنوعات' : 'Products'}</p>
+                  <p className="text-lg font-bold text-gray-900 dark:text-white">{totalProducts}</p>
                 </div>
-                <span className="text-sm font-bold text-red-600 dark:text-red-400">{lowStockItems}</span>
-              </button>
-              <button onClick={() => { setLowStockFilter(false); setShowProductGroups(true); }} className="w-full flex items-center justify-between py-2.5 px-2 border-b border-gray-100 dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30 rounded-lg transition-colors cursor-pointer">
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-emerald-500" />
-                  <span className="text-xs text-gray-600 dark:text-gray-300">{isUrdu ? 'انوینٹری ویلیو' : 'Inventory Value'}</span>
+              </div>
+            </div>
+            {/* Low Stock */}
+            <div onClick={() => { setLowStockFilter(true); setShowProductGroups(true); }} className="bg-white dark:bg-gray-800 border-2 border-red-100 dark:border-red-900 rounded-2xl p-4 hover:shadow-lg transition-all cursor-pointer">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="p-2 bg-red-50 dark:bg-red-900/30 rounded-xl">
+                  <svg className="w-4 h-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
                 </div>
-                <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">Rs. {(inventoryValue || 0).toLocaleString()}</span>
-              </button>
-              <button onClick={() => ageingStock > 0 && setModal({ title: isUrdu ? 'پرانا اسٹاک' : 'Ageing Stock', endpoint: '/dashboard/ageing-products' })} disabled={ageingStock === 0} className={`w-full flex items-center justify-between py-2.5 px-2 border-b border-gray-100 dark:border-gray-700 last:border-0 rounded-lg transition-colors ${ageingStock > 0 ? 'hover:bg-gray-50 dark:hover:bg-gray-700/30 cursor-pointer' : 'cursor-default opacity-60'}`}>
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-orange-500" />
-                  <span className="text-xs text-gray-600 dark:text-gray-300">{isUrdu ? 'پرانا اسٹاک' : 'Ageing Stock'}</span>
+                <div>
+                  <p className="text-[10px] text-gray-500 uppercase font-semibold">{isUrdu ? 'کم اسٹاک' : 'Low Stock'}</p>
+                  <p className="text-lg font-bold text-red-600 dark:text-red-400">{lowStockItems}</p>
                 </div>
-                <span className="text-sm font-bold text-orange-600 dark:text-orange-400">{ageingStock}</span>
-              </button>
+              </div>
+            </div>
+            {/* Inventory Value */}
+            <div onClick={() => { setLowStockFilter(false); setShowProductGroups(true); }} className="bg-white dark:bg-gray-800 border-2 border-emerald-100 dark:border-emerald-900 rounded-2xl p-4 hover:shadow-lg transition-all cursor-pointer col-span-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-emerald-50 dark:bg-emerald-900/30 rounded-xl">
+                    <svg className="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-gray-500 uppercase font-semibold">{isUrdu ? 'انوینٹری ویلیو' : 'Inventory Value'}</p>
+                    <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400">Rs. {(inventoryValue || 0).toLocaleString()}</p>
+                  </div>
+                </div>
+                <button onClick={(e) => { e.stopPropagation(); ageingStock > 0 && setModal({ title: isUrdu ? 'پرانا اسٹاک' : 'Ageing Stock', endpoint: '/dashboard/ageing-products' }); }} disabled={ageingStock === 0} className={`px-3 py-1.5 rounded-lg text-[10px] font-semibold transition-all ${ageingStock > 0 ? 'bg-orange-50 text-orange-600 hover:bg-orange-100 cursor-pointer' : 'bg-gray-50 text-gray-400 cursor-default'}`}>
+                  {isUrdu ? 'پرانا' : 'Ageing'}: {ageingStock}
+                </button>
+              </div>
             </div>
           </div>
         </div>

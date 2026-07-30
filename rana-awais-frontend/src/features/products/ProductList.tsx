@@ -24,7 +24,7 @@ const ProductRow: React.FC<{
     </td>
     <td className="px-5 py-3 text-gray-600 dark:text-gray-300 whitespace-nowrap">{product.category || '—'}</td>
     <td className="px-5 py-3 text-gray-600 dark:text-gray-300 whitespace-nowrap">{isUrdu ? (product.companyUrdu || product.company || '—') : (product.company || '—')}</td>
-    <td className="px-5 py-3 text-gray-600 dark:text-gray-300 whitespace-nowrap">{product.serialNumber || '—'}</td>
+    <td className="px-5 py-3 text-gray-600 dark:text-gray-300 whitespace-nowrap font-mono text-xs">{product.serialNumber || product.chassisNo || product.engineNo || '—'}</td>
     <td className="px-5 py-3 text-gray-600 dark:text-gray-300 whitespace-nowrap">{product.model || '—'}</td>
     <td className="px-5 py-3 text-gray-600 dark:text-gray-300 whitespace-nowrap">{product.color || '—'}</td>
     <td className="px-5 py-3 font-bold text-gray-800 dark:text-gray-100 whitespace-nowrap">Rs. {product.price?.toLocaleString()}</td>

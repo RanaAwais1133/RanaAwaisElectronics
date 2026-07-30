@@ -25,13 +25,40 @@ const InventoryReport: React.FC = () => {
     setLoading(true);
     setError('');
     try {
-      const res = await api.get('/products?limit=200');
-      const d = res.data;
-      let list: any[] = [];
-      if (Array.isArray(d)) list = d;
-      else if (d?.data && Array.isArray(d.data)) list = d.data;
-      else if (d?.products && Array.isArray(d.products)) list = d.products;
-  setItems(list);
+      // Fetch from inventory API (individual items with actual stock)
+      const res = await api.get('/inventory?limit=500&show_all=true');
+      const rawItems = res.data?.data || res.data || [];
+      const list = Array.isArray(rawItems) ? rawItems : [];
+      
+      // Group by product_name (from inventory items' associated product)
+      const productMap: Record<string, any> = {};
+      for (const item of list) {
+        const name = item.product_name || item.productId || 'Unknown';
+        const key = name.toLowerCase();
+        if (!productMap[key]) {
+          productMap[key] = {
+            id: item.productId,
+            name: item.product_name,
+            nameUrdu: item.product_name_urdu,
+            company: item.company || '',
+            category: item.category || '',
+            stockCount: 0,
+            price: item.selling_price || item.purchase_price || 0,
+            totalValue: 0,
+          };
+        }
+        productMap[key].stockCount += 1;
+        productMap[key].totalValue += (item.purchase_price || 0);
+        // Use max selling price
+        if ((item.selling_price || 0) > productMap[key].price) {
+          productMap[key].price = item.selling_price;
+        }
+        // Inherit company from first non-empty
+        if (!productMap[key].company && item.company) {
+          productMap[key].company = item.company;
+        }
+      }
+      setItems(Object.values(productMap));
     } catch (err) {
       setError(isUrdu ? 'انوینٹری ڈیٹا لوڈ کرنے میں ناکامی' : 'Failed to load inventory data');
     } finally {
