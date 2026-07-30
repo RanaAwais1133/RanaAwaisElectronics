@@ -60,6 +60,7 @@ const ProductList: React.FC = () => {
 
   const filtered = useMemo(() => {
     let result = products;
+    result = result.filter((p) => (p.stockCount || 0) > 0);
     if (search) {
       const q = search.toLowerCase();
       result = result.filter(p => p.name?.toLowerCase().includes(q) || p.nameUrdu?.includes(q) || p.category?.toLowerCase().includes(q) || p.company?.toLowerCase().includes(q) || p.sku?.toLowerCase().includes(q) || p.serialNumber?.toLowerCase().includes(q) || p.model?.toLowerCase().includes(q));

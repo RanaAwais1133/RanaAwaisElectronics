@@ -321,3 +321,82 @@ func (h *InventoryHandler) GetSoldItems(w http.ResponseWriter, r *http.Request) 
 	
 	respondJSON(w, http.StatusOK, result)
 }
+
+// GetInventorySummary returns grouped inventory summary by product
+func (h *InventoryHandler) GetInventorySummary(w http.ResponseWriter, r *http.Request) {
+	summary, err := h.svc.GetInventorySummary(r.Context())
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "Failed to get inventory summary", "انوینٹری خلاصہ نہیں بن سکا")
+		return
+	}
+
+	// Enrich with product names
+	for i := range summary {
+		productID := summary[i]["productId"].(string)
+		prod, _ := h.prodSvc.GetByID(r.Context(), productID)
+		if prod != nil {
+			summary[i]["productName"] = prod.Name
+			summary[i]["productNameUrdu"] = prod.NameUrdu
+			summary[i]["company"] = prod.Company
+		}
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"data":  summary,
+		"total": len(summary),
+	})
+}
+
+// GetProductVariants returns all in-stock variants for a specific product
+func (h *InventoryHandler) GetProductVariants(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	productName := vars["productName"]
+	
+	if productName == "" {
+		respondError(w, r, http.StatusBadRequest, "Product name is required", "پروڈکٹ کا نام درکار ہے")
+		return
+	}
+
+	// Get all in-stock items and filter by product name
+	items, err := h.svc.ListInStock(r.Context(), 0, 999999)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "Failed to get variants", "ورینٹس نہیں مل سکے")
+		return
+	}
+
+	var result []map[string]interface{}
+	for _, item := range items {
+		prod, _ := h.prodSvc.GetByID(r.Context(), item.ProductID)
+		if prod != nil && (prod.Name == productName || prod.NameUrdu == productName) {
+			entry := map[string]interface{}{
+				"id":              item.ID,
+				"productId":       item.ProductID,
+				"productName":     prod.Name,
+				"productNameUrdu": prod.NameUrdu,
+				"serialNumber":    item.SerialNumber,
+				"color":           item.Color,
+				"model":           item.Model,
+				"engineNo":        item.EngineNo,
+				"chassisNo":       item.ChassisNo,
+				"imei":            item.IMEI,
+				"company":         item.Company,
+				"purchasePrice":   item.PurchasePrice,
+				"sellingPrice":    item.SellingPrice,
+				"purchaseDate":    item.PurchaseDate,
+			}
+			result = append(result, entry)
+		}
+	}
+
+	respondJSON(w, http.StatusOK, result)
+}
+
+// GetInventoryStats returns overall inventory statistics
+func (h *InventoryHandler) GetInventoryStats(w http.ResponseWriter, r *http.Request) {
+	stats, err := h.svc.GetInventoryStats(r.Context())
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "Failed to get inventory stats", "انوینٹری کے اعداد و شمار نہیں مل سکے")
+		return
+	}
+	respondJSON(w, http.StatusOK, stats)
+}
