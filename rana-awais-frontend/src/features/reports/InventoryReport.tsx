@@ -13,7 +13,6 @@ const InventoryReport: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
   const [page, setPage] = useState(1);
   const PER_PAGE = 25;
   useEffect(() => {
@@ -65,12 +64,10 @@ const InventoryReport: React.FC = () => {
         (p.model || '').toLowerCase().includes(q)
       );
     }
-    if (statusFilter !== 'all') {
-      if (statusFilter === 'in_stock') data = data.filter(p => p.stockCount > 0);
-      if (statusFilter === 'sold') data = data.filter(p => p.stockCount === 0);
-    }
+    // Only show items with positive stock count (remove 0 and negative stock items)
+    data = data.filter(p => p.stockCount > 0);
     return data;
-  }, [displayProducts, search, statusFilter]);
+  }, [displayProducts, search]);
 
   const totalValue = useMemo(() => {
     return displayProducts.reduce((sum, p) => sum + p.totalValue, 0);
@@ -203,16 +200,6 @@ const InventoryReport: React.FC = () => {
               className="w-full px-4 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none transition-colors"
             />
           </div>
-          <select
-            value={statusFilter}
-            onChange={e => setStatusFilter(e.target.value)}
-            className="px-4 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-gray-400 outline-none transition-colors"
-          >
-            <option value="all">{isUrdu ? 'تمام حالتیں' : 'All Status'}</option>
-            <option value="in_stock">{isUrdu ? 'اسٹاک میں' : 'In Stock'}</option>
-            <option value="sold">{isUrdu ? 'فروخت شدہ' : 'Sold'}</option>
-            <option value="returned">{isUrdu ? 'واپس شدہ' : 'Returned'}</option>
-          </select>
         </div>
       </div>
 
