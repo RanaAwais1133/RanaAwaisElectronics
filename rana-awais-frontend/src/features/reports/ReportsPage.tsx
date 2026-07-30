@@ -5,8 +5,9 @@ import CustomerReport from './CustomerReport';
 import ProfitLossReport from './ProfitLossReport';
 import InventoryReport from './InventoryReport';
 import PendingReport from './PendingReport';
+import TodaySalesReport from './TodaySalesReport';
 
-type ReportTab = 'daily' | 'profit-loss' | 'inventory' | 'pending';
+type ReportTab = 'daily' | 'profit-loss' | 'inventory' | 'pending' | 'today-sales';
 
 const ReportsPage: React.FC = () => {
   const { t, i18n } = useTranslation();
@@ -22,6 +23,7 @@ const ReportsPage: React.FC = () => {
     { key: 'profit-loss', label: isUrdu ? 'منافع اور نقصان' : 'Profit & Loss', icon: '📊' },
     { key: 'inventory', label: isUrdu ? 'انوینٹری رپورٹ' : 'Inventory Report', icon: '📦' },
     { key: 'pending', label: isUrdu ? 'زیر التواء رپورٹ' : 'Pending Report', icon: '⏳' },
+    { key: 'today-sales', label: isUrdu ? 'آج کی فروخت' : "Today's Sales", icon: '💰' },
   ];
 
   return (
@@ -60,6 +62,7 @@ const ReportsPage: React.FC = () => {
         {activeTab === 'profit-loss' && <ProfitLossReport />}
         {activeTab === 'inventory' && <InventoryReport />}
         {activeTab === 'pending' && <PendingReport />}
+        {activeTab === 'today-sales' && <TodaySalesReport />}
       </div>
     </div>
   );

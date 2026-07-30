@@ -252,6 +252,7 @@ func SetupRouter(
 	protected.HandleFunc("/inventory", inventoryH.List).Methods("GET")
 	protected.HandleFunc("/inventory", inventoryH.Create).Methods("POST")
 	protected.HandleFunc("/inventory/ageing", inventoryH.AgeingReport).Methods("GET")
+	protected.HandleFunc("/inventory/sold", inventoryH.GetSoldItems).Methods("GET")
 	protected.HandleFunc("/inventory/add-stock", inventoryH.AddStock).Methods("POST")
 	protected.HandleFunc("/inventory/remove-stock", inventoryH.RemoveStock).Methods("POST")
 	protected.HandleFunc("/inventory/summary", inventoryH.GetInventorySummary).Methods("GET")
