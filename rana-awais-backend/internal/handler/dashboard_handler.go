@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"database/sql"
 	"net/http"
 	"sort"
 	"time"
@@ -493,59 +494,45 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 		VariantCount int    `json:"variantCount" bson:"variantcount"`
 	}
 
-	// Aggregate products by name to get unique items + stock sums
-	// ✅ FIXED: Use $toInt to handle float/int BSON type issues, default missing stockcount to 1
-	// Each variant counts based on its actual stockcount (0 means out of stock)
-	groupPipe := mongo.Pipeline{
-		{{Key: "$addFields", Value: bson.D{
-			// Normalize stockcount: convert to int, missing/null → 1, actual value used as-is
-			{Key: "_stockcnt", Value: bson.D{{Key: "$cond", Value: bson.A{
-				bson.D{{Key: "$ifNull", Value: bson.A{"$stockcount", false}}},
-				bson.D{{Key: "$convert", Value: bson.D{{Key: "input", Value: "$stockcount"}, {Key: "to", Value: "int"}, {Key: "onError", Value: 1}, {Key: "onNull", Value: 1}}}},
-				1,
-			}}}},
-			// Inventory value uses PURCHASE PRICE (cost), not sale price
-			// If purchaseprice is missing/0, fallback to price * 0.8 as estimated cost
-			{Key: "_unitcost", Value: bson.D{{Key: "$cond", Value: bson.A{
-				bson.D{{Key: "$gt", Value: bson.A{bson.D{{Key: "$ifNull", Value: bson.A{"$purchaseprice", 0}}}, 0}}},
-				bson.D{{Key: "$ifNull", Value: bson.A{"$purchaseprice", 0}}},
-				bson.D{{Key: "$multiply", Value: bson.A{bson.D{{Key: "$ifNull", Value: bson.A{"$price", 0}}}, 0.8}}},
-			}}}},
-			// Sale price for avg price display
-			{Key: "_unitval", Value: bson.D{{Key: "$cond", Value: bson.A{
-				bson.D{{Key: "$gt", Value: bson.A{bson.D{{Key: "$ifNull", Value: bson.A{"$price", 0}}}, 0}}},
-				"$price",
-				bson.D{{Key: "$multiply", Value: bson.A{bson.D{{Key: "$ifNull", Value: bson.A{"$purchaseprice", 0}}}, 1.2}}},
-			}}}},
-		}}},
-		{{Key: "$group", Value: bson.D{
-			{Key: "_id", Value: bson.D{{Key: "$toLower", Value: "$name"}}},
-			{Key: "name", Value: bson.D{{Key: "$first", Value: "$name"}}},
-			{Key: "nameurdu", Value: bson.D{{Key: "$first", Value: "$nameurdu"}}},
-			{Key: "company", Value: bson.D{{Key: "$first", Value: bson.D{{Key: "$ifNull", Value: bson.A{"$company", ""}}}}}},
-			{Key: "category", Value: bson.D{{Key: "$first", Value: "$category"}}},
-			{Key: "totalstock", Value: bson.D{{Key: "$sum", Value: "$_stockcnt"}}},
-			{Key: "totalvalue", Value: bson.D{{Key: "$sum", Value: bson.D{{Key: "$multiply", Value: bson.A{"$_stockcnt", "$_unitcost"}}}}}},
-			{Key: "avgprice", Value: bson.D{{Key: "$avg", Value: "$_unitval"}}},
-			{Key: "variantcount", Value: bson.D{{Key: "$sum", Value: 1}}},
-		}}},
-		{{Key: "$sort", Value: bson.D{{Key: "name", Value: 1}}}},
-	}
-	groupCursor, groupErr := db.Collection("products").Aggregate(ctx(), groupPipe)
+// ✅ LIVE INVENTORY: Query SQLite inventory_items directly
+	// MongoDB products.stockcount is stale. SQLite inventory_items is the source of truth.
 	var productGroups []ProductGroup
-	if groupErr == nil {
-		for groupCursor.Next(ctx()) {
-			var pg ProductGroup
-			if groupCursor.Decode(&pg) == nil {
-				productGroups = append(productGroups, pg)
-				totalProducts++
-				if pg.TotalStock <= 5 {
-					lowStock++
+	_ = sql.ErrNoRows // ensure database/sql import is used
+	sqliteDB := config.GetSQLiteDB()
+	if sqliteDB != nil {
+		rows, err := sqliteDB.QueryContext(ctx(), `
+			SELECT 
+				COALESCE(p.name, i.product_id) as name,
+				COALESCE(p.name_urdu, '') as name_urdu,
+				COALESCE(i.company, p.company, '') as company,
+				COALESCE(p.category, '') as category,
+				COUNT(*) as total_stock,
+				COALESCE(AVG(COALESCE(i.selling_price, p.price, 0)), 0) as avg_price,
+				COALESCE(SUM(COALESCE(i.purchase_price, p.purchase_price, p.price * 0.8, 0)), 0) as total_value,
+				COUNT(*) as variant_count
+			FROM inventory_items i
+			LEFT JOIN products p ON i.product_id = p.id
+			WHERE i.status = 'in_stock'
+			GROUP BY COALESCE(p.name, i.product_id)
+			ORDER BY COALESCE(p.name, i.product_id)
+		`)
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var name, nameUrdu, company, category string
+				var totalStock, variantCount int
+				var avgPrice, totalValue float64
+				if rows.Scan(&name, &nameUrdu, &company, &category, &totalStock, &avgPrice, &totalValue, &variantCount) == nil {
+					productGroups = append(productGroups, ProductGroup{
+						Name: name, NameUrdu: nameUrdu, Company: company, Category: category,
+						TotalStock: totalStock, AvgPrice: avgPrice, TotalValue: totalValue, VariantCount: variantCount,
+					})
+					totalProducts++
+					if totalStock <= 5 { lowStock++ }
+					inventoryValue += totalValue
 				}
-				inventoryValue += pg.TotalValue
 			}
 		}
-		groupCursor.Close(ctx())
 	}
 	if productGroups == nil {
 		productGroups = []ProductGroup{}
