@@ -5,9 +5,10 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
-import { useProductStore, Product } from '../../store/useProductStore';
+import { Product } from '../../store/useProductStore';
 import ProductCreate from './ProductCreate';
 import { APP_CONFIG } from '../../config/app';
+import api from '../../utils/api';
 
 // ✅ Product Row
 const ProductRow: React.FC<{
@@ -41,11 +42,31 @@ const ProductRow: React.FC<{
   </tr>
 );
 
+// Map inventory API response to Product type for display
+const mapInventoryToProduct = (item: any): Product => ({
+  id: item.id,
+  name: item.product_name || '—',
+  nameUrdu: item.product_name_urdu || '',
+  category: item.category || '',
+  company: item.company || '',
+  serialNumber: item.serialNumber || '',
+  model: item.model || '',
+  color: item.color || '',
+  price: item.selling_price || 0,
+  purchasePrice: item.purchase_price || 0,
+  stockCount: 1,
+  in_stock: item.status === 'in_stock',
+  chassisNo: item.chassisNo,
+  engineNo: item.engineNo,
+  imei: item.imei,
+});
+
 const ProductList: React.FC = () => {
   const { t, i18n } = useTranslation();
   const isUrdu = i18n.language === 'ur';
 
-  const { products, loading, fetchProducts, deleteProduct, getCategories } = useProductStore();
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [editProduct, setEditProduct] = useState<Product | null>(null);
@@ -53,14 +74,39 @@ const ProductList: React.FC = () => {
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [isDeleting, setIsDeleting] = useState(false);
 
-  const categories = useMemo(() => getCategories(), [products, getCategories]);
+  // Fetch inventory items (individual items, not grouped)
+  const fetchItems = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await api.get('/inventory?limit=500&show_all=true');
+      const data = res.data?.data || res.data || [];
+      const items = (Array.isArray(data) ? data : []).map(mapInventoryToProduct);
+      setProducts(items);
+    } catch {
+      setProducts([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const categories: string[] = useMemo(() => {
+    const cats = new Set<string>();
+    products.forEach(p => { if (p.category) cats.add(p.category); });
+    return ['all', ...Array.from(cats)];
+  }, [products]);
 
   useEffect(() => { document.title = `${t('products')} | ${APP_CONFIG.companyName}`; }, [t]);
-  useEffect(() => { fetchProducts(); }, [fetchProducts]);
+  useEffect(() => { fetchItems(); }, [fetchItems]);
+
+  // Also refresh when inventoryUpdated event fires
+  useEffect(() => {
+    const handler = () => fetchItems();
+    window.addEventListener('inventoryUpdated', handler);
+    return () => window.removeEventListener('inventoryUpdated', handler);
+  }, [fetchItems]);
 
   const filtered = useMemo(() => {
     let result = products;
-    result = result.filter((p) => (p.stockCount || 0) > 0);
     if (search) {
       const q = search.toLowerCase();
       result = result.filter(p => p.name?.toLowerCase().includes(q) || p.nameUrdu?.includes(q) || p.category?.toLowerCase().includes(q) || p.company?.toLowerCase().includes(q) || p.sku?.toLowerCase().includes(q) || p.serialNumber?.toLowerCase().includes(q) || p.model?.toLowerCase().includes(q));
@@ -71,15 +117,19 @@ const ProductList: React.FC = () => {
 
   const handleDelete = useCallback(async (id: string) => {
     setIsDeleting(true); setDeleteConfirm(null);
-    if (await deleteProduct(id)) {
-      toast.success(isUrdu ? 'پروڈکٹ ڈیلیٹ' : 'Deleted');
-      // ✅ Notify dashboard to refresh inventory stats
+    try {
+      await api.delete(`/inventory/${id}`);
+      toast.success(isUrdu ? 'ڈیلیٹ ہو گیا' : 'Deleted');
+      fetchItems();
+      // Notify dashboard to refresh
       window.dispatchEvent(new CustomEvent('inventoryUpdated'));
-    } else {
+      // Clear cache
+      try { localStorage.removeItem('products_cache'); localStorage.removeItem('dashboard_summary_cache'); } catch {}
+    } catch {
       toast.error(isUrdu ? 'ناکام' : 'Failed');
     }
     setIsDeleting(false);
-  }, [deleteProduct, isUrdu]);
+  }, [isUrdu, fetchItems]);
 
   if (loading && products.length === 0) return <div className="flex justify-center py-20"><div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>;
 
@@ -130,8 +180,8 @@ const ProductList: React.FC = () => {
         </div>
       )}
 
-      {showCreate && <ProductCreate onClose={() => setShowCreate(false)} onSuccess={() => { fetchProducts(true); setShowCreate(false); window.dispatchEvent(new CustomEvent('inventoryUpdated')); }} />}
-      {editProduct && <ProductCreate initialData={editProduct} onClose={() => setEditProduct(null)} onSuccess={() => { fetchProducts(true); setEditProduct(null); window.dispatchEvent(new CustomEvent('inventoryUpdated')); }} />}
+      {showCreate && <ProductCreate onClose={() => setShowCreate(false)} onSuccess={() => { fetchItems(); setShowCreate(false); window.dispatchEvent(new CustomEvent('inventoryUpdated')); }} />}
+      {editProduct && <ProductCreate initialData={editProduct} onClose={() => setEditProduct(null)} onSuccess={() => { fetchItems(); setEditProduct(null); window.dispatchEvent(new CustomEvent('inventoryUpdated')); }} />}
 
       {deleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">

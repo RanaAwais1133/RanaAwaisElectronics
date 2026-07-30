@@ -137,6 +137,7 @@ func (h *InventoryHandler) List(w http.ResponseWriter, r *http.Request) {
 			"status":            item.Status,
 			"purchase_date":     item.PurchaseDate,
 			"purchase_price":    item.PurchasePrice,
+			"selling_price":     item.SellingPrice,
 			"sold_date":         item.SoldDate,
 			"created_at":        item.CreatedAt,
 			"updated_at":        item.UpdatedAt,
@@ -144,6 +145,9 @@ func (h *InventoryHandler) List(w http.ResponseWriter, r *http.Request) {
 		if prod != nil {
 			entry["product_name"] = prod.Name
 			entry["product_name_urdu"] = prod.NameUrdu
+			if entry["company"] == "" || entry["company"] == nil {
+				entry["company"] = prod.Company
+			}
 		}
 		result = append(result, entry)
 	}
