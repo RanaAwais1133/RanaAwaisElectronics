@@ -229,11 +229,11 @@ const VariantsDetailModal: React.FC<{ productName: string; onClose: () => void; 
 
   useEffect(() => {
     let cancelled = false;
-    api.get(`/products/search?q=${encodeURIComponent(productName)}&limit=200`)
+    api.get(`/inventory/variants/${encodeURIComponent(productName)}`)
       .then(res => {
         if (!cancelled) {
-          const d = res.data?.data || res.data || [];
-          setVariants(Array.isArray(d) ? d.filter((p: any) => (p.name || '').toLowerCase() === productName.toLowerCase()) : []);
+          const d = res.data || [];
+          setVariants(Array.isArray(d) ? d : []);
         }
       })
       .catch(() => { if (!cancelled) setVariants([]); })
