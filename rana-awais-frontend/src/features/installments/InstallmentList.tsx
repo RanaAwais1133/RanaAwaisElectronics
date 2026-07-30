@@ -335,7 +335,7 @@ const InstallmentList: React.FC = () => {
       const plansWithDetails = await Promise.all(
         plansToPrint.map(async (plan: any) => {
           try {
-            let cust = null;
+          let cust: any = null;
             if (plan?.customerId) {
               try { cust = (await api.get(`/customers/${plan.customerId}`)).data; } catch {}
             }
@@ -345,7 +345,7 @@ const InstallmentList: React.FC = () => {
             }
             let pays = [];
             try { pays = (await api.get(`/payments/plan/${plan.id}`)).data || []; } catch {}
-            let guars = [];
+            let guars: any[] = [];
             if (cust?.guarantorIds?.length > 0) {
               guars = (await Promise.all(
                 cust.guarantorIds.map((gId: string) =>
@@ -679,17 +679,17 @@ const InstallmentList: React.FC = () => {
       const plansWithDetails = await Promise.all(
         plansToPrint.map(async (plan: any) => {
           try {
-            let cust = null;
+            let cust: any = null;
             if (plan?.customerId) {
               try { cust = (await api.get(`/customers/${plan.customerId}`)).data; } catch {}
             }
-            let prod = null;
+            let prod: any = null;
             if (plan?.productId) {
               try { prod = (await api.get(`/products/${plan.productId}`)).data; } catch {}
             }
-            let pays = [];
+            let pays: any[] = [];
             try { pays = (await api.get(`/payments/plan/${plan.id}`)).data || []; } catch {}
-            let guars = [];
+            let guars: any[] = [];
             if (cust?.guarantorIds?.length > 0) {
               guars = (await Promise.all(
                 cust.guarantorIds.map((gId: string) =>

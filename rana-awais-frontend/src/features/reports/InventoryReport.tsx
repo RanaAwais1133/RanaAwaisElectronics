@@ -70,12 +70,12 @@ const InventoryReport: React.FC = () => {
   }, [displayProducts, search]);
 
   const totalValue = useMemo(() => {
-    return displayProducts.reduce((sum, p) => sum + p.totalValue, 0);
-  }, [displayProducts]);
+    return filteredProducts.reduce((sum, p) => sum + p.totalValue, 0);
+  }, [filteredProducts]);
 
   const inStockCount = useMemo(() => {
-    return displayProducts.reduce((sum, p) => sum + p.stockCount, 0);
-  }, [displayProducts]);
+    return filteredProducts.reduce((sum, p) => sum + p.stockCount, 0);
+  }, [filteredProducts]);
 
 
   // ✅ Product-wise grouped print
@@ -172,7 +172,7 @@ const InventoryReport: React.FC = () => {
           <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
             {isUrdu ? 'کل آئٹمز' : 'Total Items'}
           </p>
-          <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{items.length}</p>
+          <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{filteredProducts.length}</p>
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
           <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">

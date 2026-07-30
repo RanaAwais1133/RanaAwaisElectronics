@@ -110,6 +110,10 @@ class RealtimeService {
         this.dispatchEvent('payment_recorded', JSON.parse(e.data));
       });
 
+      this.eventSource.addEventListener('inventory_sold', (e: any) => {
+        this.dispatchEvent('inventory_sold', JSON.parse(e.data));
+      });
+
       this.eventSource.onerror = () => {
         this.isConnected = false;
         this.eventSource?.close();

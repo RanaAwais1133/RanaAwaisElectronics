@@ -137,6 +137,19 @@ func (h *InstallmentHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	audit.Log(r.Context(), "CREATE", "installment", plan.ID, "", getUserID(r))
+	
+	// ✅ Broadcast real-time SSE event when inventory is sold
+	// This ensures dashboard updates immediately when a product is sold
+	if plan.InventoryItemID != "" || plan.ProductID != "" {
+		GlobalSSEHub.Broadcast("inventory_sold", map[string]interface{}{
+			"event":    "inventory_updated",
+			"planId":   plan.ID,
+			"productId": plan.ProductID,
+			"inventoryItemId": plan.InventoryItemID,
+			"timestamp": time.Now().Unix(),
+		})
+	}
+	
 	respondJSON(w, http.StatusCreated, plan)
 }
 

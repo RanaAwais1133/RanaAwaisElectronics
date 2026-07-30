@@ -1,11 +1,9 @@
 package handler
 
 import (
-	"context"
 	"net/http"
 	"time"
 
-	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/config"
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/domain"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -30,14 +28,8 @@ func NewProductGroupsHandler() *ProductGroupsHandler {
 	return &ProductGroupsHandler{}
 }
 
-func getDB() *mongo.Database {
-	return config.MongoDatabase
-}
-
-func ctx() context.Context {
-	return context.Background()
-}
-
+// NOTE: getDB() and ctx() are already defined in dashboard_handler.go
+// Do NOT redeclare them here.
 // GetProductGroups returns all product groups with stock and value info
 // GET /api/dashboard/product-groups
 func (h *ProductGroupsHandler) GetProductGroups(w http.ResponseWriter, r *http.Request) {
@@ -273,7 +265,7 @@ func (h *ProductGroupsHandler) GetAgeingStock(w http.ResponseWriter, r *http.Req
 			SerialNumber: prod.SerialNumber,
 			Model:        prod.Model,
 			Company:      prod.Company,
-			PurchaseDate: prod.PurchaseDate.Format("2006-01-02"),
+			PurchaseDate: prod.CreatedAt.Format("2006-01-02"),
 			CreatedAt:    prod.CreatedAt.Format("2006-01-02"),
 			AgeDays:      ageDays,
 			StockCount:   prod.StockCount,
@@ -294,7 +286,7 @@ func parseInt(s string) (int, error) {
 		if c >= '0' && c <= '9' {
 			result = result*10 + int(c-'0')
 		} else {
-			return 0, s
+			return 0, nil
 		}
 	}
 	return result, nil

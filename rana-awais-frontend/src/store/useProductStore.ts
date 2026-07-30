@@ -209,6 +209,35 @@ export const useProductStore = create<ProductState>()((set, get) => {
         saveCache(products, Date.now());
         return { products, lastFetched: Date.now() };
       });
+      // Notify dashboard to refresh inventory stats
+      window.dispatchEvent(new CustomEvent('inventoryUpdated'));
+    });
+
+    // Listen for inventory sold
+    realtime.on('inventory_sold', (data: any) => {
+      // A product was sold via installment plan - fetch fresh data
+      const productId = data.productId;
+      set(state => {
+        if (productId && state.products.length > 0) {
+          // Optimistic: update stock count for the sold product
+          const products = state.products.map(p =>
+            p.id === productId
+              ? { ...p, stockCount: Math.max(0, (p.stockCount || 1) - 1), in_stock: (p.stockCount || 1) - 1 > 0 }
+              : p
+          );
+          saveCache(products, Date.now());
+          return { products, lastFetched: Date.now() };
+        }
+        // If we don't have the product, just mark stale to force refresh
+        return { lastFetched: 0 };
+      });
+      // Notify dashboard to refresh inventory stats
+      window.dispatchEvent(new CustomEvent('inventoryUpdated'));
+      // Also invalidate all caches
+      try {
+        localStorage.removeItem('products_cache');
+        localStorage.removeItem('dashboard_summary_cache');
+      } catch {}
     });
 
     // Track connection status

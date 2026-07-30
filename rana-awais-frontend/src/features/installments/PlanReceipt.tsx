@@ -21,7 +21,7 @@ const PlanReceipt: React.FC<Props> = ({ planId, onClose }) => {
       try {
         const pr = await api.get(`/installments/${planId}`);
         const plan = pr.data;
-        let cust = null;
+        let cust: any = null;
         if (plan?.customerId) {
           try { cust = (await api.get(`/customers/${plan.customerId}`)).data; } catch {}
         }
@@ -31,7 +31,7 @@ const PlanReceipt: React.FC<Props> = ({ planId, onClose }) => {
         }
         let pays = [];
         try { pays = (await api.get(`/payments/plan/${planId}`)).data || []; } catch {}
-        let guars = [];
+        let guars: any[] = [];
         if (cust?.guarantorIds?.length > 0) {
           guars = (await Promise.all(
             cust.guarantorIds.map((gId: string) =>
