@@ -984,6 +984,15 @@ const DashboardPage: React.FC = () => {
     return () => window.removeEventListener(INVENTORY_UPDATE_EVENT, handleInventoryUpdate);
   }, [handleRefresh]);
 
+  // ✅ Poll every 30 seconds for real-time updates (backup to event-based updates)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      handleRefresh();
+    }, 30000); // 30 seconds
+
+    return () => clearInterval(interval);
+  }, [handleRefresh]);
+
   if (loading && !summary) {
     return <DashboardSkeleton isUrdu={isUrdu} />;
   }

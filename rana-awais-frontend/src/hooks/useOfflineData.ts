@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import api from '../utils/api';
+import api, { clearMemoryCache } from '../utils/api';
 import { offlineDB } from '../db/indexeddb';
 
 // ✅ Cache TTL in milliseconds
@@ -174,6 +174,10 @@ export function useOfflineData<T = any>(
   }, [fetchData]);
 
   const refresh = useCallback(() => {
+    // Clear memory cache first to ensure fresh data
+    if (clearMemoryCache) {
+      clearMemoryCache();
+    }
     fetchData(true); // Skip cache, force network
   }, [fetchData]);
 

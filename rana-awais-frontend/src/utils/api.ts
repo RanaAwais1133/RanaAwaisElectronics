@@ -34,6 +34,23 @@ console.log('🌐 API Base URL:', BASE_URL);
 const memoryCache = new Map<string, { data: any; timestamp: number }>();
 const MEMORY_CACHE_TTL = 5000; // 5 seconds - balanced between freshness and backend load
 
+// ✅ Export cache clearing function so other modules can force-fresh fetches
+export function clearMemoryCache() {
+  memoryCache.clear();
+  console.log('🗑️ Memory cache cleared');
+}
+
+// ✅ Listen for inventory updates to clear cache immediately
+window.addEventListener('inventoryUpdated', () => {
+  // Clear ALL caches related to products, inventory, and dashboard
+  for (const key of memoryCache.keys()) {
+    if (key.includes('/products') || key.includes('/inventory') || key.includes('/dashboard')) {
+      memoryCache.delete(key);
+    }
+  }
+  console.log('📦 Inventory cache cleared for fresh data');
+});
+
 const api: AxiosInstance & {
   getTodayInstallments?: () => Promise<any>;
   getTodayDueFull?: () => Promise<any>;
@@ -79,17 +96,17 @@ api.interceptors.request.use(
       clearCacheForMutation(config.url);
     }
     
-    // ✅ Add cache-buster for GET requests (but only every 1s)
+  // ✅ Add cache-buster for GET requests (but only every 1s)
     if (config.method?.toLowerCase() === 'get' && config.url) {
       const cacheKey = config.url;
       const cached = memoryCache.get(cacheKey);
       if (cached && Date.now() - cached.timestamp < MEMORY_CACHE_TTL) {
-        // Return cached data immediately
-        return Promise.reject({ 
-          __fromCache: true, 
-          __cachedData: cached.data,
-          config 
-        });
+        // Return cached data immediately using a typed error
+        const cacheError = new Error('Cache hit') as any;
+        (cacheError as any).__fromCache = true;
+        (cacheError as any).__cachedData = cached.data;
+        (cacheError as any).config = config;
+        return Promise.reject(cacheError as Error);
       }
     }
     
@@ -124,12 +141,12 @@ api.interceptors.response.use(
       });
     }
     
-    const config = error.config as AxiosRequestConfig & { _retry?: boolean };
+    const requestConfig = (error.config || {}) as AxiosRequestConfig & { _retry?: boolean };
     
     // ✅ If offline or network error, try to serve from cache
     if (!navigator.onLine || error.code === 'ERR_NETWORK' || error.code === 'ECONNABORTED') {
-      const url = config.url || '';
-      const method = config.method?.toLowerCase() || 'get';
+      const url = requestConfig.url || '';
+      const method = requestConfig.method?.toLowerCase() || 'get';
 
       // For GET requests, try memory cache first, then IndexedDB
       if (method === 'get') {
@@ -142,7 +159,7 @@ api.interceptors.response.use(
             status: 200,
             statusText: 'OK (Memory Cache)',
             headers: {},
-            config,
+            config: requestConfig,
           });
         }
         
@@ -156,14 +173,14 @@ api.interceptors.response.use(
             status: 200,
             statusText: 'OK (Cached)',
             headers: {},
-            config,
+            config: requestConfig,
           });
         }
       }
 
       // For POST/PUT/DELETE, only queue if truly offline (not on network errors)
       if (['post', 'put', 'delete'].includes(method) && !navigator.onLine) {
-        const data = config.data ? JSON.parse(config.data) : {};
+        const data = typeof requestConfig.data === 'string' ? JSON.parse(requestConfig.data) : (requestConfig.data || {});
         const entityType = detectEntityType(url);
         const operation = method === 'post' ? 'create' : method === 'put' ? 'update' : 'delete';
         const recordId = extractRecordId(url);
@@ -177,7 +194,7 @@ api.interceptors.response.use(
             status: 200,
             statusText: 'OK (Offline)',
             headers: {},
-            config,
+            config: requestConfig,
           });
         }
       }
