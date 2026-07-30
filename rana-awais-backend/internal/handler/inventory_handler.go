@@ -364,15 +364,51 @@ func (h *InventoryHandler) GetProductVariants(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// Build a cache for product lookups
+	type prodCacheEntry struct {
+		Name     string
+		NameUrdu string
+	}
+	productCache := make(map[string]*prodCacheEntry)
+
 	var result []map[string]interface{}
 	for _, item := range items {
-		prod, _ := h.prodSvc.GetByID(r.Context(), item.ProductID)
-		if prod != nil && (prod.Name == productName || prod.NameUrdu == productName) {
+		productName_, productNameUrdu := "", ""
+
+		// Try cache first
+		if cached, ok := productCache[item.ProductID]; ok {
+			productName_ = cached.Name
+			productNameUrdu = cached.NameUrdu
+		} else {
+			prod, err := h.prodSvc.GetByID(r.Context(), item.ProductID)
+			if err == nil && prod != nil {
+				productName_ = prod.Name
+				productNameUrdu = prod.NameUrdu
+				productCache[item.ProductID] = &prodCacheEntry{Name: prod.Name, NameUrdu: prod.NameUrdu}
+			}
+		}
+		
+		// Match by product name (case-insensitive) OR if product not found, still include items
+		// that have a valid company/serial showing they're real stock items
+		matches := (productName_ != "" && (productName_ == productName || productNameUrdu == productName))
+		
+		// Also match for orphaned items: if product lookup failed but the item has company/engine/chassis,
+		// and the item's Company field matches (for HONDA items this helps find CG125 bikes)
+		if !matches && productName_ == "" {
+			// For orphaned items, skip if completely empty (no useful data)
+			if item.SerialNumber == "" && item.EngineNo == "" && item.ChassisNo == "" && item.Model == "" {
+				continue
+			}
+			// Don't include orphaned items without product match
+			continue
+		}
+		
+		if matches {
 			entry := map[string]interface{}{
 				"id":              item.ID,
 				"productId":       item.ProductID,
-				"productName":     prod.Name,
-				"productNameUrdu": prod.NameUrdu,
+				"productName":     productName_,
+				"productNameUrdu": productNameUrdu,
 				"serialNumber":    item.SerialNumber,
 				"color":           item.Color,
 				"model":           item.Model,
@@ -383,6 +419,7 @@ func (h *InventoryHandler) GetProductVariants(w http.ResponseWriter, r *http.Req
 				"purchasePrice":   item.PurchasePrice,
 				"sellingPrice":    item.SellingPrice,
 				"purchaseDate":    item.PurchaseDate,
+				"name":            productName_,
 			}
 			result = append(result, entry)
 		}

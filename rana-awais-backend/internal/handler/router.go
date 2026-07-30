@@ -90,6 +90,80 @@ func SetupRouter(
 	admin.HandleFunc("/users/{id}", userH.Delete).Methods("DELETE")
 	admin.HandleFunc("/settings", adminH.GetSettings).Methods("GET")
 	admin.HandleFunc("/settings", adminH.UpdateSettings).Methods("PUT")
+	admin.HandleFunc("/cleanup-inventory", func(w http.ResponseWriter, r *http.Request) {
+		// Clean up orphaned inventory items (items whose productId doesn't match any product)
+		db := config.MongoDatabase
+		if db == nil {
+			respondJSON(w, http.StatusOK, map[string]interface{}{
+				"error": "Database not connected", "error_ur": "ڈیٹا بیس منسلک نہیں",
+			})
+			return
+		}
+
+		ctx := r.Context()
+
+		// Get all product IDs
+		prodCursor, err := db.Collection("products").Find(ctx, bson.M{})
+		if err != nil {
+			respondJSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
+			return
+		}
+		validProductIDs := make(map[string]bool)
+		for prodCursor.Next(ctx) {
+			var prod struct{ ID string `bson:"_id"` }
+			if prodCursor.Decode(&prod) == nil {
+				validProductIDs[prod.ID] = true
+			}
+		}
+		prodCursor.Close(ctx)
+
+		// Get all in-stock inventory items
+		invCursor, err := db.Collection("inventory_items").Find(ctx, bson.M{"status": "in_stock"})
+		if err != nil {
+			respondJSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
+			return
+		}
+
+		orphanedDeleted := 0
+		for invCursor.Next(ctx) {
+			var item struct{ ID string `bson:"_id"`; ProductID string `bson:"productid"` }
+			if invCursor.Decode(&item) == nil {
+				if !validProductIDs[item.ProductID] {
+					db.Collection("inventory_items").DeleteOne(ctx, bson.M{"_id": item.ID})
+					orphanedDeleted++
+				}
+			}
+		}
+		invCursor.Close(ctx)
+
+		// Also delete products that have no name and no stock
+		allProdCursor, _ := db.Collection("products").Find(ctx, bson.M{})
+		emptyDeleted := 0
+		for allProdCursor.Next(ctx) {
+			var prod struct{
+				ID string `bson:"_id"`
+				Name string `bson:"name"`
+				StockCount int `bson:"stockcount"`
+			}
+			if allProdCursor.Decode(&prod) == nil {
+				if prod.Name == "" && prod.StockCount == 0 {
+					// Check if any inventory items reference this
+					count, _ := db.Collection("inventory_items").CountDocuments(ctx, bson.M{"productid": prod.ID})
+					if count == 0 {
+						db.Collection("products").DeleteOne(ctx, bson.M{"_id": prod.ID})
+						emptyDeleted++
+					}
+				}
+			}
+		}
+		allProdCursor.Close(ctx)
+
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"message":              "Cleanup completed",
+			"orphanedItemsDeleted":  orphanedDeleted,
+			"emptyProductsDeleted":  emptyDeleted,
+		})
+	}).Methods("POST")
 
 	// SSE real-time events endpoint
 	protected.Handle("/events", GlobalSSEHub).Methods("GET")

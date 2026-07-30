@@ -91,6 +91,10 @@ func (s *InventoryService) GetInventorySummary(ctx context.Context) ([]map[strin
 	productMap := make(map[string]map[string]interface{})
 
 	for _, item := range items {
+		// Skip items with empty or invalid ProductID
+		if item.ProductID == "" {
+			continue
+		}
 		key := item.ProductID
 		if productMap[key] == nil {
 			productMap[key] = map[string]interface{}{
