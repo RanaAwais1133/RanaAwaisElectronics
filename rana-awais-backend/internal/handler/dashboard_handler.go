@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/config"
@@ -11,6 +12,7 @@ import (
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/pkg/cache"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 type DashboardHandler struct{}
@@ -493,67 +495,73 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 		VariantCount int    `json:"variantCount" bson:"variantcount"`
 	}
 
-	// ✅ MONGO ATLAS INVENTORY: Query inventory_items collection directly
-	// This is the single source of truth - same as Inventory List/Variants APIs
+	// ✅ GO-SIDE GROUPING: Fetch inventory + products, group by product name in Go
+	// Avoids MongoDB $lookup type-mismatch issues; skips orphaned items cleanly
 	var productGroups []ProductGroup
-	inventoryPipe := mongo.Pipeline{
-		{{Key: "$match", Value: bson.D{{Key: "status", Value: "in_stock"}}}},
-		{{Key: "$lookup", Value: bson.D{
-			{Key: "from", Value: "products"},
-			{Key: "localField", Value: "productid"},
-			{Key: "foreignField", Value: "_id"},
-			{Key: "as", Value: "product"},
-		}}},
-		{{Key: "$unwind", Value: bson.D{{Key: "path", Value: "$product"}, {Key: "preserveNullAndEmptyArrays", Value: true}}}},
-		{{Key: "$group", Value: bson.D{
-			{Key: "_id", Value: bson.D{
-				{Key: "$toLower", Value: bson.D{{Key: "$ifNull", Value: bson.A{"$product.name", "$productid"}}}},
-			}},
-			{Key: "name", Value: bson.D{{Key: "$first", Value: bson.D{{Key: "$ifNull", Value: bson.A{"$product.name", "$productid"}}}}}},
-			{Key: "nameurdu", Value: bson.D{{Key: "$first", Value: bson.D{{Key: "$ifNull", Value: bson.A{"$product.nameurdu", ""}}}}}},
-			{Key: "company", Value: bson.D{{Key: "$first", Value: bson.D{{Key: "$ifNull", Value: bson.A{"$company", "$product.company", ""}}}}}},
-			{Key: "category", Value: bson.D{{Key: "$first", Value: bson.D{{Key: "$ifNull", Value: bson.A{"$product.category", ""}}}}}},
-			{Key: "totalstock", Value: bson.D{{Key: "$sum", Value: 1}}},
-			{Key: "totalvalue", Value: bson.D{{Key: "$sum", Value: bson.D{{Key: "$ifNull", Value: bson.A{"$purchaseprice", bson.D{{Key: "$multiply", Value: bson.A{bson.D{{Key: "$ifNull", Value: bson.A{"$product.price", 0}}}, 0.8}}}, 0}}}}}},
-			{Key: "totalcost", Value: bson.D{{Key: "$sum", Value: bson.D{{Key: "$ifNull", Value: bson.A{"$purchaseprice", 0}}}}}},
-			{Key: "totalsale", Value: bson.D{{Key: "$sum", Value: bson.D{{Key: "$ifNull", Value: bson.A{"$sellingprice", 0}}}}}},
-			{Key: "variantcount", Value: bson.D{{Key: "$sum", Value: 1}}},
-			{Key: "avgprice", Value: bson.D{{Key: "$avg", Value: bson.D{{Key: "$ifNull", Value: bson.A{"$sellingprice", "$product.price", 0}}}}}},
-		}}},
-		{{Key: "$sort", Value: bson.D{{Key: "name", Value: 1}}}},
-	}
-	cursor, err := db.Collection("inventory_items").Aggregate(ctx(), inventoryPipe)
-	if err == nil {
-		for cursor.Next(ctx()) {
-			var pg struct {
-				Name         string  `bson:"name"`
-				NameUrdu     string  `bson:"nameurdu"`
-				Company      string  `bson:"company"`
-				Category     string  `bson:"category"`
-				TotalStock   int     `bson:"totalstock"`
-				TotalValue   float64 `bson:"totalvalue"`
-				AvgPrice     float64 `bson:"avgprice"`
-				VariantCount int     `bson:"variantcount"`
-			}
-			if cursor.Decode(&pg) == nil && pg.Name != "" {
-				productGroups = append(productGroups, ProductGroup{
-					Name:         pg.Name,
-					NameUrdu:     pg.NameUrdu,
-					Company:      pg.Company,
-					Category:     pg.Category,
-					TotalStock:   pg.TotalStock,
-					AvgPrice:     pg.AvgPrice,
-					TotalValue:   pg.TotalValue,
-					VariantCount: pg.VariantCount,
-				})
-				totalProducts++
-				if pg.TotalStock <= 5 {
-					lowStock++
-				}
-				inventoryValue += pg.TotalValue
+
+	// 1. Fetch all in_stock inventory items
+	invCursor, invErr := db.Collection("inventory_items").Find(ctx(), bson.M{"status": "in_stock"}, options.Find().SetSort(bson.D{{Key: "createdat", Value: -1}}))
+	if invErr == nil {
+		var invItems []domain.InventoryItem
+		invCursor.All(ctx(), &invItems)
+		invCursor.Close(ctx())
+
+		// 2. Fetch all products into a map
+		prodCursor, prodErr := db.Collection("products").Find(ctx(), bson.M{})
+		prodMap := make(map[string]*domain.Product)
+		if prodErr == nil {
+			var allProds []domain.Product
+			prodCursor.All(ctx(), &allProds)
+			prodCursor.Close(ctx())
+			for i := range allProds {
+				prodMap[allProds[i].ID] = &allProds[i]
 			}
 		}
-		cursor.Close(ctx())
+
+		// 3. Group inventory items by product name (from products collection)
+		groupMap := make(map[string]*ProductGroup)
+		groupOrder := []string{} // preserve insertion order
+
+		for _, item := range invItems {
+			prod := prodMap[item.ProductID]
+			if prod == nil || prod.Name == "" {
+				continue // skip orphaned items
+			}
+			key := strings.ToLower(prod.Name)
+			if _, exists := groupMap[key]; !exists {
+				groupMap[key] = &ProductGroup{
+					Name:     prod.Name,
+					NameUrdu: prod.NameUrdu,
+					Company:  prod.Company,
+					Category: prod.Category,
+				}
+				groupOrder = append(groupOrder, key)
+			}
+			g := groupMap[key]
+			g.TotalStock++
+			g.VariantCount++
+			g.TotalValue += item.PurchasePrice
+			if item.SellingPrice > 0 {
+				g.AvgPrice = item.SellingPrice
+			} else if prod.Price > 0 && g.AvgPrice == 0 {
+				g.AvgPrice = prod.Price
+			}
+		}
+
+		// 4. Build sorted result
+		sort.Strings(groupOrder)
+		for _, key := range groupOrder {
+			g := groupMap[key]
+			if g.TotalStock == 0 {
+				continue
+			}
+			productGroups = append(productGroups, *g)
+			totalProducts++
+			if g.TotalStock <= 5 {
+				lowStock++
+			}
+			inventoryValue += g.TotalValue
+		}
 	}
 	if productGroups == nil {
 		productGroups = []ProductGroup{}
