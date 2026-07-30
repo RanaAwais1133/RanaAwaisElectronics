@@ -142,7 +142,7 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 		{{Key: "$lookup", Value: bson.D{{Key: "from", Value: "installment_plans"}, {Key: "localField", Value: "installmentplanid"}, {Key: "foreignField", Value: "_id"}, {Key: "as", Value: "plan"}}}},
 		{{Key: "$unwind", Value: bson.D{{Key: "path", Value: "$plan"}, {Key: "preserveNullAndEmptyArrays", Value: true}}}},
 		{{Key: "$lookup", Value: bson.D{{Key: "from", Value: "products"}, {Key: "localField", Value: "plan.productid"}, {Key: "foreignField", Value: "_id"}, {Key: "as", Value: "product"}}}},
-		{{Key: "$unwind", Value: bson.D{{Key: "path", Value: "$product"}, {Key: "preserveNullAndEmptyArrays", Value: true}}}},
+		{{Key: "$unwind", Value: "$product"}},
 		{{Key: "$group", Value: bson.D{{Key: "_id", Value: nil}, {Key: "totalProfit", Value: bson.D{{Key: "$sum", Value: bson.D{{Key: "$cond", Value: []interface{}{
 			bson.D{{Key: "$gt", Value: []interface{}{"$product.purchaseprice", 0}}},
 			bson.D{{Key: "$subtract", Value: []interface{}{"$amount", "$product.purchaseprice"}}},
