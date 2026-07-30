@@ -140,7 +140,7 @@ func (s *InstallmentService) CreatePlan(ctx context.Context, plan *domain.Instal
 		}
 	}
 
-	// Mark inventory as sold
+	// Mark inventory as sold and DELETE it from inventory
 	if plan.InventoryItemID != "" {
 		item, err := s.inventoryRepo.GetByID(ctx, plan.InventoryItemID)
 		if err == nil && item != nil && item.Status == "in_stock" {
@@ -148,6 +148,8 @@ func (s *InstallmentService) CreatePlan(ctx context.Context, plan *domain.Instal
 			item.Status = "sold"
 			item.SoldDate = &now
 			s.inventoryRepo.Update(ctx, item.ID, item)
+			// DELETE the sold item from inventory so it no longer appears in inventory list
+			s.inventoryRepo.Delete(ctx, item.ID)
 			// Also update product stock_count
 			if product != nil {
 				product.StockCount--
