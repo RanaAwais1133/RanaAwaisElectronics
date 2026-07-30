@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"database/sql"
 	"net/http"
 	"sort"
 	"time"
@@ -494,45 +493,67 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 		VariantCount int    `json:"variantCount" bson:"variantcount"`
 	}
 
-// ✅ LIVE INVENTORY: Query SQLite inventory_items directly
-	// MongoDB products.stockcount is stale. SQLite inventory_items is the source of truth.
+	// ✅ MONGO ATLAS INVENTORY: Query inventory_items collection directly
+	// This is the single source of truth - same as Inventory List/Variants APIs
 	var productGroups []ProductGroup
-	_ = sql.ErrNoRows // ensure database/sql import is used
-	sqliteDB := config.GetSQLiteDB()
-	if sqliteDB != nil {
-		rows, err := sqliteDB.QueryContext(ctx(), `
-			SELECT 
-				COALESCE(p.name, i.product_id) as name,
-				COALESCE(p.name_urdu, '') as name_urdu,
-				COALESCE(i.company, p.company, '') as company,
-				COALESCE(p.category, '') as category,
-				COUNT(*) as total_stock,
-				COALESCE(AVG(COALESCE(i.selling_price, p.price, 0)), 0) as avg_price,
-				COALESCE(SUM(COALESCE(i.purchase_price, p.purchase_price, p.price * 0.8, 0)), 0) as total_value,
-				COUNT(*) as variant_count
-			FROM inventory_items i
-			LEFT JOIN products p ON i.product_id = p.id
-			WHERE i.status = 'in_stock'
-			GROUP BY COALESCE(p.name, i.product_id)
-			ORDER BY COALESCE(p.name, i.product_id)
-		`)
-		if err == nil {
-			defer rows.Close()
-			for rows.Next() {
-				var name, nameUrdu, company, category string
-				var totalStock, variantCount int
-				var avgPrice, totalValue float64
-				if rows.Scan(&name, &nameUrdu, &company, &category, &totalStock, &avgPrice, &totalValue, &variantCount) == nil {
-					productGroups = append(productGroups, ProductGroup{
-						Name: name, NameUrdu: nameUrdu, Company: company, Category: category,
-						TotalStock: totalStock, AvgPrice: avgPrice, TotalValue: totalValue, VariantCount: variantCount,
-					})
-					totalProducts++
-					if totalStock <= 5 { lowStock++ }
-					inventoryValue += totalValue
+	inventoryPipe := mongo.Pipeline{
+		{{Key: "$match", Value: bson.D{{Key: "status", Value: "in_stock"}}}},
+		{{Key: "$lookup", Value: bson.D{
+			{Key: "from", Value: "products"},
+			{Key: "localField", Value: "productid"},
+			{Key: "foreignField", Value: "_id"},
+			{Key: "as", Value: "product"},
+		}}},
+		{{Key: "$unwind", Value: bson.D{{Key: "path", Value: "$product"}, {Key: "preserveNullAndEmptyArrays", Value: true}}}},
+		{{Key: "$group", Value: bson.D{
+			{Key: "_id", Value: bson.D{
+				{Key: "$toLower", Value: bson.D{{Key: "$ifNull", Value: bson.A{"$product.name", "$productid"}}}},
+			}},
+			{Key: "name", Value: bson.D{{Key: "$first", Value: bson.D{{Key: "$ifNull", Value: bson.A{"$product.name", "$productid"}}}}}},
+			{Key: "nameurdu", Value: bson.D{{Key: "$first", Value: bson.D{{Key: "$ifNull", Value: bson.A{"$product.nameurdu", ""}}}}}},
+			{Key: "company", Value: bson.D{{Key: "$first", Value: bson.D{{Key: "$ifNull", Value: bson.A{"$company", "$product.company", ""}}}}}},
+			{Key: "category", Value: bson.D{{Key: "$first", Value: bson.D{{Key: "$ifNull", Value: bson.A{"$product.category", ""}}}}}},
+			{Key: "totalstock", Value: bson.D{{Key: "$sum", Value: 1}}},
+			{Key: "totalvalue", Value: bson.D{{Key: "$sum", Value: bson.D{{Key: "$ifNull", Value: bson.A{"$purchaseprice", bson.D{{Key: "$multiply", Value: bson.A{bson.D{{Key: "$ifNull", Value: bson.A{"$product.price", 0}}}, 0.8}}}, 0}}}}}},
+			{Key: "totalcost", Value: bson.D{{Key: "$sum", Value: bson.D{{Key: "$ifNull", Value: bson.A{"$purchaseprice", 0}}}}}},
+			{Key: "totalsale", Value: bson.D{{Key: "$sum", Value: bson.D{{Key: "$ifNull", Value: bson.A{"$sellingprice", 0}}}}}},
+			{Key: "variantcount", Value: bson.D{{Key: "$sum", Value: 1}}},
+			{Key: "avgprice", Value: bson.D{{Key: "$avg", Value: bson.D{{Key: "$ifNull", Value: bson.A{"$sellingprice", "$product.price", 0}}}}}},
+		}}},
+		{{Key: "$sort", Value: bson.D{{Key: "name", Value: 1}}}},
+	}
+	cursor, err := db.Collection("inventory_items").Aggregate(ctx(), inventoryPipe)
+	if err == nil {
+		for cursor.Next(ctx()) {
+			var pg struct {
+				Name         string  `bson:"name"`
+				NameUrdu     string  `bson:"nameurdu"`
+				Company      string  `bson:"company"`
+				Category     string  `bson:"category"`
+				TotalStock   int     `bson:"totalstock"`
+				TotalValue   float64 `bson:"totalvalue"`
+				AvgPrice     float64 `bson:"avgprice"`
+				VariantCount int     `bson:"variantcount"`
+			}
+			if cursor.Decode(&pg) == nil && pg.Name != "" {
+				productGroups = append(productGroups, ProductGroup{
+					Name:         pg.Name,
+					NameUrdu:     pg.NameUrdu,
+					Company:      pg.Company,
+					Category:     pg.Category,
+					TotalStock:   pg.TotalStock,
+					AvgPrice:     pg.AvgPrice,
+					TotalValue:   pg.TotalValue,
+					VariantCount: pg.VariantCount,
+				})
+				totalProducts++
+				if pg.TotalStock <= 5 {
+					lowStock++
 				}
+				inventoryValue += pg.TotalValue
 			}
 		}
+		cursor.Close(ctx())
 	}
 	if productGroups == nil {
 		productGroups = []ProductGroup{}
@@ -613,9 +634,10 @@ func calculateAgeingInventory(db *mongo.Database) int64 {
 		return 0
 	}
 	ninetyDaysAgo := time.Now().AddDate(0, 0, -90)
-	count, err := db.Collection("products").CountDocuments(ctx(), bson.M{
+	// ✅ Count inventory_items that are in_stock and older than 90 days
+	count, err := db.Collection("inventory_items").CountDocuments(ctx(), bson.M{
 		"createdat": bson.M{"$lt": ninetyDaysAgo},
-		"stockcount": bson.M{"$gt": 0},
+		"status":    "in_stock",
 	})
 	if err != nil {
 		return 0
