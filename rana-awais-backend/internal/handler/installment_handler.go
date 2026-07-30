@@ -138,6 +138,9 @@ func (h *InstallmentHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	audit.Log(r.Context(), "CREATE", "installment", plan.ID, "", getUserID(r))
 	
+	// ✅ Invalidate dashboard cache so summary updates immediately
+	middleware.DashboardCache.Invalidate("/dashboard/summary")
+	
 	// ✅ Broadcast real-time SSE event when inventory is sold
 	// This ensures dashboard updates immediately when a product is sold
 	if plan.InventoryItemID != "" || plan.ProductID != "" {
