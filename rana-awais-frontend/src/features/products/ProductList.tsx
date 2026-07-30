@@ -6,7 +6,8 @@ import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 import { Product } from '../../store/useProductStore';
-import ProductCreate from './ProductCreate';
+import InventoryCreate from '../inventory/InventoryCreate';
+import InventoryEditModal from '../inventory/InventoryEditModal';
 import { APP_CONFIG } from '../../config/app';
 import api from '../../utils/api';
 
@@ -180,8 +181,8 @@ const ProductList: React.FC = () => {
         </div>
       )}
 
-      {showCreate && <ProductCreate onClose={() => setShowCreate(false)} onSuccess={() => { fetchItems(); setShowCreate(false); window.dispatchEvent(new CustomEvent('inventoryUpdated')); }} />}
-      {editProduct && <ProductCreate initialData={editProduct} onClose={() => setEditProduct(null)} onSuccess={() => { fetchItems(); setEditProduct(null); window.dispatchEvent(new CustomEvent('inventoryUpdated')); }} />}
+      {showCreate && <InventoryCreate onClose={() => setShowCreate(false)} onSuccess={() => { fetchItems(); setShowCreate(false); window.dispatchEvent(new CustomEvent('inventoryUpdated')); }} />}
+      {editProduct && <InventoryEditModal itemId={editProduct.id} onClose={() => setEditProduct(null)} onSuccess={() => { fetchItems(); setEditProduct(null); window.dispatchEvent(new CustomEvent('inventoryUpdated')); }} />}
 
       {deleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
