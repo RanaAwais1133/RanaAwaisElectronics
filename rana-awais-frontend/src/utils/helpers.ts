@@ -318,7 +318,7 @@ export const generateInstallmentSchedule = (
   const totalCalculated = installmentAmount * months;
   const adjustment = Math.round((remaining - totalCalculated) * 100) / 100;
   
-  const schedule = [];
+  const schedule: Array<{ installmentNo: number; dueDate: string; amount: number }> = [];
   const start = new Date(startDate);
   let totalAllocated = 0;
   
