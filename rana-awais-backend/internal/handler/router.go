@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/config"
@@ -139,6 +140,11 @@ func SetupRouter(
 		// Also delete products that have no name and no stock
 		allProdCursor, _ := db.Collection("products").Find(ctx, bson.M{})
 		emptyDeleted := 0
+		duplicatesMerged := 0
+		
+		// Map: lowercase product name -> list of product IDs (to merge duplicates)
+		nameGroups := make(map[string][]string)
+		
 		for allProdCursor.Next(ctx) {
 			var prod struct{
 				ID string `bson:"_id"`
@@ -153,15 +159,58 @@ func SetupRouter(
 						db.Collection("products").DeleteOne(ctx, bson.M{"_id": prod.ID})
 						emptyDeleted++
 					}
+				} else if prod.Name != "" {
+					// Group by lowercase name for duplicate detection
+					key := strings.ToLower(prod.Name)
+					nameGroups[key] = append(nameGroups[key], prod.ID)
 				}
 			}
 		}
 		allProdCursor.Close(ctx)
+		
+		// Merge duplicate products: keep the first ID, reassign inventory items, delete the rest
+		for _, ids := range nameGroups {
+			if len(ids) > 1 {
+				keepID := ids[0]
+				for i := 1; i < len(ids); i++ {
+					dupID := ids[i]
+					// Move all inventory items to the kept product
+					result, err := db.Collection("inventory_items").UpdateMany(ctx,
+						bson.M{"productid": dupID},
+						bson.M{"$set": bson.M{"productid": keepID}},
+					)
+					if err == nil && result.ModifiedCount > 0 {
+						duplicatesMerged += int(result.ModifiedCount)
+					}
+					// Delete the duplicate product
+					db.Collection("products").DeleteOne(ctx, bson.M{"_id": dupID})
+					duplicatesMerged++
+				}
+			}
+		}
+		
+		// Refresh product stock counts after merging
+		refreshProdCursor, _ := db.Collection("products").Find(ctx, bson.M{})
+		for refreshProdCursor.Next(ctx) {
+			var p struct{ ID string `bson:"_id"` }
+			if refreshProdCursor.Decode(&p) == nil {
+				count, _ := db.Collection("inventory_items").CountDocuments(ctx, bson.M{
+					"productid": p.ID,
+					"status": "in_stock",
+				})
+				db.Collection("products").UpdateOne(ctx,
+					bson.M{"_id": p.ID},
+					bson.M{"$set": bson.M{"stockcount": int(count), "in_stock": count > 0}},
+				)
+			}
+		}
+		refreshProdCursor.Close(ctx)
 
 		respondJSON(w, http.StatusOK, map[string]interface{}{
 			"message":              "Cleanup completed",
 			"orphanedItemsDeleted":  orphanedDeleted,
 			"emptyProductsDeleted":  emptyDeleted,
+			"duplicatesMerged":      duplicatesMerged,
 		})
 	}).Methods("POST")
 

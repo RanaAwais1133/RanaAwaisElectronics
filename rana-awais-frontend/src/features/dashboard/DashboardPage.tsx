@@ -294,7 +294,7 @@ const VariantsDetailModal: React.FC<{ productName: string; onClose: () => void; 
                       <td className="px-2 py-2.5 text-xs text-gray-600 dark:text-gray-300">{v.model || '—'}</td>
                       <td className="px-2 py-2.5 text-xs text-gray-600 dark:text-gray-300">{v.color || '—'}</td>
                       <td className="px-2 py-2.5 text-end text-xs font-bold text-gray-800 dark:text-white">Rs. {(v.purchasePrice || v.purchase_price || 0).toLocaleString()}</td>
-                      <td className="px-2 py-2.5 text-end text-xs font-bold text-emerald-600 dark:text-emerald-400">Rs. {(v.price || v.selling_price || 0).toLocaleString()}</td>
+                      <td className="px-2 py-2.5 text-end text-xs font-bold text-emerald-600 dark:text-emerald-400">Rs. {(v.sellingPrice || v.price || v.selling_price || 0).toLocaleString()}</td>
                     </tr>
                   ))}
                 </tbody>
