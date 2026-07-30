@@ -1185,14 +1185,37 @@ func (s *InstallmentService) DeletePlan(ctx context.Context, planID string) erro
 	if err != nil || plan == nil {
 		return errors.New("plan not found")
 	}
+	
+	// Restore inventory item if it was sold
 	if plan.InventoryItemID != "" {
 		item, err := s.inventoryRepo.GetByID(ctx, plan.InventoryItemID)
-		if err == nil && item != nil {
+		if err == nil && item != nil && item.Status == "sold" {
+			// Restore the item back to in_stock
 			item.Status = "in_stock"
 			item.SoldDate = nil
 			s.inventoryRepo.Update(ctx, item.ID, item)
+			
+			// Also increment product stock count
+			if item.ProductID != "" {
+				prod, err := s.prodRepo.GetByID(ctx, item.ProductID)
+				if err == nil && prod != nil {
+					prod.StockCount++
+					if prod.StockCount > 0 {
+						prod.InStock = true
+					}
+					s.prodRepo.Update(ctx, prod.ID, prod)
+				}
+			}
 		}
 	}
+	
+	// Delete all payments for this plan
+	_ = s.paymentRepo.DeleteByPlan(ctx, planID)
+	
+	// Delete all accounting entries for this plan
+	_ = s.accRepo.DeleteByPlanID(ctx, planID)
+	
+	// Finally delete the plan
 	return s.planRepo.Delete(ctx, planID)
 }
 

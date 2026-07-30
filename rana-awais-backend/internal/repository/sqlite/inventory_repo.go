@@ -217,3 +217,73 @@ func (r *InventoryRepository) Count(ctx context.Context) (int64, error) {
 	err := r.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM inventory_items").Scan(&count)
 	return count, err
 }
+
+func (r *InventoryRepository) ListInStock(ctx context.Context, skip, limit int64) ([]domain.InventoryItem, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, product_id, serial_number, color, model, engine_no, chassis_no, imei, company, 
+			status, purchase_date, purchase_price, selling_price, sold_date, created_at, updated_at
+		FROM inventory_items WHERE status = 'in_stock' ORDER BY created_at DESC LIMIT ? OFFSET ?`, limit, skip)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []domain.InventoryItem
+	for rows.Next() {
+		var item domain.InventoryItem
+		var color, model, engineNo, chassisNo, imei, company, soldDate sql.NullString
+		err := rows.Scan(&item.ID, &item.ProductID, &item.SerialNumber, &color, &model, &engineNo, &chassisNo, &imei, &company, &item.Status, &item.PurchaseDate, &item.PurchasePrice, &item.SellingPrice, &soldDate, &item.CreatedAt, &item.UpdatedAt)
+		if err != nil { continue }
+		item.Color = color.String
+		item.Model = model.String
+		item.EngineNo = engineNo.String
+		item.ChassisNo = chassisNo.String
+		item.IMEI = imei.String
+		item.Company = company.String
+		if soldDate.Valid && soldDate.String != "" {
+			if t, err := time.Parse("2006-01-02 15:04:05", soldDate.String); err == nil {
+				item.SoldDate = &t
+			}
+		}
+		items = append(items, item)
+	}
+	if items == nil { items = []domain.InventoryItem{} }
+	return items, nil
+}
+
+func (r *InventoryRepository) CountInStock(ctx context.Context) (int64, error) {
+	var count int64
+	err := r.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM inventory_items WHERE status = 'in_stock'").Scan(&count)
+	return count, err
+}
+
+func (r *InventoryRepository) ListSold(ctx context.Context, start, end time.Time) ([]domain.InventoryItem, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, product_id, serial_number, color, model, engine_no, chassis_no, imei, company,
+			status, purchase_date, purchase_price, selling_price, sold_date, created_at, updated_at
+		FROM inventory_items WHERE status = 'sold' AND sold_date >= ? AND sold_date < ? ORDER BY sold_date DESC`, start, end)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []domain.InventoryItem
+	for rows.Next() {
+		var item domain.InventoryItem
+		var color, model, engineNo, chassisNo, imei, company, soldDate sql.NullString
+		err := rows.Scan(&item.ID, &item.ProductID, &item.SerialNumber, &color, &model, &engineNo, &chassisNo, &imei, &company, &item.Status, &item.PurchaseDate, &item.PurchasePrice, &item.SellingPrice, &soldDate, &item.CreatedAt, &item.UpdatedAt)
+		if err != nil { continue }
+		item.Color = color.String
+		item.Model = model.String
+		item.EngineNo = engineNo.String
+		item.ChassisNo = chassisNo.String
+		item.IMEI = imei.String
+		item.Company = company.String
+		if soldDate.Valid && soldDate.String != "" {
+			if t, err := time.Parse("2006-01-02 15:04:05", soldDate.String); err == nil {
+				item.SoldDate = &t
+			}
+		}
+		items = append(items, item)
+	}
+	if items == nil { items = []domain.InventoryItem{} }
+	return items, nil
+}

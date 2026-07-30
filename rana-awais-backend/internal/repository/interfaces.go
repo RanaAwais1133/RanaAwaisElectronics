@@ -51,10 +51,13 @@ type InventoryRepository interface {
 	Update(ctx context.Context, id string, item *domain.InventoryItem) error
 	Delete(ctx context.Context, id string) error
 	List(ctx context.Context, skip, limit int64) ([]domain.InventoryItem, error)
+	ListInStock(ctx context.Context, skip, limit int64) ([]domain.InventoryItem, error)
 	GetBySerial(ctx context.Context, serial string) (*domain.InventoryItem, error)
 	GetAgeingReport(ctx context.Context, olderThanDays int) ([]domain.InventoryItem, error)
 	ListByProduct(ctx context.Context, productID string) ([]domain.InventoryItem, error)
 	Count(ctx context.Context) (int64, error)
+	CountInStock(ctx context.Context) (int64, error)
+	ListSold(ctx context.Context, start, end time.Time) ([]domain.InventoryItem, error)
 }
 
 type InstallmentRepository interface {
@@ -82,13 +85,13 @@ type PaymentRepository interface {
 	GetMonthlyPayments(ctx context.Context, year int, month time.Month) ([]domain.Payment, error)
 	Delete(ctx context.Context, id string) error
 	DeleteByInstallment(ctx context.Context, planID string, installmentNo int) (int64, error)
+	DeleteByPlan(ctx context.Context, planID string) error
 }
 
 type AccountingRepository interface {
 	Create(ctx context.Context, e *domain.AccountingEntry) error
 	GetCashFlowReport(ctx context.Context, start, end time.Time) ([]domain.AccountingEntry, error)
 	GetAccrualReport(ctx context.Context, start, end time.Time) ([]domain.AccountingEntry, error)
-	GetSoldItems(ctx context.Context, start, end time.Time) ([]domain.InventoryItem, error)
 	GetRevenueAndProfit(ctx context.Context, start, end time.Time) (revenue float64, profit float64, err error)
 	DeleteByPlanID(ctx context.Context, planID string) error
 	DeleteByPlanIDAndDate(ctx context.Context, planID string, date time.Time) error

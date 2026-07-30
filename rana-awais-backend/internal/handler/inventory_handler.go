@@ -93,11 +93,32 @@ func (h *InventoryHandler) List(w http.ResponseWriter, r *http.Request) {
 	skip, _ := strconv.ParseInt(r.URL.Query().Get("skip"), 10, 64)
 	limit, _ := strconv.ParseInt(r.URL.Query().Get("limit"), 10, 64)
 	if limit == 0 { limit = 20 }
-	items, err := h.svc.List(r.Context(), skip, limit)
-	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "Failed to list", "فہرست نہیں لائی جا سکی")
-		return
+	
+	// Check if we should show all items or only in_stock
+	showAll := r.URL.Query().Get("show_all") == "true"
+	
+	var items []domain.InventoryItem
+	var err error
+	var total int64
+	
+	if showAll {
+		// Show all items including sold
+		items, err = h.svc.List(r.Context(), skip, limit)
+		if err != nil {
+			respondError(w, r, http.StatusInternalServerError, "Failed to list", "فہرست نہیں لائی جا سکی")
+			return
+		}
+		total, _ = h.svc.Count(r.Context())
+	} else {
+		// Show only in_stock items
+		items, err = h.svc.ListInStock(r.Context(), skip, limit)
+		if err != nil {
+			respondError(w, r, http.StatusInternalServerError, "Failed to list", "فہرست نہیں لائی جا سکی")
+			return
+		}
+		total, _ = h.svc.CountInStock(r.Context())
 	}
+	
 	var result []map[string]interface{}
 	for _, item := range items {
 		prod, _ := h.prodSvc.GetByID(r.Context(), item.ProductID)
@@ -126,7 +147,6 @@ func (h *InventoryHandler) List(w http.ResponseWriter, r *http.Request) {
 		}
 		result = append(result, entry)
 	}
-	total, _ := h.svc.Count(r.Context())
 	respondJSON(w, http.StatusOK, map[string]interface{}{"data": result, "total": total})
 }
 
@@ -234,6 +254,70 @@ func (h *InventoryHandler) ReturnItem(w http.ResponseWriter, r *http.Request) {
 		respondError(w, r, http.StatusInternalServerError, "Failed to mark as returned", "واپسی کا نشان نہیں لگا")
 		return
 	}
+	
+	// Restore product stock
+	if item.ProductID != "" {
+		prod, err := h.prodSvc.GetByID(r.Context(), item.ProductID)
+		if err == nil && prod != nil {
+			prod.StockCount++
+			if prod.StockCount > 0 {
+				prod.InStock = true
+			}
+			h.prodSvc.Update(r.Context(), item.ProductID, prod)
+		}
+	}
+	
 	audit.Log(r.Context(), "RETURN_ITEM", "inventory", id, "", getUserID(r))
 	respondJSON(w, http.StatusOK, map[string]string{"message": "Item marked as returned"})
+}
+
+func (h *InventoryHandler) GetSoldItems(w http.ResponseWriter, r *http.Request) {
+	startStr := r.URL.Query().Get("start")
+	endStr := r.URL.Query().Get("end")
+	
+	var start, end time.Time
+	var err error
+	
+	if startStr != "" && endStr != "" {
+		start, err = time.Parse("2006-01-02", startStr)
+		if err != nil { start = time.Time{} }
+		end, err = time.Parse("2006-01-02", endStr)
+		if err != nil { end = time.Time{} }
+	}
+	
+	if start.IsZero() || end.IsZero() {
+		// Default to last 30 days
+		start = time.Now().AddDate(0, 0, -30)
+		end = time.Now()
+	}
+	
+	items, err := h.svc.GetSoldItems(r.Context(), start, end)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "Failed to get sold items", "فروخت شدہ آئٹمز نہیں مل سکے")
+		return
+	}
+	
+	var result []map[string]interface{}
+	for _, item := range items {
+		prod, _ := h.prodSvc.GetByID(r.Context(), item.ProductID)
+		entry := map[string]interface{}{
+			"id":                item.ID,
+			"productId":         item.ProductID,
+			"product_name":      "",
+			"product_name_urdu": "",
+			"serialNumber":      item.SerialNumber,
+			"color":             item.Color,
+			"model":             item.Model,
+			"sold_date":         item.SoldDate,
+			"purchase_price":    item.PurchasePrice,
+			"selling_price":     item.SellingPrice,
+		}
+		if prod != nil {
+			entry["product_name"] = prod.Name
+			entry["product_name_urdu"] = prod.NameUrdu
+		}
+		result = append(result, entry)
+	}
+	
+	respondJSON(w, http.StatusOK, result)
 }

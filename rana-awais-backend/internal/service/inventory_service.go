@@ -48,6 +48,18 @@ func (s *InventoryService) Count(ctx context.Context) (int64, error) {
 	return s.inventoryRepo.Count(ctx)
 }
 
+func (s *InventoryService) ListInStock(ctx context.Context, skip, limit int64) ([]domain.InventoryItem, error) {
+	return s.inventoryRepo.ListInStock(ctx, skip, limit)
+}
+
+func (s *InventoryService) CountInStock(ctx context.Context) (int64, error) {
+	return s.inventoryRepo.CountInStock(ctx)
+}
+
+func (s *InventoryService) GetSoldItems(ctx context.Context, start, end time.Time) ([]domain.InventoryItem, error) {
+	return s.inventoryRepo.ListSold(ctx, start, end)
+}
+
 func (s *InventoryService) ListByProduct(ctx context.Context, productID string) ([]domain.InventoryItem, error) {
 	return s.inventoryRepo.ListByProduct(ctx, productID)
 }

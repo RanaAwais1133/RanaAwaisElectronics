@@ -178,3 +178,8 @@ func (r *PaymentRepository) DeleteByInstallment(ctx context.Context, planID stri
 	}
 	return result.RowsAffected()
 }
+
+func (r *PaymentRepository) DeleteByPlan(ctx context.Context, planID string) error {
+	_, err := r.db.ExecContext(ctx, "DELETE FROM payments WHERE installment_plan_id = ?", planID)
+	return err
+}

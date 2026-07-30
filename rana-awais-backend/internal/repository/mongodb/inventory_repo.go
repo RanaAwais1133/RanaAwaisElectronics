@@ -149,3 +149,43 @@ func (r *InventoryRepository) ListByProduct(ctx context.Context, productID strin
 func (r *InventoryRepository) Count(ctx context.Context) (int64, error) {
 	return r.coll.CountDocuments(ctx, bson.M{})
 }
+
+func (r *InventoryRepository) ListInStock(ctx context.Context, skip, limit int64) ([]domain.InventoryItem, error) {
+	opts := options.Find().
+		SetSort(bson.D{{Key: "createdat", Value: -1}}).
+		SetSkip(skip).
+		SetLimit(limit)
+	cursor, err := r.coll.Find(ctx, bson.M{"status": "in_stock"}, opts)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	var items []domain.InventoryItem
+	err = cursor.All(ctx, &items)
+	if items == nil {
+		items = []domain.InventoryItem{}
+	}
+	return items, err
+}
+
+func (r *InventoryRepository) CountInStock(ctx context.Context) (int64, error) {
+	return r.coll.CountDocuments(ctx, bson.M{"status": "in_stock"})
+}
+
+func (r *InventoryRepository) ListSold(ctx context.Context, start, end time.Time) ([]domain.InventoryItem, error) {
+	filter := bson.M{
+		"status":  "sold",
+		"solddate": bson.M{"$gte": start, "$lt": end},
+	}
+	cursor, err := r.coll.Find(ctx, filter, options.Find().SetSort(bson.D{{Key: "solddate", Value: -1}}))
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	var items []domain.InventoryItem
+	err = cursor.All(ctx, &items)
+	if items == nil {
+		items = []domain.InventoryItem{}
+	}
+	return items, err
+}

@@ -61,13 +61,7 @@ func (s *AccountingService) GetProfitWithCost(ctx context.Context, start, end ti
 		}
 	}
 
-	// Also add cost of goods sold from inventory
-	items, err := s.accRepo.GetSoldItems(ctx, start, end)
-	if err == nil {
-		for _, item := range items {
-			totalCost += item.PurchasePrice
-		}
-	}
+	// COGS already tracked via accounting entries created during payments
 
 	return map[string]float64{
 		"total_revenue": totalRevenue,
