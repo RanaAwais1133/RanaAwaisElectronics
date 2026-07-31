@@ -22,8 +22,6 @@ const InventoryCreate: React.FC<Props> = ({ onClose, onSuccess, initialData }) =
   
   const { products, fetchProducts } = useProductStore();
   
-  const [productId, setProductId] = useState(initialData?.productId || initialData?.product_id || '');
-  const [createNewProduct, setCreateNewProduct] = useState(false);
   const [newProductName, setNewProductName] = useState('');
   const [newProductNameUrdu, setNewProductNameUrdu] = useState('');
   const [newProductCategory, setNewProductCategory] = useState('');
@@ -53,28 +51,8 @@ const InventoryCreate: React.FC<Props> = ({ onClose, onSuccess, initialData }) =
     fetchProducts();
   }, [fetchProducts]);
 
-  const productOptions = products.map(p => ({
-    value: p.id,
-    label: isUrdu ? `${p.nameUrdu || p.name} - Rs. ${p.price}` : `${p.name} - Rs. ${p.price}`,
-    labelUrdu: `${p.nameUrdu || p.name} - Rs. ${p.price}`,
-  }));
-
-  const selectedProduct = products.find(p => p.id === productId);
-  
-  useEffect(() => {
-    if (selectedProduct && !isEditMode && !createNewProduct) {
-      if (!company && selectedProduct.company) {
-        setCompany(selectedProduct.company);
-      }
-    }
-  }, [selectedProduct, company, isEditMode, createNewProduct]);
-
   const validateForm = useCallback(() => {
-    if (!createNewProduct && !productId) {
-      setError(isUrdu ? 'براہ کرم پروڈکٹ منتخب کریں' : t('select_product'));
-      return false;
-    }
-    if (createNewProduct && !newProductName.trim()) {
+    if (!newProductName.trim()) {
       setError(isUrdu ? 'براہ کرم پروڈکٹ کا نام لکھیں' : 'Please enter product name');
       return false;
     }
@@ -84,7 +62,7 @@ const InventoryCreate: React.FC<Props> = ({ onClose, onSuccess, initialData }) =
       return false;
     }
     return true;
-  }, [createNewProduct, productId, newProductName, purchasePrice, t, isUrdu]);
+  }, [newProductName, purchasePrice, t, isUrdu]);
 
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
@@ -94,34 +72,32 @@ const InventoryCreate: React.FC<Props> = ({ onClose, onSuccess, initialData }) =
     setLoading(true);
     setError('');
 
-    let finalProductId = productId;
+    var finalProductId = '';
 
     try {
-      // ✅ If creating a new product, create product first
-      if (createNewProduct) {
-        const productPayload = {
-          name: newProductName.trim(),
-          nameUrdu: newProductNameUrdu.trim() || newProductName.trim(),
-          category: newProductCategory.trim() || (isUrdu ? 'جنرل' : 'General'),
-          price: Number(sellingPrice) || Number(purchasePrice) || 0,
-          purchasePrice: Number(purchasePrice) || 0,
-          sellingPrice: Number(sellingPrice) || 0,
-          company: company || '',
-          stockCount: 1,
-          in_stock: true,
-          created_by: currentUser?.displayName || currentUser?.username || '',
-        };
-        
-        const prodRes = await api.post('/products', productPayload);
-        const createdProduct = prodRes.data?.data || prodRes.data;
-        finalProductId = createdProduct?.id || createdProduct?._id || '';
-        
-        if (!finalProductId) {
-          throw new Error('Failed to create product');
-        }
-        
-        toast.success(isUrdu ? 'نیا پروڈکٹ بن گیا' : 'New product created');
+      // ✅ Always create product first (if same name exists, backend handles merging)
+      const productPayload = {
+        name: newProductName.trim(),
+        nameUrdu: newProductNameUrdu.trim() || newProductName.trim(),
+        category: newProductCategory.trim() || (isUrdu ? 'جنرل' : 'General'),
+        price: Number(sellingPrice) || Number(purchasePrice) || 0,
+        purchasePrice: Number(purchasePrice) || 0,
+        sellingPrice: Number(sellingPrice) || 0,
+        company: company || '',
+        stockCount: 1,
+        in_stock: true,
+        created_by: currentUser?.displayName || currentUser?.username || '',
+      };
+      
+      const prodRes = await api.post('/products', productPayload);
+      const createdProduct = prodRes.data?.data || prodRes.data;
+      finalProductId = createdProduct?.id || createdProduct?._id || '';
+      
+      if (!finalProductId) {
+        throw new Error('Failed to create product');
       }
+      
+      toast.success(isUrdu ? 'نیا پروڈکٹ بن گیا' : 'New product created');
 
       const payload = {
         ...(isEditMode && { id: initialData.id }),
@@ -156,7 +132,7 @@ const InventoryCreate: React.FC<Props> = ({ onClose, onSuccess, initialData }) =
       setLoading(false);
     }
   }, [
-    createNewProduct, productId, newProductName, newProductNameUrdu, newProductCategory,
+    newProductName, newProductNameUrdu, newProductCategory,
     serialNumber, color, model, engineNo, chassisNo, imei, company,
     purchaseDate, purchasePrice, sellingPrice, isEditMode, initialData,
     currentUser, onSuccess, onClose, t, isUrdu, validateForm,
@@ -184,53 +160,11 @@ const InventoryCreate: React.FC<Props> = ({ onClose, onSuccess, initialData }) =
         </div>
 
         <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-3 sm:space-y-4">
-          {/* Toggle: Select Product OR Create New */}
+          {/* New Product Fields - Always shown */}
           {!isEditMode && (
-            <div className="flex gap-2 mb-2">
-              <button
-                type="button"
-                onClick={() => { setCreateNewProduct(false); setProductId(''); }}
-                className={`flex-1 py-2 px-3 rounded-xl text-sm font-semibold transition-all ${
-                  !createNewProduct
-                    ? 'bg-blue-600 text-white shadow-md'
-                    : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
-                }`}
-              >
-                {isUrdu ? 'موجودہ پروڈکٹ' : 'Existing Product'}
-              </button>
-              <button
-                type="button"
-                onClick={() => { setCreateNewProduct(true); setProductId(''); }}
-                className={`flex-1 py-2 px-3 rounded-xl text-sm font-semibold transition-all ${
-                  createNewProduct
-                    ? 'bg-emerald-600 text-white shadow-md'
-                    : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
-                }`}
-              >
-                {isUrdu ? 'نیا پروڈکٹ' : 'New Product'}
-              </button>
-            </div>
-          )}
-
-          {/* Product Selection (existing) */}
-          {!createNewProduct && (
-            <SearchableSelect
-              label={isUrdu ? 'پروڈکٹ' : t('product')}
-              name="productId"
-              value={productId}
-              onChange={setProductId}
-              options={productOptions}
-              placeholder={isUrdu ? 'پروڈکٹ منتخب کریں' : t('select_product')}
-              required
-              disabled={isEditMode}
-            />
-          )}
-
-          {/* New Product Fields */}
-          {createNewProduct && !isEditMode && (
             <div className="space-y-3 p-4 bg-emerald-50 dark:bg-emerald-900/20 rounded-2xl border border-emerald-200 dark:border-emerald-800">
               <p className="text-xs font-bold text-emerald-700 dark:text-emerald-300 uppercase tracking-wider">
-                {isUrdu ? 'نیا پروڈکٹ بنائیں' : 'Create New Product'}
+                {isUrdu ? 'پروڈکٹ کی معلومات' : 'Product Information'}
               </p>
               <FormField
                 label={isUrdu ? 'پروڈکٹ کا نام' : 'Product Name'}

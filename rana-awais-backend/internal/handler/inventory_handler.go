@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -78,8 +79,54 @@ func (h *InventoryHandler) Create(w http.ResponseWriter, r *http.Request) {
 		respondError(w, r, http.StatusInternalServerError, "Creation failed", "آئٹم نہیں بن سکا")
 		return
 	}
+	
+	// ✅ Sync product prices: Update product in products collection with latest inventory prices
+	h.syncProductPrices(r.Context(), input.ProductID, input.PurchasePrice, input.SellingPrice, input.Company, input.SerialNumber, input.Model, input.Color)
+	
 	audit.Log(r.Context(), "CREATE", "inventory", item.ID, "", getUserID(r))
 	respondJSON(w, http.StatusCreated, item)
+}
+
+// syncProductPrices updates the products collection with latest inventory item prices
+// This ensures products always show the most recent purchase/selling prices
+func (h *InventoryHandler) syncProductPrices(ctx context.Context, productID string, purchasePrice, sellingPrice float64, company, serial, model, color string) {
+	if productID == "" {
+		return
+	}
+	prod, err := h.prodSvc.GetByID(ctx, productID)
+	if err != nil || prod == nil {
+		return
+	}
+	
+	updateFields := map[string]interface{}{}
+	if purchasePrice > 0 {
+		prod.PurchasePrice = purchasePrice
+		updateFields["purchaseprice"] = purchasePrice
+	}
+	if sellingPrice > 0 {
+		prod.Price = sellingPrice
+		updateFields["price"] = sellingPrice
+	}
+	if company != "" && prod.Company == "" {
+		prod.Company = company
+		updateFields["company"] = company
+	}
+	if serial != "" && prod.SerialNumber == "" {
+		prod.SerialNumber = serial
+		updateFields["serialnumber"] = serial
+	}
+	if model != "" && prod.Model == "" {
+		prod.Model = model
+		updateFields["model"] = model
+	}
+	if color != "" && prod.Color == "" {
+		prod.Color = color
+		updateFields["color"] = color
+	}
+	
+	if len(updateFields) > 0 {
+		h.prodSvc.Update(ctx, productID, prod)
+	}
 }
 
 func (h *InventoryHandler) GetByID(w http.ResponseWriter, r *http.Request) {
