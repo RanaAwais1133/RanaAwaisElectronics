@@ -1,11 +1,13 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/domain"
+	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/pkg/cache"
 	"go.mongodb.org/mongo-driver/bson"
 )
 
@@ -20,17 +22,23 @@ func NewReportHandler() *ReportHandler {
 // ═══════════════════════════════════════════════════════════════
 
 func (h *ReportHandler) DailyReport(w http.ResponseWriter, r *http.Request) {
+	dateStr := r.URL.Query().Get("date")
+	if dateStr == "" {
+		dateStr = time.Now().Format("2006-01-02")
+	}
+	// ⚡ CACHE: Return cached result (60 seconds)
+	cacheKey := fmt.Sprintf("report:daily:%s", dateStr)
+	if cached, found := cache.EntityCache.Get(cacheKey); found {
+		respondJSON(w, http.StatusOK, cached)
+		return
+	}
+
 	db := getDB()
 	if db == nil {
 		respondJSON(w, http.StatusOK, map[string]interface{}{
 			"error": "Database not connected",
 		})
 		return
-	}
-
-	dateStr := r.URL.Query().Get("date")
-	if dateStr == "" {
-		dateStr = time.Now().Format("2006-01-02")
 	}
 	date, err := time.ParseInLocation("2006-01-02", dateStr, pkLoc)
 	if err != nil {
@@ -247,7 +255,7 @@ func (h *ReportHandler) DailyReport(w http.ResponseWriter, r *http.Request) {
 		planCursor4.Close(r.Context())
 	}
 
-	respondJSON(w, http.StatusOK, map[string]interface{}{
+	result := map[string]interface{}{
 		"date":                dateStr,
 		"total_sales":         cashTotal + bankTotal,
 		"total_pending":       pendingAmount,
@@ -264,7 +272,9 @@ func (h *ReportHandler) DailyReport(w http.ResponseWriter, r *http.Request) {
 		"total_outstanding":   totalOutstanding,
 		"cash_in_hand_amount": cashTotal,
 		"bank_deposit_amount": bankTotal,
-	})
+	}
+	cache.EntityCache.Set(cacheKey, result)
+	respondJSON(w, http.StatusOK, result)
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -313,6 +323,13 @@ func (h *ReportHandler) DateRangeReport(w http.ResponseWriter, r *http.Request) 
 // ═══════════════════════════════════════════════════════════════
 
 func (h *ReportHandler) getRangeReport(w http.ResponseWriter, r *http.Request, start, end time.Time, reportType string) {
+	// ⚡ CACHE: Return cached result (60 seconds)
+	cacheKey := fmt.Sprintf("report:%s:%s:%s", reportType, start.Format("2006-01-02"), end.Format("2006-01-02"))
+	if cached, found := cache.EntityCache.Get(cacheKey); found {
+		respondJSON(w, http.StatusOK, cached)
+		return
+	}
+
 	db := getDB()
 	if db == nil {
 		respondJSON(w, http.StatusOK, map[string]interface{}{
@@ -465,7 +482,7 @@ func (h *ReportHandler) getRangeReport(w http.ResponseWriter, r *http.Request, s
 		planCursor2.Close(r.Context())
 	}
 
-	respondJSON(w, http.StatusOK, map[string]interface{}{
+	result := map[string]interface{}{
 		"start":             start.Format("2006-01-02"),
 		"end":               end.Format("2006-01-02"),
 		"report_type":       reportType,
@@ -479,7 +496,9 @@ func (h *ReportHandler) getRangeReport(w http.ResponseWriter, r *http.Request, s
 		"closed_accounts":   closedAccounts,
 		"net_accounts":      openAccounts + closedAccounts,
 		"total_outstanding": totalOutstanding,
-	})
+	}
+	cache.EntityCache.Set(cacheKey, result)
+	respondJSON(w, http.StatusOK, result)
 }
 
 // ═══════════════════════════════════════════════════════════════
