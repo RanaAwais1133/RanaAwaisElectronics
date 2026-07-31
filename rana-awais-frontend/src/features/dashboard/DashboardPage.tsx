@@ -979,18 +979,13 @@ const DashboardPage: React.FC = () => {
     refresh: handleRefresh,
   } = useOfflineDashboard();
 
-  // ✅ Clear ALL caches and force fresh data on mount
+  // ✅ Show cached data immediately, refresh silently in background
+  // (Cache is NOT cleared on mount - cached data loads instantly)
   useEffect(() => {
-    try {
-      // Clear localStorage cache
-      localStorage.removeItem('dashboard_summary_cache');
-      // Clear IndexedDB cache (fire and forget)
-      import('../../db/indexeddb').then(({ offlineDB }) => {
-        offlineDB.clearDashboardCache().catch(() => {});
-      });
-    } catch {}
-    // Force fresh fetch with small delay to ensure cache cleared
-    const t = setTimeout(() => handleRefresh(), 200);
+    // Background refresh after a short delay (don't block UI)
+    const t = setTimeout(() => {
+      try { handleRefresh(); } catch {}
+    }, 500);
     return () => clearTimeout(t);
   }, []); // eslint-disable-line
 
@@ -1037,23 +1032,26 @@ const DashboardPage: React.FC = () => {
     return <DashboardSkeleton isUrdu={isUrdu} />;
   }
 
+  // ✅ If error but we have stale data, still show dashboard (silently retrying)
   if (error && !summary) {
     return (
       <div className="max-w-7xl mx-auto px-3 sm:px-4 py-10">
-        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-red-200 dark:border-red-800 p-8 text-center">
-          <div className="p-3 bg-red-50 dark:bg-red-900/30 rounded-full inline-flex mb-4">
-            <svg className="w-8 h-8 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
-            </svg>
+        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-12 text-center">
+          <div className="animate-pulse mb-4">
+            <div className="w-16 h-16 bg-gray-200 dark:bg-gray-700 rounded-full mx-auto mb-4" />
+            <div className="w-48 h-4 bg-gray-200 dark:bg-gray-700 rounded mx-auto mb-2" />
+            <div className="w-64 h-3 bg-gray-200 dark:bg-gray-700 rounded mx-auto" />
           </div>
-          <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">{isUrdu ? 'ڈیش بورڈ لوڈ کرنے میں مسئلہ' : 'Failed to load dashboard'}</h3>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">{error}</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-4">
+            {isUrdu ? 'ڈیٹا لوڈ ہو رہا ہے... (سرور جاگ رہا ہے)' : 'Loading data... (server is waking up)'}
+          </p>
+          <p className="text-xs text-gray-400 mt-1">{isUrdu ? 'پہلی بار تھوڑا وقت لگ سکتا ہے' : 'First load may take a moment'}</p>
           <button
             onClick={handleRefresh}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-xl text-sm font-semibold hover:bg-gray-800 dark:hover:bg-gray-100 transition-all"
+            className="mt-6 inline-flex items-center gap-2 px-4 py-2 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-xl text-sm font-semibold hover:bg-gray-800 dark:hover:bg-gray-100 transition-all"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-            {isUrdu ? 'دوبارہ کوشش کریں' : 'Try Again'}
+            {isUrdu ? 'دوبارہ کوشش کریں' : 'Retry'}
           </button>
         </div>
       </div>
