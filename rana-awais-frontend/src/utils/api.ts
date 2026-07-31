@@ -57,7 +57,7 @@ const api: AxiosInstance & {
   getOverdueFull?: () => Promise<any>;
 } = axios.create({
   baseURL: BASE_URL,
-  timeout: 10000, // Reduced from 15000 to 10000
+  timeout: 30000, // 30 seconds for dashboard heavy queries
   headers: {
     'Content-Type': 'application/json',
   },

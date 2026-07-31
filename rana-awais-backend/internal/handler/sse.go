@@ -185,3 +185,9 @@ func BroadcastStockEvent(productID string, quantity int, product interface{}) {
 		"timestamp": time.Now().Unix(),
 	})
 }
+
+// BroadcastInventoryEvent sends any inventory-related SSE event to all clients
+func BroadcastInventoryEvent(eventType string, payload map[string]interface{}) {
+	payload["timestamp"] = time.Now().Unix()
+	GlobalSSEHub.Broadcast(eventType, payload)
+}

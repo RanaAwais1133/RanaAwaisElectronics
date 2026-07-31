@@ -241,6 +241,10 @@ func (h *InventoryHandler) RemoveStock(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// ✅ Broadcast stock removed event
+	BroadcastInventoryEvent("stock_removed", map[string]interface{}{
+		"removed_ids": payload.IDs,
+	})
 	audit.Log(r.Context(), "REMOVE_STOCK", "inventory", "", "", getUserID(r))
 	respondJSON(w, http.StatusOK, map[string]string{"message": "Items removed successfully"})
 }
@@ -268,6 +272,12 @@ func (h *InventoryHandler) ReturnItem(w http.ResponseWriter, r *http.Request) {
 				prod.InStock = true
 			}
 			h.prodSvc.Update(r.Context(), item.ProductID, prod)
+			// ✅ Broadcast real-time return event
+			BroadcastInventoryEvent("item_returned", map[string]interface{}{
+				"id":          id,
+				"productId":   item.ProductID,
+				"productName": prod.Name,
+			})
 		}
 	}
 	

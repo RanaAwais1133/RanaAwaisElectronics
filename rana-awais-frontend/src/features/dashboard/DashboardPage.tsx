@@ -279,10 +279,13 @@ const VariantsDetailModal: React.FC<{ productName: string; onClose: () => void; 
                     <th className="px-2 py-2.5 text-start text-[10px] font-bold text-gray-500 uppercase">{isUrdu ? 'رنگ' : 'Color'}</th>
                     <th className="px-2 py-2.5 text-end text-[10px] font-bold text-gray-500 uppercase">{isUrdu ? 'قیمت خرید' : 'Cost'}</th>
                     <th className="px-2 py-2.5 text-end text-[10px] font-bold text-gray-500 uppercase">{isUrdu ? 'فروخت قیمت' : 'Sale'}</th>
+                    <th className="px-2 py-2.5 text-center text-[10px] font-bold text-gray-500 uppercase">{isUrdu ? 'تاریخ خرید' : 'Purch. Date'}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
-                  {variants.map((v: any, idx: number) => (
+                  {variants.map((v: any, idx: number) => {
+                    const purchaseDate = v.purchaseDate ? new Date(v.purchaseDate).toLocaleDateString('en-GB') : '—';
+                    return (
                     <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
                       <td className="px-2 py-2.5 text-gray-400 font-mono text-xs text-center">{idx + 1}</td>
                       <td className="px-2 py-2.5 text-xs font-semibold text-gray-800 dark:text-white whitespace-nowrap">{v.name || '—'}</td>
@@ -295,8 +298,10 @@ const VariantsDetailModal: React.FC<{ productName: string; onClose: () => void; 
                       <td className="px-2 py-2.5 text-xs text-gray-600 dark:text-gray-300">{v.color || '—'}</td>
                       <td className="px-2 py-2.5 text-end text-xs font-bold text-gray-800 dark:text-white">Rs. {(v.purchasePrice || v.purchase_price || 0).toLocaleString()}</td>
                       <td className="px-2 py-2.5 text-end text-xs font-bold text-emerald-600 dark:text-emerald-400">Rs. {(v.sellingPrice || v.price || v.selling_price || 0).toLocaleString()}</td>
+                      <td className="px-2 py-2.5 text-center text-xs text-gray-500 whitespace-nowrap">{purchaseDate}</td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

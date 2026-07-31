@@ -30,7 +30,7 @@ func NewProductGroupsHandler() *ProductGroupsHandler {
 
 // NOTE: getDB() and ctx() are already defined in dashboard_handler.go
 // Do NOT redeclare them here.
-// GetProductGroups returns all product groups with stock and value info
+// GetProductGroups returns all product groups with REAL-TIME stock and value from inventory_items
 // GET /api/dashboard/product-groups
 func (h *ProductGroupsHandler) GetProductGroups(w http.ResponseWriter, r *http.Request) {
 	db := getDB()
@@ -45,46 +45,39 @@ func (h *ProductGroupsHandler) GetProductGroups(w http.ResponseWriter, r *http.R
 	// Get low stock filter from query params
 	lowStockOnly := r.URL.Query().Get("low_stock") == "true"
 
-	// Optimized aggregation pipeline for product groups
+	// ✅ NEW: Aggregate from inventory_items (SINGLE SOURCE OF TRUTH)
+	// Group by product name via $lookup to products collection
 	groupPipe := mongo.Pipeline{
-		// Normalize stockcount and calculate costs
-		{{Key: "$addFields", Value: bson.D{
-			// Normalize stockcount: convert to int, missing/null → 1
-			{Key: "_stockcnt", Value: bson.D{{Key: "$cond", Value: bson.A{
-				bson.D{{Key: "$ifNull", Value: bson.A{"$stockcount", false}}},
-				bson.D{{Key: "$convert", Value: bson.D{{Key: "input", Value: "$stockcount"}, {Key: "to", Value: "int"}, {Key: "onError", Value: 1}, {Key: "onNull", Value: 1}}}},
-				1,
-			}}}},
-			// Inventory value uses PURCHASE PRICE (cost)
-			{Key: "_unitcost", Value: bson.D{{Key: "$cond", Value: bson.A{
-				bson.D{{Key: "$gt", Value: bson.A{bson.D{{Key: "$ifNull", Value: bson.A{"$purchaseprice", 0}}}, 0}}},
-				bson.D{{Key: "$ifNull", Value: bson.A{"$purchaseprice", 0}}},
-				bson.D{{Key: "$multiply", Value: bson.A{bson.D{{Key: "$ifNull", Value: bson.A{"$price", 0}}}, 0.8}}},
-			}}}},
-			// Sale price for avg price display
-			{Key: "_unitval", Value: bson.D{{Key: "$cond", Value: bson.A{
-				bson.D{{Key: "$gt", Value: bson.A{bson.D{{Key: "$ifNull", Value: bson.A{"$price", 0}}}, 0}}},
-				"$price",
-				bson.D{{Key: "$multiply", Value: bson.A{bson.D{{Key: "$ifNull", Value: bson.A{"$purchaseprice", 0}}}, 1.2}}},
-			}}}},
+		// Filter only in_stock items
+		{{Key: "$match", Value: bson.D{{Key: "status", Value: "in_stock"}}}},
+		// Lookup product name from products collection
+		{{Key: "$lookup", Value: bson.D{
+			{Key: "from", Value: "products"},
+			{Key: "localField", Value: "productid"},
+			{Key: "foreignField", Value: "_id"},
+			{Key: "as", Value: "product"},
 		}}},
-		// Group by product name
+		// Unwind the product array (keep items even without product match)
+		{{Key: "$unwind", Value: bson.D{{Key: "path", Value: "$product"}, {Key: "preserveNullAndEmptyArrays", Value: true}}}},
+		// Group by product name (use company as fallback for orphaned items)
 		{{Key: "$group", Value: bson.D{
-			{Key: "_id", Value: bson.D{{Key: "$toLower", Value: "$name"}}},
-			{Key: "name", Value: bson.D{{Key: "$first", Value: "$name"}}},
-			{Key: "nameurdu", Value: bson.D{{Key: "$first", Value: "$nameurdu"}}},
-			{Key: "company", Value: bson.D{{Key: "$first", Value: bson.D{{Key: "$ifNull", Value: bson.A{"$company", ""}}}}}},
-			{Key: "category", Value: bson.D{{Key: "$first", Value: "$category"}}},
-			{Key: "totalstock", Value: bson.D{{Key: "$sum", Value: "$_stockcnt"}}},
-			{Key: "totalvalue", Value: bson.D{{Key: "$sum", Value: bson.D{{Key: "$multiply", Value: bson.A{"$_stockcnt", "$_unitcost"}}}}}},
-			{Key: "avgprice", Value: bson.D{{Key: "$avg", Value: "$_unitval"}}},
+			{Key: "_id", Value: bson.D{{Key: "$ifNull", Value: bson.A{"$product.name", "$company"}}}},
+			{Key: "name", Value: bson.D{{Key: "$first", Value: bson.D{{Key: "$ifNull", Value: bson.A{"$product.name", "$company"}}}}}},
+			{Key: "nameurdu", Value: bson.D{{Key: "$first", Value: "$product.nameurdu"}}},
+			{Key: "company", Value: bson.D{{Key: "$first", Value: bson.D{{Key: "$ifNull", Value: bson.A{"$product.company", "$company"}}}}}},
+			{Key: "category", Value: bson.D{{Key: "$first", Value: "$product.category"}}},
+			{Key: "totalstock", Value: bson.D{{Key: "$sum", Value: 1}}},
+			{Key: "totalvalue", Value: bson.D{{Key: "$sum", Value: bson.D{{Key: "$ifNull", Value: bson.A{"$purchaseprice", 0}}}}}},
+			{Key: "avgprice", Value: bson.D{{Key: "$avg", Value: bson.D{{Key: "$ifNull", Value: bson.A{"$sellingprice", 0}}}}}},
 			{Key: "variantcount", Value: bson.D{{Key: "$sum", Value: 1}}},
 		}}},
+		// Filter out empty groups
+		{{Key: "$match", Value: bson.D{{Key: "_id", Value: bson.D{{Key: "$ne", Value: ""}}}}}},
 		// Sort by name
-		{{Key: "$sort", Value: bson.D{{Key: "name", Value: 1}}}},
+		{{Key: "$sort", Value: bson.D{{Key: "_id", Value: 1}}}},
 	}
 
-	groupCursor, groupErr := db.Collection("products").Aggregate(ctx(), groupPipe)
+	groupCursor, groupErr := db.Collection("inventory_items").Aggregate(ctx(), groupPipe)
 	var productGroups []ProductGroup
 	if groupErr == nil {
 		for groupCursor.Next(ctx()) {
@@ -119,7 +112,7 @@ func (h *ProductGroupsHandler) GetProductGroups(w http.ResponseWriter, r *http.R
 	})
 }
 
-// GetLowStockProducts returns products with stock <= 5
+// GetLowStockProducts returns products with stock <= 5 from REAL inventory_items
 // GET /api/dashboard/low-stock-products
 func (h *ProductGroupsHandler) GetLowStockProducts(w http.ResponseWriter, r *http.Request) {
 	db := getDB()
@@ -131,41 +124,39 @@ func (h *ProductGroupsHandler) GetLowStockProducts(w http.ResponseWriter, r *htt
 		return
 	}
 
-	// Use the same pipeline but filter for low stock
+	// ✅ NEW: Aggregate from inventory_items (SINGLE SOURCE OF TRUTH)
 	groupPipe := mongo.Pipeline{
-		{{Key: "$addFields", Value: bson.D{
-			{Key: "_stockcnt", Value: bson.D{{Key: "$cond", Value: bson.A{
-				bson.D{{Key: "$ifNull", Value: bson.A{"$stockcount", false}}},
-				bson.D{{Key: "$convert", Value: bson.D{{Key: "input", Value: "$stockcount"}, {Key: "to", Value: "int"}, {Key: "onError", Value: 1}, {Key: "onNull", Value: 1}}}},
-				1,
-			}}}},
-			{Key: "_unitcost", Value: bson.D{{Key: "$cond", Value: bson.A{
-				bson.D{{Key: "$gt", Value: bson.A{bson.D{{Key: "$ifNull", Value: bson.A{"$purchaseprice", 0}}}, 0}}},
-				bson.D{{Key: "$ifNull", Value: bson.A{"$purchaseprice", 0}}},
-				bson.D{{Key: "$multiply", Value: bson.A{bson.D{{Key: "$ifNull", Value: bson.A{"$price", 0}}}, 0.8}}},
-			}}}},
-			{Key: "_unitval", Value: bson.D{{Key: "$cond", Value: bson.A{
-				bson.D{{Key: "$gt", Value: bson.A{bson.D{{Key: "$ifNull", Value: bson.A{"$price", 0}}}, 0}}},
-				"$price",
-				bson.D{{Key: "$multiply", Value: bson.A{bson.D{{Key: "$ifNull", Value: bson.A{"$purchaseprice", 0}}}, 1.2}}},
-			}}}},
+		// Filter only in_stock items
+		{{Key: "$match", Value: bson.D{{Key: "status", Value: "in_stock"}}}},
+		// Lookup product name
+		{{Key: "$lookup", Value: bson.D{
+			{Key: "from", Value: "products"},
+			{Key: "localField", Value: "productid"},
+			{Key: "foreignField", Value: "_id"},
+			{Key: "as", Value: "product"},
 		}}},
+		{{Key: "$unwind", Value: bson.D{{Key: "path", Value: "$product"}, {Key: "preserveNullAndEmptyArrays", Value: true}}}},
+		// Group by product name
 		{{Key: "$group", Value: bson.D{
-			{Key: "_id", Value: bson.D{{Key: "$toLower", Value: "$name"}}},
-			{Key: "name", Value: bson.D{{Key: "$first", Value: "$name"}}},
-			{Key: "nameurdu", Value: bson.D{{Key: "$first", Value: "$nameurdu"}}},
-			{Key: "company", Value: bson.D{{Key: "$first", Value: bson.D{{Key: "$ifNull", Value: bson.A{"$company", ""}}}}}},
-			{Key: "category", Value: bson.D{{Key: "$first", Value: "$category"}}},
-			{Key: "totalstock", Value: bson.D{{Key: "$sum", Value: "$_stockcnt"}}},
-			{Key: "totalvalue", Value: bson.D{{Key: "$sum", Value: bson.D{{Key: "$multiply", Value: bson.A{"$_stockcnt", "$_unitcost"}}}}}},
-			{Key: "avgprice", Value: bson.D{{Key: "$avg", Value: "$_unitval"}}},
+			{Key: "_id", Value: bson.D{{Key: "$ifNull", Value: bson.A{"$product.name", "$company"}}}},
+			{Key: "name", Value: bson.D{{Key: "$first", Value: bson.D{{Key: "$ifNull", Value: bson.A{"$product.name", "$company"}}}}}},
+			{Key: "nameurdu", Value: bson.D{{Key: "$first", Value: "$product.nameurdu"}}},
+			{Key: "company", Value: bson.D{{Key: "$first", Value: bson.D{{Key: "$ifNull", Value: bson.A{"$product.company", "$company"}}}}}},
+			{Key: "category", Value: bson.D{{Key: "$first", Value: "$product.category"}}},
+			{Key: "totalstock", Value: bson.D{{Key: "$sum", Value: 1}}},
+			{Key: "totalvalue", Value: bson.D{{Key: "$sum", Value: bson.D{{Key: "$ifNull", Value: bson.A{"$purchaseprice", 0}}}}}},
+			{Key: "avgprice", Value: bson.D{{Key: "$avg", Value: bson.D{{Key: "$ifNull", Value: bson.A{"$sellingprice", 0}}}}}},
 			{Key: "variantcount", Value: bson.D{{Key: "$sum", Value: 1}}},
 		}}},
-		{{Key: "$match", Value: bson.D{{Key: "totalstock", Value: bson.D{{Key: "$lte", Value: 5}}}}}},
-		{{Key: "$sort", Value: bson.D{{Key: "name", Value: 1}}}},
+		// Filter low stock (<=5 items)
+		{{Key: "$match", Value: bson.D{
+			{Key: "_id", Value: bson.D{{Key: "$ne", Value: ""}}},
+			{Key: "totalstock", Value: bson.D{{Key: "$lte", Value: 5}}},
+		}}},
+		{{Key: "$sort", Value: bson.D{{Key: "_id", Value: 1}}}},
 	}
 
-	groupCursor, groupErr := db.Collection("products").Aggregate(ctx(), groupPipe)
+	groupCursor, groupErr := db.Collection("inventory_items").Aggregate(ctx(), groupPipe)
 	var productGroups []ProductGroup
 	if groupErr == nil {
 		for groupCursor.Next(ctx()) {
