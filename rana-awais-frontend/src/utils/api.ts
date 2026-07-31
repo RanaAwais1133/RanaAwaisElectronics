@@ -32,7 +32,7 @@ console.log('🌐 API Base URL:', BASE_URL);
 
 // ✅ In-memory cache for instant responses (1s TTL - ultra fast UI updates)
 const memoryCache = new Map<string, { data: any; timestamp: number }>();
-const MEMORY_CACHE_TTL = 5000; // 5 seconds - balanced between freshness and backend load
+const MEMORY_CACHE_TTL = 2000; // 2 seconds - instant updates with minimal backend load
 
 // ✅ Export cache clearing function so other modules can force-fresh fetches
 export function clearMemoryCache() {

@@ -79,7 +79,7 @@ const ProductList: React.FC = () => {
   const fetchItems = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api.get('/inventory?limit=500&show_all=true');
+      const res = await api.get('/inventory?limit=500&show_all=true', { headers: { 'Cache-Control': 'no-cache' } });
       const data = res.data?.data || res.data || [];
       const items = (Array.isArray(data) ? data : []).map(mapInventoryToProduct);
       setProducts(items);
