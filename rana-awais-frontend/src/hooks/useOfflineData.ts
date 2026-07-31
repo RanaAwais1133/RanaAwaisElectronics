@@ -270,10 +270,10 @@ export function useOfflineDashboard() {
     await offlineDB.cacheDashboardSummary(data);
   }, []);
 
-  // ✅ Force fresh dashboard data on every mount (skip stale cache)
+  // ✅ Cache-first: show cached data immediately, refresh in background
   return useOfflineData('/dashboard/summary', cacheReader, cacheUpdater, {
     cacheTTL: CACHE_TTL.DASHBOARD,
-    skipCache: true, // Always fetch fresh from API first, cache is fallback only
+    skipCache: false, // Show cached data instantly, refresh in background
   });
 }
 

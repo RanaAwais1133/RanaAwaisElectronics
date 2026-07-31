@@ -989,13 +989,31 @@ const DashboardPage: React.FC = () => {
     return () => window.removeEventListener(INVENTORY_UPDATE_EVENT, handleInventoryUpdate);
   }, [handleRefresh]);
 
-  // ✅ Poll every 30 seconds for real-time updates (backup to event-based updates)
+  // ✅ Poll every 5 seconds + SSE push for real-time updates
   useEffect(() => {
     const interval = setInterval(() => {
       handleRefresh();
-    }, 30000); // 30 seconds
+    }, 5000); // 5 seconds
 
     return () => clearInterval(interval);
+  }, [handleRefresh]);
+
+  // ✅ SSE real-time push from backend
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+      const baseUrl = api.defaults.baseURL || '';
+      const sseUrl = `${baseUrl}/events?token=${token}`;
+      const es = new EventSource(sseUrl);
+      const refresh = () => { try { handleRefresh(); } catch {} };
+      es.addEventListener('stock_added', refresh);
+      es.addEventListener('item_sold', refresh);
+      es.addEventListener('item_returned', refresh);
+      es.addEventListener('stock_removed', refresh);
+      es.onerror = () => es.close();
+      return () => es.close();
+    } catch { /* SSE not available, polling handles it */ }
   }, [handleRefresh]);
 
   if (loading && !summary) {
