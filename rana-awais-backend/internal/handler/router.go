@@ -1016,7 +1016,8 @@ func SetupRouter(
 	protected.HandleFunc("/receipts/download/{plan_id}", receiptH.DownloadReceipt).Methods("GET")
 
 	// Dashboard (NO CACHE - direct live data for real-time sync)
-	protected.HandleFunc("/dashboard/summary", dashboardH.Summary).Methods("GET")
+	// ✅ Apply DashboardCache middleware (30s TTL) — prevents repeated 2min cold starts on Render
+	protected.Handle("/dashboard/summary", middleware.DashboardCache.CacheResponse(http.HandlerFunc(dashboardH.Summary))).Methods("GET")
 	protected.HandleFunc("/dashboard/overdue", dashboardH.OverdueDetails).Methods("GET")
 	protected.HandleFunc("/dashboard/today-due", dashboardH.TodayDueDetails).Methods("GET")
 	protected.HandleFunc("/dashboard/low-stock", dashboardH.LowStockDetails).Methods("GET")

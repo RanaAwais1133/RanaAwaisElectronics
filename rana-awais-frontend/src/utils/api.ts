@@ -51,13 +51,17 @@ window.addEventListener('inventoryUpdated', () => {
   console.log('📦 Inventory cache cleared for fresh data');
 });
 
+// ✅ Per-endpoint timeout overrides
+const DASHBOARD_TIMEOUT = 180000; // 3 minutes for Render cold start (dashboard summary is heavy)
+const DEFAULT_TIMEOUT = 30000; // 30 seconds for everything else
+
 const api: AxiosInstance & {
   getTodayInstallments?: () => Promise<any>;
   getTodayDueFull?: () => Promise<any>;
   getOverdueFull?: () => Promise<any>;
 } = axios.create({
   baseURL: BASE_URL,
-  timeout: 30000, // 30 seconds for dashboard heavy queries
+  timeout: DEFAULT_TIMEOUT,
   headers: {
     'Content-Type': 'application/json',
   },

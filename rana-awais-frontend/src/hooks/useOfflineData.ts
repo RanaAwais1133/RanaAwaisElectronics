@@ -272,7 +272,8 @@ export function useOfflineDashboard() {
 
   const fetchDashboard = useCallback(async () => {
     try {
-      const response = await api.get('/dashboard/summary');
+      // ✅ 3-minute timeout for Render cold starts (dashboard summary aggregates everything)
+      const response = await api.get('/dashboard/summary', { timeout: 180000 });
       const freshData = response.data?.data || response.data;
       if (isMounted.current) {
         setData(freshData);
