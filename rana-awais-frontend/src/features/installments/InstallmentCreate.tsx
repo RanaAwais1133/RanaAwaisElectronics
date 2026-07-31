@@ -75,6 +75,11 @@ const InstallmentCreate: React.FC = () => {
   const [color, setColor] = useState('');
   const [company, setCompany] = useState('');
 
+  // ✅ Inventory Variant Selection
+  const [inventoryItemId, setInventoryItemId] = useState('');
+  const [inventoryVariants, setInventoryVariants] = useState<any[]>([]);
+  const [loadingVariants, setLoadingVariants] = useState(false);
+
   // ✅ Fields
   const [installmentDate, setInstallmentDate] = useState('');
   const [processFee, setProcessFee] = useState('');
