@@ -117,13 +117,6 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 	var activeInstallments, completedInstallments, overdueCount, todayDueCount, monthlyDueCount int64
 	var pendingTotal float64
 	var pendingCustomersCount int
-	var monthReportData struct {
-		collectedCustomers []customerMonthlyEntry
-		remainingCustomers []customerMonthlyEntry
-		totalDueAmount     float64
-		totalCollected     float64
-		totalRemaining     float64
-	}
 
 	// Group 5: Inventory stats
 	var totalProducts, lowStock int64
