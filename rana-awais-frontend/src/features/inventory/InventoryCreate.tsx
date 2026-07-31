@@ -104,16 +104,17 @@ const InventoryCreate: React.FC<Props> = ({ onClose, onSuccess, initialData }) =
           nameUrdu: newProductNameUrdu.trim() || newProductName.trim(),
           category: newProductCategory.trim() || (isUrdu ? 'جنرل' : 'General'),
           price: Number(sellingPrice) || Number(purchasePrice) || 0,
-          purchase_price: Number(purchasePrice) || 0,
-          selling_price: Number(sellingPrice) || 0,
+          purchasePrice: Number(purchasePrice) || 0,
+          sellingPrice: Number(sellingPrice) || 0,
           company: company || '',
-          stock_count: 1,
+          stockCount: 1,
           in_stock: true,
           created_by: currentUser?.displayName || currentUser?.username || '',
         };
         
         const prodRes = await api.post('/products', productPayload);
-        finalProductId = prodRes.data?.id || prodRes.data?._id || prodRes.data?.data?.id;
+        const createdProduct = prodRes.data?.data || prodRes.data;
+        finalProductId = createdProduct?.id || createdProduct?._id || '';
         
         if (!finalProductId) {
           throw new Error('Failed to create product');
@@ -124,7 +125,7 @@ const InventoryCreate: React.FC<Props> = ({ onClose, onSuccess, initialData }) =
 
       const payload = {
         ...(isEditMode && { id: initialData.id }),
-        product_id: finalProductId,
+        productId: finalProductId,
         serialNumber: serialNumber || '',
         color: color || '',
         model: model || '',
@@ -132,9 +133,9 @@ const InventoryCreate: React.FC<Props> = ({ onClose, onSuccess, initialData }) =
         chassisNo: chassisNo || '',
         imei: imei || '',
         company: company || '',
-        purchase_date: purchaseDate,
-        purchase_price: Number(purchasePrice) || 0,
-        selling_price: Number(sellingPrice) || 0,
+        purchaseDate: purchaseDate,
+        purchasePrice: Number(purchasePrice) || 0,
+        sellingPrice: Number(sellingPrice) || 0,
         created_by: currentUser?.displayName || currentUser?.username || '',
       };
 
