@@ -145,9 +145,11 @@ const InstallmentCreate: React.FC = () => {
   }, [customers, customerSearch]);
 
   const filteredProducts = useMemo(() => {
-    if (!productSearch) return products;
+    // ✅ Only show products that have stock (in_stock and stockCount > 0)
+    const inStockProducts = products.filter(p => p.in_stock !== false && (p.stockCount ?? 0) > 0);
+    if (!productSearch) return inStockProducts;
     const q = productSearch.toLowerCase();
-    return products.filter(p => {
+    return inStockProducts.filter(p => {
       return (
         (p.name || '').toLowerCase().includes(q) ||
         (p.nameUrdu || '').includes(q) ||
@@ -167,18 +169,55 @@ const InstallmentCreate: React.FC = () => {
   const selectedProduct = products.find(p => p.id === productId);
   const selectedCustomer = customers.find(c => c.id === customerId);
 
-  // ✅ Auto-fill product details when product is selected
+  // ✅ Auto-fill product details when product is selected (fetches from inventory)
   useEffect(() => {
-    if (selectedProduct) {
-      setSerialNumber(selectedProduct.serialNumber || '');
-      setImei(selectedProduct.imei || '');
-      setEngineNo(selectedProduct.engineNo || '');
-      setChassisNo(selectedProduct.chassisNo || '');
-      setModel(selectedProduct.model || '');
-      setColor(selectedProduct.color || '');
-      setCompany(selectedProduct.company || selectedProduct.companyUrdu || '');
-    }
-  }, [selectedProduct]);
+    if (!selectedProduct || !productId) return;
+
+    const fetchInventoryDetails = async () => {
+      setLoadingVariants(true);
+      try {
+        const productName = isUrdu ? (selectedProduct.nameUrdu || selectedProduct.name) : selectedProduct.name;
+        const res = await api.get(`/inventory/variants/${encodeURIComponent(productName)}`);
+        const variants = res.data || [];
+        setInventoryVariants(variants);
+
+        if (variants.length > 0) {
+          // ✅ Auto-fill from first available inventory variant
+          const first = variants[0];
+          setSerialNumber(first.serialNumber || '');
+          setImei(first.imei || '');
+          setEngineNo(first.engineNo || '');
+          setChassisNo(first.chassisNo || '');
+          setModel(first.model || '');
+          setColor(first.color || '');
+          setCompany(first.company || selectedProduct.company || '');
+          setInventoryItemId(first.id || first._id || '');
+        } else {
+          // Fallback to product fields if no inventory variants found
+          setSerialNumber(selectedProduct.serialNumber || '');
+          setImei(selectedProduct.imei || '');
+          setEngineNo(selectedProduct.engineNo || '');
+          setChassisNo(selectedProduct.chassisNo || '');
+          setModel(selectedProduct.model || '');
+          setColor(selectedProduct.color || '');
+          setCompany(selectedProduct.company || selectedProduct.companyUrdu || '');
+        }
+      } catch {
+        // API fail - fallback to product fields
+        setSerialNumber(selectedProduct.serialNumber || '');
+        setImei(selectedProduct.imei || '');
+        setEngineNo(selectedProduct.engineNo || '');
+        setChassisNo(selectedProduct.chassisNo || '');
+        setModel(selectedProduct.model || '');
+        setColor(selectedProduct.color || '');
+        setCompany(selectedProduct.company || selectedProduct.companyUrdu || '');
+      } finally {
+        setLoadingVariants(false);
+      }
+    };
+
+    fetchInventoryDetails();
+  }, [selectedProduct, productId, isUrdu]);
 
   useEffect(() => {
     const total = parseFloat(totalAmount) || 0;
