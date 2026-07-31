@@ -979,6 +979,21 @@ const DashboardPage: React.FC = () => {
     refresh: handleRefresh,
   } = useOfflineDashboard();
 
+  // ✅ Clear ALL caches and force fresh data on mount
+  useEffect(() => {
+    try {
+      // Clear localStorage cache
+      localStorage.removeItem('dashboard_summary_cache');
+      // Clear IndexedDB cache (fire and forget)
+      import('../../db/indexeddb').then(({ offlineDB }) => {
+        offlineDB.clearDashboardCache().catch(() => {});
+      });
+    } catch {}
+    // Force fresh fetch with small delay to ensure cache cleared
+    const t = setTimeout(() => handleRefresh(), 200);
+    return () => clearTimeout(t);
+  }, []); // eslint-disable-line
+
   // ✅ Auto-refresh dashboard when inventory is updated
   useEffect(() => {
     const handleInventoryUpdate = () => {
