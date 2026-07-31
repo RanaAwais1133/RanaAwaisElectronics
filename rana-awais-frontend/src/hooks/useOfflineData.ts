@@ -79,7 +79,7 @@ export function useOfflineData<T = any>(
         if (cachedData && isMounted.current && fetchId === fetchIdRef.current) {
           setState({
             data: cachedData,
-            loading: true, // Still loading fresh data
+loading: false, // Show cached data immediately
             error: null,
             isOffline: false,
             isStale: true,
