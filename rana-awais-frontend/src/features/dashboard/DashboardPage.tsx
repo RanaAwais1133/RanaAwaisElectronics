@@ -969,7 +969,7 @@ const DashboardPage: React.FC = () => {
   const [lowStockFilter, setLowStockFilter] = useState(false);
   const navigate = useNavigate();
 
-  // ✅ Use offline-first dashboard hook
+  // ✅ Fast stats from dashboard summary (no product groups — <5s)
   const {
     data: summary,
     loading,
@@ -979,7 +979,43 @@ const DashboardPage: React.FC = () => {
     refresh: handleRefresh,
   } = useOfflineDashboard();
 
-  // ✅ Initial data fetch is handled by useOfflineDashboard hook on mount — no redundant call needed
+  // ✅ Lazy-load product groups separately (background, non-blocking)
+  const [productGroups, setProductGroups] = useState<any[]>([]);
+  const [totalProducts, setTotalProducts] = useState(0);
+  const [lowStockItems, setLowStockItems] = useState(0);
+  const [inventoryValue, setInventoryValue] = useState(0);
+  const [pgLoading, setPgLoading] = useState(false);
+
+  const fetchProductGroups = useCallback(async () => {
+    try {
+      setPgLoading(true);
+      const response = await api.get('/dashboard/product-groups');
+      const data = response.data?.data || response.data;
+      setProductGroups(data?.productGroups || []);
+      setTotalProducts(data?.totalStock || 0);
+      setInventoryValue(data?.totalValue || 0);
+      // Count low stock groups
+      const low = (data?.productGroups || []).filter((g: any) => g.totalStock <= 5).length;
+      setLowStockItems(low);
+    } catch {
+      // Silently fail, product groups will be empty
+    } finally {
+      setPgLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchProductGroups();
+  }, [fetchProductGroups]);
+
+  // ✅ Auto-refresh product groups when inventory is updated
+  useEffect(() => {
+    const handleInventoryUpdate = () => {
+      fetchProductGroups();
+    };
+    window.addEventListener(INVENTORY_UPDATE_EVENT, handleInventoryUpdate);
+    return () => window.removeEventListener(INVENTORY_UPDATE_EVENT, handleInventoryUpdate);
+  }, [fetchProductGroups]);
 
   // ✅ Auto-refresh dashboard when inventory is updated
   useEffect(() => {
@@ -1058,9 +1094,7 @@ const DashboardPage: React.FC = () => {
   const completedInstallments = summary?.completedInstallments || 0;
   const overdueCustomers = summary?.overdueCount || 0;
   const todayDue = summary?.todayDueCount || 0;
-  const totalProducts = summary?.totalProducts || 0;
-  const lowStockItems = summary?.lowStock || 0;
-  const inventoryValue = summary?.inventoryValue || 0;
+  // totalProducts, lowStockItems, inventoryValue come from product groups (separate lazy load)
   const ageingStock = summary?.ageingInventory || 0;
   const todayProfit = summary?.todayProfit || 0;
   const monthRevenue = summary?.monthRevenue || 0;
@@ -1343,7 +1377,7 @@ const DashboardPage: React.FC = () => {
         <ProductGroupsModal
           isUrdu={isUrdu}
           lowStockOnly={lowStockFilter}
-          productGroups={summary?.productGroups || []}
+          productGroups={productGroups}
           onClose={() => { setShowProductGroups(false); setLowStockFilter(false); }}
           onSelectProduct={(productName) => {
             setSelectedGroupName(productName);

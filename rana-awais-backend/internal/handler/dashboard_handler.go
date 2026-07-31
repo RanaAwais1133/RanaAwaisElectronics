@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/config"
@@ -12,7 +11,6 @@ import (
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/pkg/cache"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 type DashboardHandler struct{}
@@ -479,93 +477,63 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 		todayDueCur.Close(ctx())
 	}
 
-	// Total products (unique names) & low stock (grouped)
+	// ✅ FAST COUNTS: Simple aggregation from inventory_items (no heavy grouping)
 	totalProducts := int64(0)
 	lowStock := int64(0)
 	inventoryValue := 0.0
 
-	type ProductGroup struct {
-		Name        string  `json:"name" bson:"_id"`
-		NameUrdu    string  `json:"nameUrdu" bson:"nameurdu"`
-		Company     string  `json:"company" bson:"company"`
-		Category    string  `json:"category" bson:"category"`
-		TotalStock  int     `json:"totalStock" bson:"totalstock"`
-		AvgPrice    float64 `json:"avgPrice" bson:"avgprice"`
-		TotalValue  float64 `json:"totalValue" bson:"totalvalue"`
-		VariantCount int    `json:"variantCount" bson:"variantcount"`
+	// Fast total in_stock items count
+	if count, err := db.Collection("inventory_items").CountDocuments(ctx(), bson.M{"status": "in_stock"}); err == nil {
+		totalProducts = count
 	}
 
-	// ✅ GO-SIDE GROUPING: Fetch inventory + products, group by product name in Go
-	// Avoids MongoDB $lookup type-mismatch issues; skips orphaned items cleanly
-	var productGroups []ProductGroup
-
-	// 1. Fetch all in_stock inventory items
-	invCursor, invErr := db.Collection("inventory_items").Find(ctx(), bson.M{"status": "in_stock"}, options.Find().SetSort(bson.D{{Key: "createdat", Value: -1}}))
-	if invErr == nil {
-		var invItems []domain.InventoryItem
-		invCursor.All(ctx(), &invItems)
-		invCursor.Close(ctx())
-
-		// 2. Fetch all products into a map
-		prodCursor, prodErr := db.Collection("products").Find(ctx(), bson.M{})
-		prodMap := make(map[string]*domain.Product)
-		if prodErr == nil {
-			var allProds []domain.Product
-			prodCursor.All(ctx(), &allProds)
-			prodCursor.Close(ctx())
-			for i := range allProds {
-				prodMap[allProds[i].ID] = &allProds[i]
-			}
-		}
-
-		// 3. Group inventory items by product name (from products collection)
-		groupMap := make(map[string]*ProductGroup)
-		groupOrder := []string{} // preserve insertion order
-
-		for _, item := range invItems {
-			prod := prodMap[item.ProductID]
-			if prod == nil || prod.Name == "" {
-				continue // skip orphaned items
-			}
-			key := strings.ToLower(prod.Name)
-			if _, exists := groupMap[key]; !exists {
-				groupMap[key] = &ProductGroup{
-					Name:     prod.Name,
-					NameUrdu: prod.NameUrdu,
-					Company:  prod.Company,
-					Category: prod.Category,
-				}
-				groupOrder = append(groupOrder, key)
-			}
-			g := groupMap[key]
-			g.TotalStock++
-			g.VariantCount++
-			g.TotalValue += item.PurchasePrice
-			if item.SellingPrice > 0 {
-				g.AvgPrice = item.SellingPrice
-			} else if prod.Price > 0 && g.AvgPrice == 0 {
-				g.AvgPrice = prod.Price
-			}
-		}
-
-		// 4. Build sorted result
-		sort.Strings(groupOrder)
-		for _, key := range groupOrder {
-			g := groupMap[key]
-			if g.TotalStock == 0 {
-				continue
-			}
-			productGroups = append(productGroups, *g)
-			totalProducts++
-			if g.TotalStock <= 5 {
-				lowStock++
-			}
-			inventoryValue += g.TotalValue
-		}
+	// Fast low stock: count distinct product names with <=5 items in stock
+	lowStockPipe := mongo.Pipeline{
+		{{Key: "$match", Value: bson.D{{Key: "status", Value: "in_stock"}}}},
+		{{Key: "$lookup", Value: bson.D{
+			{Key: "from", Value: "products"},
+			{Key: "localField", Value: "productid"},
+			{Key: "foreignField", Value: "_id"},
+			{Key: "as", Value: "product"},
+		}}},
+		{{Key: "$unwind", Value: bson.D{{Key: "path", Value: "$product"}, {Key: "preserveNullAndEmptyArrays", Value: true}}}},
+		{{Key: "$group", Value: bson.D{
+			{Key: "_id", Value: bson.D{{Key: "$toLower", Value: "$product.name"}}},
+			{Key: "count", Value: bson.D{{Key: "$sum", Value: 1}}},
+		}}},
+		{{Key: "$match", Value: bson.D{{Key: "count", Value: bson.D{{Key: "$lte", Value: 5}}}}}},
+		{{Key: "$count", Value: "lowStockCount"}},
 	}
-	if productGroups == nil {
-		productGroups = []ProductGroup{}
+	if cursor, err := db.Collection("inventory_items").Aggregate(ctx(), lowStockPipe); err == nil {
+		if cursor.Next(ctx()) {
+			var res struct{ LowStockCount int64 `bson:"lowStockCount"` }
+			if cursor.Decode(&res) == nil {
+				lowStock = res.LowStockCount
+			}
+		}
+		cursor.Close(ctx())
 	}
+
+	// Fast inventory value: sum of purchase prices
+	valuePipe := mongo.Pipeline{
+		{{Key: "$match", Value: bson.D{{Key: "status", Value: "in_stock"}}}},
+		{{Key: "$group", Value: bson.D{
+			{Key: "_id", Value: nil},
+			{Key: "total", Value: bson.D{{Key: "$sum", Value: bson.D{{Key: "$ifNull", Value: bson.A{"$purchaseprice", 0}}}}}},
+		}}},
+	}
+	if cursor, err := db.Collection("inventory_items").Aggregate(ctx(), valuePipe); err == nil {
+		if cursor.Next(ctx()) {
+			var res struct{ Total float64 `bson:"total"` }
+			if cursor.Decode(&res) == nil {
+				inventoryValue = res.Total
+			}
+		}
+		cursor.Close(ctx())
+	}
+
+	// Product groups will be fetched separately via /dashboard/product-groups (fast, cached)
+	productGroups := []interface{}{}
 
 	// Monthly due count
 	monthlyDueCount := int64(0)
