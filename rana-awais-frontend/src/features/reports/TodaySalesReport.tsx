@@ -79,48 +79,47 @@ const TodaySalesReport: React.FC = () => {
   const fetchAllData = useCallback(async () => {
     setLoading(true);
     setError('');
+    const toDateEnd = toDate + 'T23:59:59';
+
     try {
-      const toDateEnd = toDate + 'T23:59:59';
+      // ⚡ Parallel lightweight API calls (no heavy dashboard endpoint)
+      const results = await Promise.allSettled([
+        // 1. Sold items
+        api.get(`/inventory/sold?start=${fromDate}&end=${toDateEnd}`),
+        // 2. All installment plans (fast, uses skip/limit)
+        api.get(`/installments?skip=0&limit=500`),
+        // 3. Daybook payments - use accounting/today instead of heavy /dashboard/summary
+        api.get(`/accounting/today`),
+      ]);
 
-      // 1. Fetch sold items with customer enrichment
-      const soldRes = await api.get(`/inventory/sold?start=${fromDate}&end=${toDateEnd}`);
-      let rawSold: any[] = [];
-      if (Array.isArray(soldRes.data)) rawSold = soldRes.data;
-      else if (soldRes.data?.data) rawSold = soldRes.data.data;
+      // Process sold items
+      if (results[0].status === 'fulfilled') {
+        const soldRes = results[0].value;
+        let rawSold: any[] = [];
+        if (Array.isArray(soldRes.data)) rawSold = soldRes.data;
+        else if (soldRes.data?.data) rawSold = soldRes.data.data;
+        const enriched: SoldItem[] = rawSold.map((item: any) => ({
+          id: item.id || item._id,
+          productId: item.productId || item.product_id,
+          product_name: item.product_name || '',
+          product_name_urdu: item.product_name_urdu || '',
+          serialNumber: item.serialNumber || '',
+          color: item.color || '',
+          model: item.model || '',
+          company: item.company || '',
+          selling_price: item.selling_price || item.sellingPrice || 0,
+          purchase_price: item.purchase_price || item.purchasePrice || 0,
+          sold_date: item.sold_date || item.soldDate || '',
+        }));
+        setSoldItems(enriched);
+      } else { setSoldItems([]); }
 
-      // Enrich sold items with customer/plan data from installment plans
-      const enrichedSold: SoldItem[] = await Promise.all(
-        rawSold.map(async (item: any) => {
-          const enriched: SoldItem = {
-            id: item.id || item._id,
-            productId: item.productId || item.product_id,
-            product_name: item.product_name || '',
-            product_name_urdu: item.product_name_urdu || '',
-            serialNumber: item.serialNumber || '',
-            color: item.color || '',
-            model: item.model || '',
-            company: item.company || '',
-            selling_price: item.selling_price || item.sellingPrice || 0,
-            purchase_price: item.purchase_price || item.purchasePrice || 0,
-            sold_date: item.sold_date || item.soldDate || '',
-          };
-          // Try to find associated plan/customer from active/completed plans
-          try {
-            const planRes = await api.get(`/installments/customer?customer_id=none`);
-            // This won't work directly, skip for now
-          } catch {}
-          return enriched;
-        })
-      );
-      setSoldItems(enrichedSold);
-
-      // 2. Fetch plans created in date range
-      try {
-        const plansRes = await api.get(`/installments?skip=0&limit=500`);
+      // Process plans
+      if (results[1].status === 'fulfilled') {
+        const plansRes = results[1].value;
         let allPlans: any[] = [];
         if (Array.isArray(plansRes.data)) allPlans = plansRes.data;
         else if (plansRes.data?.data) allPlans = plansRes.data.data;
-
         const filteredPlans: PlanEntry[] = [];
         for (const p of allPlans) {
           const planDate = p.created_at || p.createdAt || p.CreatedAt || '';
@@ -142,17 +141,15 @@ const TodaySalesReport: React.FC = () => {
           }
         }
         setPlans(filteredPlans);
-      } catch { setPlans([]); }
+      } else { setPlans([]); }
 
-      // 3. Fetch payments collected in date range
-      try {
-        const payRes = await api.get(`/accounting/pending-total`);
-        // Use dashboard daybook approach - fetch payments directly
-        const dashboardRes = await api.get(`/dashboard/summary`);
-        const daybook = dashboardRes.data?.daybook_details || [];
-        const filteredPayments: PaymentEntry[] = daybook
+      // Process payments from accounting/today daybook
+      if (results[2].status === 'fulfilled') {
+        const accRes = results[2].value;
+        const daybook = accRes.data?.daybook_details || accRes.data?.daybookDetails || [];
+        const filteredPayments: PaymentEntry[] = (Array.isArray(daybook) ? daybook : [])
           .filter((p: any) => {
-            const date = p.transaction_date || p.transactionDate || '';
+            const date = p.transaction_date || p.transactionDate || p.date || '';
             return date >= fromDate && date <= toDate;
           })
           .map((p: any) => ({
@@ -160,16 +157,16 @@ const TodaySalesReport: React.FC = () => {
             customer_name: p.customer_name || '',
             amount: p.amount || 0,
             method: p.method || '',
-            transaction_date: p.transaction_date || '',
+            transaction_date: p.transaction_date || p.date || '',
             collected_by: p.collected_by || '',
             receipt_number: p.receipt_number || '',
             plan_id: '',
             installment_no: 0,
           }));
         setPayments(filteredPayments);
-      } catch { setPayments([]); }
+      } else { setPayments([]); }
 
-    } catch (err: any) {
+    } catch {
       setError(isUrdu ? 'ڈیٹا لوڈ کرنے میں ناکامی' : 'Failed to load data');
     } finally {
       setLoading(false);
