@@ -194,10 +194,36 @@ func (h *InventoryHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 func (h *InventoryHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
+	
+	// ✅ Get the item before deleting to know which product it belongs to
+	item, _ := h.svc.GetByID(r.Context(), id)
+	productID := ""
+	if item != nil {
+		productID = item.ProductID
+	}
+	
 	if err := h.svc.Delete(r.Context(), id); err != nil {
 		respondError(w, r, http.StatusInternalServerError, "Delete failed", "ڈیلیٹ ناکام")
 		return
 	}
+	
+	// ✅ After deleting inventory item, check if product still has stock
+	// If no more inventory items for this product, mark it as out of stock
+	// so it won't appear in installment plan dropdowns
+	if productID != "" {
+		remainingItems, err := h.svc.ListByProduct(r.Context(), productID)
+		if err == nil && len(remainingItems) == 0 {
+			prod, err := h.prodSvc.GetByID(r.Context(), productID)
+			if err == nil && prod != nil {
+				prod.StockCount = 0
+				prod.InStock = false
+				h.prodSvc.Update(r.Context(), productID, prod)
+				// ✅ Broadcast stock event
+				BroadcastStockEvent(productID, -1, prod)
+			}
+		}
+	}
+	
 	audit.Log(r.Context(), "DELETE", "inventory", id, "", getUserID(r))
 	respondJSON(w, http.StatusOK, map[string]string{"message": "Item deleted"})
 }
