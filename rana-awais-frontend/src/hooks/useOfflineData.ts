@@ -259,22 +259,64 @@ export function useOfflineInstallments() {
 }
 
 /**
- * ✅ useOfflineDashboard - Offline-First Dashboard Hook
+ * ✅ useOfflineDashboard - Real-Time Cloud-First Dashboard Hook
+ * No IndexedDB caching — direct API with polling + SSE for live updates
  */
 export function useOfflineDashboard() {
-  const cacheReader = useCallback(async () => {
-    return offlineDB.getCachedDashboardSummary();
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isOffline, setIsOffline] = useState(false);
+  const [isStale, setIsStale] = useState(false);
+  const isMounted = useRef(true);
+
+  const fetchDashboard = useCallback(async () => {
+    try {
+      const response = await api.get('/dashboard/summary');
+      const freshData = response.data?.data || response.data;
+      if (isMounted.current) {
+        setData(freshData);
+        setError(null);
+        setIsOffline(false);
+        setIsStale(false);
+      }
+    } catch (err: any) {
+      if (isMounted.current) {
+        const offline = !navigator.onLine || err.message?.includes('Network Error') || err.code === 'ERR_NETWORK';
+        setError(offline ? 'You are offline' : (err.response?.data?.error || err.message || 'Failed to load dashboard'));
+        setIsOffline(offline);
+        setIsStale(!!data);
+      }
+    } finally {
+      if (isMounted.current) {
+        setLoading(false);
+      }
+    }
   }, []);
 
-  const cacheUpdater = useCallback(async (data: any) => {
-    await offlineDB.cacheDashboardSummary(data);
-  }, []);
+  useEffect(() => {
+    isMounted.current = true;
+    fetchDashboard();
+    return () => {
+      isMounted.current = false;
+    };
+  }, [fetchDashboard]);
 
-  // ✅ Cache-first: show cached data immediately, refresh in background
-  return useOfflineData('/dashboard/summary', cacheReader, cacheUpdater, {
-    cacheTTL: CACHE_TTL.DASHBOARD,
-    skipCache: false, // Show cached data instantly, refresh in background
-  });
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    await fetchDashboard();
+  }, [fetchDashboard]);
+
+  return {
+    data,
+    loading,
+    error,
+    isOffline,
+    isStale,
+    refresh,
+    isLoading: loading && !data,
+    hasData: !!data,
+  };
 }
 
 /**

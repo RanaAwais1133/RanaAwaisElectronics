@@ -979,15 +979,7 @@ const DashboardPage: React.FC = () => {
     refresh: handleRefresh,
   } = useOfflineDashboard();
 
-  // ✅ Show cached data immediately, refresh silently in background
-  // (Cache is NOT cleared on mount - cached data loads instantly)
-  useEffect(() => {
-    // Background refresh after a short delay (don't block UI)
-    const t = setTimeout(() => {
-      try { handleRefresh(); } catch {}
-    }, 500);
-    return () => clearTimeout(t);
-  }, []); // eslint-disable-line
+  // ✅ Initial data fetch is handled by useOfflineDashboard hook on mount — no redundant call needed
 
   // ✅ Auto-refresh dashboard when inventory is updated
   useEffect(() => {
