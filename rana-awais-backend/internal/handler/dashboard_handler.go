@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/config"
@@ -70,7 +71,7 @@ func getProductCached(db *mongo.Database, id string) *domain.Product {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// DASHBOARD SUMMARY
+// DASHBOARD SUMMARY (🚀 OPTIMIZED: Parallel goroutines + caching)
 // ═══════════════════════════════════════════════════════════════
 
 func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
@@ -83,136 +84,301 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// ⚡ CACHE CHECK: Return cached result if within 60 seconds
+	cacheKey := "dashboard:summary"
+	if cached, found := cache.EntityCache.Get(cacheKey); found {
+		respondJSON(w, http.StatusOK, cached)
+		return
+	}
+
 	now := time.Now()
 	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	todayEnd := todayStart.Add(24 * time.Hour)
 	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
 	monthEnd := monthStart.AddDate(0, 1, 0)
-
-	// PIPELINE 1: Today's collection
-	todayCollectionTotal := 0.0
-	todayCollectionCount := 0
-	todayProfit := 0.0
-	_ = todayCollectionCount
-	payPipe := mongo.Pipeline{
-		{{Key: "$match", Value: bson.D{
-			{Key: "$or", Value: []bson.D{
-				{{Key: "transactiondate", Value: bson.D{{Key: "$gte", Value: todayStart}, {Key: "$lt", Value: todayEnd}}}},
-				{{Key: "transactionDate", Value: bson.D{{Key: "$gte", Value: todayStart}, {Key: "$lt", Value: todayEnd}}}},
-				{{Key: "paymentdate", Value: bson.D{{Key: "$gte", Value: todayStart}, {Key: "$lt", Value: todayEnd}}}},
-				{{Key: "paymentDate", Value: bson.D{{Key: "$gte", Value: todayStart}, {Key: "$lt", Value: todayEnd}}}},
-			}},
-		}}},
-		{{Key: "$group", Value: bson.D{{Key: "_id", Value: nil}, {Key: "total", Value: bson.D{{Key: "$sum", Value: "$amount"}}}, {Key: "count", Value: bson.D{{Key: "$sum", Value: 1}}}}}},
-	}
-	payCur, err := db.Collection("payments").Aggregate(ctx(), payPipe)
-	if err == nil {
-		if payCur.Next(ctx()) {
-			var res struct {
-				Total  float64 `bson:"total"`
-				Count  int     `bson:"count"`
-			}
-			if payCur.Decode(&res) == nil {
-				todayCollectionTotal = res.Total
-				todayCollectionCount = res.Count
-			}
-		}
-		payCur.Close(ctx())
-	}
-
-	// Calculate today's profit using the accounting handler's method
-	// This properly looks up purchase prices from products
-	todayProfit = calculateTodayProfitFromPayments(db, todayStart, todayEnd)
-
-	// PIPELINE 2: Total customers
-	totalCustomers := int64(0)
-	if count, err := db.Collection("customers").CountDocuments(ctx(), bson.M{}); err == nil {
-		totalCustomers = count
-	}
-
-	// PIPELINE 3: New customers this month
-	newCustomers := int64(0)
-	if count, err := db.Collection("customers").CountDocuments(ctx(), bson.M{"createdat": bson.M{"$gte": monthStart, "$lt": monthEnd}}); err == nil {
-		newCustomers = count
-	}
-
-	// PIPELINE 4: Total profit - optimized with aggregation
-	totalProfit := 0.0
-	profitPipe := mongo.Pipeline{
-		{{Key: "$lookup", Value: bson.D{{Key: "from", Value: "installment_plans"}, {Key: "localField", Value: "installmentplanid"}, {Key: "foreignField", Value: "_id"}, {Key: "as", Value: "plan"}}}},
-		{{Key: "$unwind", Value: bson.D{{Key: "path", Value: "$plan"}, {Key: "preserveNullAndEmptyArrays", Value: true}}}},
-		{{Key: "$lookup", Value: bson.D{{Key: "from", Value: "products"}, {Key: "localField", Value: "plan.productid"}, {Key: "foreignField", Value: "_id"}, {Key: "as", Value: "product"}}}},
-		{{Key: "$unwind", Value: "$product"}},
-		{{Key: "$group", Value: bson.D{{Key: "_id", Value: nil}, {Key: "totalProfit", Value: bson.D{{Key: "$sum", Value: bson.D{{Key: "$cond", Value: []interface{}{
-			bson.D{{Key: "$gt", Value: []interface{}{"$product.purchaseprice", 0}}},
-			bson.D{{Key: "$subtract", Value: []interface{}{"$amount", "$product.purchaseprice"}}},
-			"$amount",
-		}}}}}}}}},
-	}
-	profitCur, err := db.Collection("payments").Aggregate(ctx(), profitPipe)
-	if err == nil {
-		if profitCur.Next(ctx()) {
-			var res struct {
-				TotalProfit float64 `bson:"totalProfit"`
-			}
-			if profitCur.Decode(&res) == nil {
-				totalProfit = res.TotalProfit
-			}
-		}
-		profitCur.Close(ctx())
-	}
-
-	// PIPELINE 5: Daily breakdown (last 7 days)
 	sevenDaysAgo := todayStart.AddDate(0, 0, -6)
-	dailyPipe := mongo.Pipeline{
-		{{Key: "$match", Value: bson.D{{Key: "transactiondate", Value: bson.D{{Key: "$gte", Value: sevenDaysAgo}, {Key: "$lt", Value: todayEnd}}}}}},
-		{{Key: "$group", Value: bson.D{{Key: "_id", Value: bson.D{{Key: "$dateToString", Value: bson.D{{Key: "format", Value: "%Y-%m-%d"}, {Key: "date", Value: "$transactiondate"}}}}}, {Key: "total", Value: bson.D{{Key: "$sum", Value: "$amount"}}}, {Key: "count", Value: bson.D{{Key: "$sum", Value: 1}}}}}},
-		{{Key: "$sort", Value: bson.D{{Key: "_id", Value: 1}}}},
-	}
-	dailyCur, err := db.Collection("payments").Aggregate(ctx(), dailyPipe)
-	dailyBreakdown := []map[string]interface{}{}
-	if err == nil {
-		for dailyCur.Next(ctx()) {
-			var res struct {
-				Date  string  `bson:"_id"`
-				Total float64 `bson:"total"`
-				Count int     `bson:"count"`
-			}
-			if dailyCur.Decode(&res) == nil {
-				dailyBreakdown = append(dailyBreakdown, map[string]interface{}{"date": res.Date, "total": res.Total, "count": res.Count})
-			}
-		}
-		dailyCur.Close(ctx())
+
+	// ⚡ PARALLEL EXECUTION: Run independent queries concurrently
+	var wg sync.WaitGroup
+
+	// Group 1: Today's collection + daily breakdown
+	var todayCollectionTotal float64
+	var todayCollectionCount int
+	var dailyBreakdown []map[string]interface{}
+	var daybookDetails []map[string]interface{}
+
+	// Group 2: Customer counts
+	var totalCustomers, newCustomers int64
+
+	// Group 3: Profit calculations (total + today)
+	var totalProfit, todayProfit, monthRevenue, monthProfit float64
+
+	// Group 4: Installment stats
+	var activeInstallments, completedInstallments, overdueCount, todayDueCount, monthlyDueCount int64
+	var pendingTotal float64
+	var pendingCustomersCount int
+	var monthReportData struct {
+		collectedCustomers []customerMonthlyEntry
+		remainingCustomers []customerMonthlyEntry
+		totalDueAmount     float64
+		totalCollected     float64
+		totalRemaining     float64
 	}
 
-	// PIPELINE 6: Daybook details
-	daybookPipe := mongo.Pipeline{
-		{{Key: "$match", Value: bson.D{{Key: "transactiondate", Value: bson.D{{Key: "$gte", Value: todayStart}, {Key: "$lt", Value: todayEnd}}}}}},
-		{{Key: "$sort", Value: bson.D{{Key: "transactiondate", Value: -1}}}},
-		{{Key: "$limit", Value: 50}},
-	}
-	daybookCur, err := db.Collection("payments").Aggregate(ctx(), daybookPipe)
-	daybookDetails := []map[string]interface{}{}
-	if err == nil {
-		for daybookCur.Next(ctx()) {
-			var pay domain.Payment
-			if daybookCur.Decode(&pay) == nil {
-				cust := getCustomerCached(db, pay.InstallmentPlanID)
-				custName := ""
-				if cust != nil {
-					custName = cust.Name
+	// Group 5: Inventory stats
+	var totalProducts, lowStock int64
+	var inventoryValue float64
+	productGroups := []interface{}{}
+
+	// ──── GOROUTINE 1: Today's collection & daily breakdown ────
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		// Today's collection
+		payPipe := mongo.Pipeline{
+			{{Key: "$match", Value: bson.D{
+				{Key: "$or", Value: []bson.D{
+					{{Key: "transactiondate", Value: bson.D{{Key: "$gte", Value: todayStart}, {Key: "$lt", Value: todayEnd}}}},
+					{{Key: "transactionDate", Value: bson.D{{Key: "$gte", Value: todayStart}, {Key: "$lt", Value: todayEnd}}}},
+					{{Key: "paymentdate", Value: bson.D{{Key: "$gte", Value: todayStart}, {Key: "$lt", Value: todayEnd}}}},
+					{{Key: "paymentDate", Value: bson.D{{Key: "$gte", Value: todayStart}, {Key: "$lt", Value: todayEnd}}}},
+				}},
+			}}},
+			{{Key: "$group", Value: bson.D{{Key: "_id", Value: nil}, {Key: "total", Value: bson.D{{Key: "$sum", Value: "$amount"}}}, {Key: "count", Value: bson.D{{Key: "$sum", Value: 1}}}}}},
+		}
+		payCur, err := db.Collection("payments").Aggregate(ctx(), payPipe)
+		if err == nil {
+			if payCur.Next(ctx()) {
+				var res struct {
+					Total float64 `bson:"total"`
+					Count int     `bson:"count"`
 				}
-				daybookDetails = append(daybookDetails, map[string]interface{}{
-					"id": pay.ID, "customer_name": custName, "amount": pay.Amount,
-					"method": pay.Method, "transaction_date": pay.TransactionDate.Format("2006-01-02"),
-					"collected_by": pay.CollectedBy, "receipt_number": pay.ReceiptNumber,
-				})
+				if payCur.Decode(&res) == nil {
+					todayCollectionTotal = res.Total
+					todayCollectionCount = res.Count
+				}
 			}
+			payCur.Close(ctx())
 		}
-		daybookCur.Close(ctx())
-	}
 
-	// PIPELINE 7: Monthly report with $lookup
+		// Daily breakdown (last 7 days)
+		dailyPipe := mongo.Pipeline{
+			{{Key: "$match", Value: bson.D{{Key: "transactiondate", Value: bson.D{{Key: "$gte", Value: sevenDaysAgo}, {Key: "$lt", Value: todayEnd}}}}}},
+			{{Key: "$group", Value: bson.D{{Key: "_id", Value: bson.D{{Key: "$dateToString", Value: bson.D{{Key: "format", Value: "%Y-%m-%d"}, {Key: "date", Value: "$transactiondate"}}}}}, {Key: "total", Value: bson.D{{Key: "$sum", Value: "$amount"}}}, {Key: "count", Value: bson.D{{Key: "$sum", Value: 1}}}}}},
+			{{Key: "$sort", Value: bson.D{{Key: "_id", Value: 1}}}},
+		}
+		dailyCur, err := db.Collection("payments").Aggregate(ctx(), dailyPipe)
+		dailyBreakdown = []map[string]interface{}{}
+		if err == nil {
+			for dailyCur.Next(ctx()) {
+				var res struct {
+					Date  string  `bson:"_id"`
+					Total float64 `bson:"total"`
+					Count int     `bson:"count"`
+				}
+				if dailyCur.Decode(&res) == nil {
+					dailyBreakdown = append(dailyBreakdown, map[string]interface{}{"date": res.Date, "total": res.Total, "count": res.Count})
+				}
+			}
+			dailyCur.Close(ctx())
+		}
+
+		// Daybook details
+		daybookPipe := mongo.Pipeline{
+			{{Key: "$match", Value: bson.D{{Key: "transactiondate", Value: bson.D{{Key: "$gte", Value: todayStart}, {Key: "$lt", Value: todayEnd}}}}}},
+			{{Key: "$sort", Value: bson.D{{Key: "transactiondate", Value: -1}}}},
+			{{Key: "$limit", Value: 50}},
+		}
+		daybookCur, err := db.Collection("payments").Aggregate(ctx(), daybookPipe)
+		daybookDetails = []map[string]interface{}{}
+		if err == nil {
+			for daybookCur.Next(ctx()) {
+				var pay domain.Payment
+				if daybookCur.Decode(&pay) == nil {
+					cust := getCustomerCached(db, pay.InstallmentPlanID)
+					custName := ""
+					if cust != nil {
+						custName = cust.Name
+					}
+					daybookDetails = append(daybookDetails, map[string]interface{}{
+						"id": pay.ID, "customer_name": custName, "amount": pay.Amount,
+						"method": pay.Method, "transaction_date": pay.TransactionDate.Format("2006-01-02"),
+						"collected_by": pay.CollectedBy, "receipt_number": pay.ReceiptNumber,
+					})
+				}
+			}
+			daybookCur.Close(ctx())
+		}
+	}()
+
+	// ──── GOROUTINE 2: Customer counts ────
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if count, err := db.Collection("customers").CountDocuments(ctx(), bson.M{}); err == nil {
+			totalCustomers = count
+		}
+		if count, err := db.Collection("customers").CountDocuments(ctx(), bson.M{"createdat": bson.M{"$gte": monthStart, "$lt": monthEnd}}); err == nil {
+			newCustomers = count
+		}
+	}()
+
+	// ──── GOROUTINE 3: Profit calculations (optimized single aggregation) ────
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		// ⚡ OPTIMIZED: Single aggregation for total profit (replaces N+1 calculatePaymentProfit)
+		totalProfit = calculateTotalProfitAggregated(db)
+		// Today's profit via aggregated lookup
+		todayProfit = calculateProfitForDateRange(db, todayStart, todayEnd)
+		// Month revenue
+		monthPayPipe := mongo.Pipeline{
+			{{Key: "$match", Value: bson.D{{Key: "transactiondate", Value: bson.D{{Key: "$gte", Value: monthStart}, {Key: "$lt", Value: monthEnd}}}}}},
+			{{Key: "$group", Value: bson.D{{Key: "_id", Value: nil}, {Key: "total", Value: bson.D{{Key: "$sum", Value: "$amount"}}}}}},
+		}
+		monthPayCur, err := db.Collection("payments").Aggregate(ctx(), monthPayPipe)
+		if err == nil {
+			if monthPayCur.Next(ctx()) {
+				var res struct{ Total float64 `bson:"total"` }
+				if monthPayCur.Decode(&res) == nil {
+					monthRevenue = res.Total
+				}
+			}
+			monthPayCur.Close(ctx())
+		}
+		monthProfit = calculateProfitForDateRange(db, monthStart, monthEnd)
+	}()
+
+	// ──── GOROUTINE 4: Installment stats ────
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		// Active & completed counts
+		if count, err := db.Collection("installment_plans").CountDocuments(ctx(), bson.M{"status": bson.M{"$in": []string{"active", "Active", "Open"}}}); err == nil {
+			activeInstallments = count
+		}
+		if count, err := db.Collection("installment_plans").CountDocuments(ctx(), bson.M{"status": bson.M{"$in": []string{"completed", "Completed", "Closed", "paid"}}}); err == nil {
+			completedInstallments = count
+		}
+
+		// Overdue count
+		overduePipe := mongo.Pipeline{
+			{{Key: "$match", Value: bson.D{{Key: "status", Value: bson.M{"$in": []string{"active", "Active", "Open"}}}}}},
+			{{Key: "$unwind", Value: "$installments"}},
+			{{Key: "$match", Value: bson.D{{Key: "installments.paid", Value: false}, {Key: "installments.due_date", Value: bson.D{{Key: "$lt", Value: todayStart}}}}}},
+			{{Key: "$group", Value: bson.D{{Key: "_id", Value: "$_id"}}}},
+			{{Key: "$count", Value: "count"}},
+		}
+		overdueCur, err := db.Collection("installment_plans").Aggregate(ctx(), overduePipe)
+		if err == nil {
+			if overdueCur.Next(ctx()) {
+				var res struct{ Count int64 `bson:"count"` }
+				if overdueCur.Decode(&res) == nil {
+					overdueCount = res.Count
+				}
+			}
+			overdueCur.Close(ctx())
+		}
+
+		// Today due count
+		todayDuePipe := mongo.Pipeline{
+			{{Key: "$match", Value: bson.D{{Key: "status", Value: bson.M{"$in": []string{"active", "Active", "Open"}}}}}},
+			{{Key: "$unwind", Value: "$installments"}},
+			{{Key: "$match", Value: bson.D{{Key: "installments.paid", Value: false}, {Key: "installments.due_date", Value: bson.D{{Key: "$lt", Value: todayEnd}}}}}},
+			{{Key: "$count", Value: "count"}},
+		}
+		todayDueCur, err := db.Collection("installment_plans").Aggregate(ctx(), todayDuePipe)
+		if err == nil {
+			if todayDueCur.Next(ctx()) {
+				var res struct{ Count int64 `bson:"count"` }
+				if todayDueCur.Decode(&res) == nil {
+					todayDueCount = res.Count
+				}
+			}
+			todayDueCur.Close(ctx())
+		}
+
+		// Monthly due count
+		monthlyDuePipe := mongo.Pipeline{
+			{{Key: "$match", Value: bson.D{{Key: "status", Value: bson.M{"$in": []string{"active", "Active", "Open"}}}}}},
+			{{Key: "$unwind", Value: "$installments"}},
+			{{Key: "$match", Value: bson.D{{Key: "installments.paid", Value: false}, {Key: "installments.due_date", Value: bson.D{{Key: "$gte", Value: monthStart}, {Key: "$lt", Value: monthEnd}}}}}},
+			{{Key: "$count", Value: "count"}},
+		}
+		monthlyDueCur, err := db.Collection("installment_plans").Aggregate(ctx(), monthlyDuePipe)
+		if err == nil {
+			if monthlyDueCur.Next(ctx()) {
+				var res struct{ Count int64 `bson:"count"` }
+				if monthlyDueCur.Decode(&res) == nil {
+					monthlyDueCount = res.Count
+				}
+			}
+			monthlyDueCur.Close(ctx())
+		}
+
+		// Pending calculation
+		pendingTotal, pendingCustomersCount = calculatePendingTotalFast(db)
+	}()
+
+	// ──── GOROUTINE 5: Inventory stats ────
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if count, err := db.Collection("inventory_items").CountDocuments(ctx(), bson.M{"status": "in_stock"}); err == nil {
+			totalProducts = count
+		}
+
+		// Low stock
+		lowStockPipe := mongo.Pipeline{
+			{{Key: "$match", Value: bson.D{{Key: "status", Value: "in_stock"}}}},
+			{{Key: "$lookup", Value: bson.D{
+				{Key: "from", Value: "products"},
+				{Key: "localField", Value: "productid"},
+				{Key: "foreignField", Value: "_id"},
+				{Key: "as", Value: "product"},
+			}}},
+			{{Key: "$unwind", Value: bson.D{{Key: "path", Value: "$product"}, {Key: "preserveNullAndEmptyArrays", Value: true}}}},
+			{{Key: "$group", Value: bson.D{
+				{Key: "_id", Value: bson.D{{Key: "$toLower", Value: "$product.name"}}},
+				{Key: "count", Value: bson.D{{Key: "$sum", Value: 1}}},
+			}}},
+			{{Key: "$match", Value: bson.D{{Key: "count", Value: bson.D{{Key: "$lte", Value: 5}}}}}},
+			{{Key: "$count", Value: "lowStockCount"}},
+		}
+		if cursor, err := db.Collection("inventory_items").Aggregate(ctx(), lowStockPipe); err == nil {
+			if cursor.Next(ctx()) {
+				var res struct{ LowStockCount int64 `bson:"lowStockCount"` }
+				if cursor.Decode(&res) == nil {
+					lowStock = res.LowStockCount
+				}
+			}
+			cursor.Close(ctx())
+		}
+
+		// Inventory value
+		valuePipe := mongo.Pipeline{
+			{{Key: "$match", Value: bson.D{{Key: "status", Value: "in_stock"}}}},
+			{{Key: "$group", Value: bson.D{
+				{Key: "_id", Value: nil},
+				{Key: "total", Value: bson.D{{Key: "$sum", Value: bson.D{{Key: "$ifNull", Value: bson.A{"$purchaseprice", 0}}}}}},
+			}}},
+		}
+		if cursor, err := db.Collection("inventory_items").Aggregate(ctx(), valuePipe); err == nil {
+			if cursor.Next(ctx()) {
+				var res struct{ Total float64 `bson:"total"` }
+				if cursor.Decode(&res) == nil {
+					inventoryValue = res.Total
+				}
+			}
+			cursor.Close(ctx())
+		}
+	}()
+
+	// ──── WAIT for all goroutines ────
+	wg.Wait()
+
+	// ──── SEQUENTIAL: Monthly report (must run after goroutines since it's heavy) ────
+	// This one is complex and depends on plan data, run it sequentially
 	monthlyPipe := mongo.Pipeline{
 		{{Key: "$match", Value: bson.D{{Key: "status", Value: bson.M{"$in": []string{"active", "Active", "Open"}}}}}},
 		{{Key: "$lookup", Value: bson.D{{Key: "from", Value: "customers"}, {Key: "localField", Value: "customerid"}, {Key: "foreignField", Value: "_id"}, {Key: "as", Value: "customer"}}}},
@@ -342,219 +508,8 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 		remainingCustomers = []customerMonthlyEntry{}
 	}
 
-	// ─────────────────────────────────────────────────────────────
-	// PENDING CALCULATION: Single aggregation with $lookup (was N+1 queries)
-	// SPEED FIX: Replaced per-plan queries with a single pipeline
-	// ─────────────────────────────────────────────────────────────
-	pendingTotal := 0.0
-	pendingCustomersCount := 0
-	pendingCustSet := make(map[string]bool)
-
-	pendingPipe := mongo.Pipeline{
-		{{Key: "$match", Value: bson.D{{Key: "status", Value: bson.M{"$in": []string{"active", "Active", "Open"}}}}}},
-		{{Key: "$lookup", Value: bson.D{
-			{Key: "from", Value: "payments"},
-			{Key: "let", Value: bson.D{{Key: "planId", Value: "$_id"}}},
-			{Key: "pipeline", Value: mongo.Pipeline{
-				{{Key: "$match", Value: bson.D{
-					{Key: "$expr", Value: bson.D{
-						{Key: "$or", Value: []bson.D{
-							{{Key: "$eq", Value: []interface{}{"$installmentplanid", "$$planId"}}},
-							{{Key: "$eq", Value: []interface{}{"$installmentPlanId", "$$planId"}}},
-						}},
-					}},
-				}}},
-				{{Key: "$group", Value: bson.D{
-					{Key: "_id", Value: nil},
-					{Key: "total", Value: bson.D{{Key: "$sum", Value: "$amount"}}},
-				}}},
-			}},
-			{Key: "as", Value: "paymentSummary"},
-		}}},
-	}
-	type pendingPlanResult struct {
-		ID             string `bson:"_id"`
-		CustomerID     string `bson:"customerid"`
-		TotalAmount    float64 `bson:"totalamount"`
-		PaymentSummary []struct {
-			Total float64 `bson:"total"`
-		} `bson:"paymentSummary"`
-	}
-	pendingCur, err := db.Collection("installment_plans").Aggregate(ctx(), pendingPipe)
-	if err == nil {
-		for pendingCur.Next(ctx()) {
-			var pr pendingPlanResult
-			if pendingCur.Decode(&pr) != nil {
-				continue
-			}
-			totalPaid := 0.0
-			if len(pr.PaymentSummary) > 0 {
-				totalPaid = pr.PaymentSummary[0].Total
-			}
-			planRemaining := pr.TotalAmount - totalPaid
-			if planRemaining < 0 {
-				planRemaining = 0
-			}
-			if planRemaining > 0 {
-				pendingTotal += planRemaining
-				if !pendingCustSet[pr.CustomerID] {
-					pendingCustSet[pr.CustomerID] = true
-					pendingCustomersCount++
-				}
-			}
-		}
-		pendingCur.Close(ctx())
-	}
-
-	// Month revenue & profit: sum payments in this month
-	monthRevenue := 0.0
-	monthProfit := 0.0
-	monthPayPipe := mongo.Pipeline{
-		{{Key: "$match", Value: bson.D{{Key: "transactiondate", Value: bson.D{{Key: "$gte", Value: monthStart}, {Key: "$lt", Value: monthEnd}}}}}},
-		{{Key: "$group", Value: bson.D{{Key: "_id", Value: nil}, {Key: "total", Value: bson.D{{Key: "$sum", Value: "$amount"}}}}}},
-	}
-	monthPayCur, err := db.Collection("payments").Aggregate(ctx(), monthPayPipe)
-	if err == nil {
-		if monthPayCur.Next(ctx()) {
-			var res struct {
-				Total  float64 `bson:"total"`
-			}
-			if monthPayCur.Decode(&res) == nil {
-				monthRevenue = res.Total
-			}
-		}
-		monthPayCur.Close(ctx())
-	}
-	// Calculate month profit properly using calculatePaymentProfit
-	monthProfit = calculateTodayProfitFromPayments(db, monthStart, monthEnd)
-
-	// Active & completed installments count
-	activeInstallments := int64(0)
-	completedInstallments := int64(0)
-	if count, err := db.Collection("installment_plans").CountDocuments(ctx(), bson.M{"status": bson.M{"$in": []string{"active", "Active", "Open"}}}); err == nil {
-		activeInstallments = count
-	}
-	if count, err := db.Collection("installment_plans").CountDocuments(ctx(), bson.M{"status": bson.M{"$in": []string{"completed", "Completed", "Closed", "paid"}}}); err == nil {
-		completedInstallments = count
-	}
-
-	// Overdue count: active plans with at least one unpaid installment past due
-	overdueCount := int64(0)
-	overduePipe := mongo.Pipeline{
-		{{Key: "$match", Value: bson.D{{Key: "status", Value: bson.M{"$in": []string{"active", "Active", "Open"}}}}}},
-		{{Key: "$unwind", Value: "$installments"}},
-		{{Key: "$match", Value: bson.D{{Key: "installments.paid", Value: false}, {Key: "installments.due_date", Value: bson.D{{Key: "$lt", Value: todayStart}}}}}},
-		{{Key: "$group", Value: bson.D{{Key: "_id", Value: "$_id"}}}},
-		{{Key: "$count", Value: "count"}},
-	}
-	overdueCur, err := db.Collection("installment_plans").Aggregate(ctx(), overduePipe)
-	if err == nil {
-		if overdueCur.Next(ctx()) {
-			var res struct{ Count int64 `bson:"count"` }
-			if overdueCur.Decode(&res) == nil {
-				overdueCount = res.Count
-			}
-		}
-		overdueCur.Close(ctx())
-	}
-
-	// Due Today + Overdue count: all unpaid installments due today or earlier
-	todayDueCount := int64(0)
-	todayDuePipe := mongo.Pipeline{
-		{{Key: "$match", Value: bson.D{{Key: "status", Value: bson.M{"$in": []string{"active", "Active", "Open"}}}}}},
-		{{Key: "$unwind", Value: "$installments"}},
-		{{Key: "$match", Value: bson.D{{Key: "installments.paid", Value: false}, {Key: "installments.due_date", Value: bson.D{{Key: "$lt", Value: todayEnd}}}}}},
-		{{Key: "$count", Value: "count"}},
-	}
-	todayDueCur, err := db.Collection("installment_plans").Aggregate(ctx(), todayDuePipe)
-	if err == nil {
-		if todayDueCur.Next(ctx()) {
-			var res struct{ Count int64 `bson:"count"` }
-			if todayDueCur.Decode(&res) == nil {
-				todayDueCount = res.Count
-			}
-		}
-		todayDueCur.Close(ctx())
-	}
-
-	// ✅ FAST COUNTS: Simple aggregation from inventory_items (no heavy grouping)
-	totalProducts := int64(0)
-	lowStock := int64(0)
-	inventoryValue := 0.0
-
-	// Fast total in_stock items count
-	if count, err := db.Collection("inventory_items").CountDocuments(ctx(), bson.M{"status": "in_stock"}); err == nil {
-		totalProducts = count
-	}
-
-	// Fast low stock: count distinct product names with <=5 items in stock
-	lowStockPipe := mongo.Pipeline{
-		{{Key: "$match", Value: bson.D{{Key: "status", Value: "in_stock"}}}},
-		{{Key: "$lookup", Value: bson.D{
-			{Key: "from", Value: "products"},
-			{Key: "localField", Value: "productid"},
-			{Key: "foreignField", Value: "_id"},
-			{Key: "as", Value: "product"},
-		}}},
-		{{Key: "$unwind", Value: bson.D{{Key: "path", Value: "$product"}, {Key: "preserveNullAndEmptyArrays", Value: true}}}},
-		{{Key: "$group", Value: bson.D{
-			{Key: "_id", Value: bson.D{{Key: "$toLower", Value: "$product.name"}}},
-			{Key: "count", Value: bson.D{{Key: "$sum", Value: 1}}},
-		}}},
-		{{Key: "$match", Value: bson.D{{Key: "count", Value: bson.D{{Key: "$lte", Value: 5}}}}}},
-		{{Key: "$count", Value: "lowStockCount"}},
-	}
-	if cursor, err := db.Collection("inventory_items").Aggregate(ctx(), lowStockPipe); err == nil {
-		if cursor.Next(ctx()) {
-			var res struct{ LowStockCount int64 `bson:"lowStockCount"` }
-			if cursor.Decode(&res) == nil {
-				lowStock = res.LowStockCount
-			}
-		}
-		cursor.Close(ctx())
-	}
-
-	// Fast inventory value: sum of purchase prices
-	valuePipe := mongo.Pipeline{
-		{{Key: "$match", Value: bson.D{{Key: "status", Value: "in_stock"}}}},
-		{{Key: "$group", Value: bson.D{
-			{Key: "_id", Value: nil},
-			{Key: "total", Value: bson.D{{Key: "$sum", Value: bson.D{{Key: "$ifNull", Value: bson.A{"$purchaseprice", 0}}}}}},
-		}}},
-	}
-	if cursor, err := db.Collection("inventory_items").Aggregate(ctx(), valuePipe); err == nil {
-		if cursor.Next(ctx()) {
-			var res struct{ Total float64 `bson:"total"` }
-			if cursor.Decode(&res) == nil {
-				inventoryValue = res.Total
-			}
-		}
-		cursor.Close(ctx())
-	}
-
-	// Product groups will be fetched separately via /dashboard/product-groups (fast, cached)
-	productGroups := []interface{}{}
-
-	// Monthly due count
-	monthlyDueCount := int64(0)
-	monthlyDuePipe := mongo.Pipeline{
-		{{Key: "$match", Value: bson.D{{Key: "status", Value: bson.M{"$in": []string{"active", "Active", "Open"}}}}}},
-		{{Key: "$unwind", Value: "$installments"}},
-		{{Key: "$match", Value: bson.D{{Key: "installments.paid", Value: false}, {Key: "installments.due_date", Value: bson.D{{Key: "$gte", Value: monthStart}, {Key: "$lt", Value: monthEnd}}}}}},
-		{{Key: "$count", Value: "count"}},
-	}
-	monthlyDueCur, err := db.Collection("installment_plans").Aggregate(ctx(), monthlyDuePipe)
-	if err == nil {
-		if monthlyDueCur.Next(ctx()) {
-			var res struct{ Count int64 `bson:"count"` }
-			if monthlyDueCur.Decode(&res) == nil {
-				monthlyDueCount = res.Count
-			}
-		}
-		monthlyDueCur.Close(ctx())
-	}
-
-	respondJSON(w, http.StatusOK, map[string]interface{}{
+	// ⚡ Build result map, cache for 60 seconds, then respond
+	result := map[string]interface{}{
 		"total_collection": todayCollectionTotal,
 		"total_customers":  totalCustomers,
 		"totalCustomers":   totalCustomers,
@@ -597,7 +552,164 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 		"monthlyDueCount":   monthlyDueCount,
 		"productGroups":     productGroups,
 		"ageingInventory":   calculateAgeingInventory(db),
-	})
+	}
+	cache.EntityCache.Set(cacheKey, result)
+	respondJSON(w, http.StatusOK, result)
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 🚀 OPTIMIZED PROFIT HELPERS (single aggregation, no N+1)
+// ═══════════════════════════════════════════════════════════════
+
+// calculateTotalProfitAggregated uses a single $lookup + $group pipeline
+// to calculate total profit across ALL payments (replaces N+1 per-payment lookups)
+func calculateTotalProfitAggregated(db *mongo.Database) float64 {
+	pipe := mongo.Pipeline{
+		{{Key: "$lookup", Value: bson.D{
+			{Key: "from", Value: "installment_plans"},
+			{Key: "localField", Value: "installmentplanid"},
+			{Key: "foreignField", Value: "_id"},
+			{Key: "as", Value: "plan"},
+		}}},
+		{{Key: "$unwind", Value: bson.D{{Key: "path", Value: "$plan"}, {Key: "preserveNullAndEmptyArrays", Value: true}}}},
+		{{Key: "$lookup", Value: bson.D{
+			{Key: "from", Value: "products"},
+			{Key: "localField", Value: "plan.productid"},
+			{Key: "foreignField", Value: "_id"},
+			{Key: "as", Value: "product"},
+		}}},
+		{{Key: "$unwind", Value: bson.D{{Key: "path", Value: "$product"}, {Key: "preserveNullAndEmptyArrays", Value: true}}}},
+		{{Key: "$group", Value: bson.D{
+			{Key: "_id", Value: nil},
+			{Key: "totalProfit", Value: bson.D{{Key: "$sum", Value: bson.D{{Key: "$cond", Value: bson.A{
+				bson.D{{Key: "$gt", Value: bson.A{"$product.purchaseprice", 0}}},
+				bson.D{{Key: "$subtract", Value: bson.A{"$amount", "$product.purchaseprice"}}},
+				"$amount",
+			}}}}}},
+		}}},
+	}
+	cursor, err := db.Collection("payments").Aggregate(ctx(), pipe)
+	if err != nil {
+		return 0
+	}
+	defer cursor.Close(ctx())
+	if cursor.Next(ctx()) {
+		var res struct{ TotalProfit float64 `bson:"totalProfit"` }
+		if cursor.Decode(&res) == nil {
+			return res.TotalProfit
+		}
+	}
+	return 0
+}
+
+// calculateProfitForDateRange calculates profit for payments within a date range
+// using a single aggregation pipeline (replaces N+1 calculatePaymentProfit)
+func calculateProfitForDateRange(db *mongo.Database, start, end time.Time) float64 {
+	pipe := mongo.Pipeline{
+		{{Key: "$match", Value: bson.D{
+			{Key: "$or", Value: bson.A{
+				bson.D{{Key: "transactiondate", Value: bson.D{{Key: "$gte", Value: start}, {Key: "$lt", Value: end}}}},
+				bson.D{{Key: "transactionDate", Value: bson.D{{Key: "$gte", Value: start}, {Key: "$lt", Value: end}}}},
+				bson.D{{Key: "paymentdate", Value: bson.D{{Key: "$gte", Value: start}, {Key: "$lt", Value: end}}}},
+				bson.D{{Key: "paymentDate", Value: bson.D{{Key: "$gte", Value: start}, {Key: "$lt", Value: end}}}},
+			}},
+		}}},
+		{{Key: "$lookup", Value: bson.D{
+			{Key: "from", Value: "installment_plans"},
+			{Key: "localField", Value: "installmentplanid"},
+			{Key: "foreignField", Value: "_id"},
+			{Key: "as", Value: "plan"},
+		}}},
+		{{Key: "$unwind", Value: bson.D{{Key: "path", Value: "$plan"}, {Key: "preserveNullAndEmptyArrays", Value: true}}}},
+		{{Key: "$lookup", Value: bson.D{
+			{Key: "from", Value: "products"},
+			{Key: "localField", Value: "plan.productid"},
+			{Key: "foreignField", Value: "_id"},
+			{Key: "as", Value: "product"},
+		}}},
+		{{Key: "$unwind", Value: bson.D{{Key: "path", Value: "$product"}, {Key: "preserveNullAndEmptyArrays", Value: true}}}},
+		{{Key: "$group", Value: bson.D{
+			{Key: "_id", Value: nil},
+			{Key: "totalProfit", Value: bson.D{{Key: "$sum", Value: bson.D{{Key: "$cond", Value: bson.A{
+				bson.D{{Key: "$gt", Value: bson.A{"$product.purchaseprice", 0}}},
+				bson.D{{Key: "$subtract", Value: bson.A{"$amount", "$product.purchaseprice"}}},
+				"$amount",
+			}}}}}},
+		}}},
+	}
+	cursor, err := db.Collection("payments").Aggregate(ctx(), pipe)
+	if err != nil {
+		return 0
+	}
+	defer cursor.Close(ctx())
+	if cursor.Next(ctx()) {
+		var res struct{ TotalProfit float64 `bson:"totalProfit"` }
+		if cursor.Decode(&res) == nil {
+			return res.TotalProfit
+		}
+	}
+	return 0
+}
+
+// calculatePendingTotalFast calculates total pending amount and unique customer count
+// using a single aggregation pipeline (replaces per-plan payment lookups)
+func calculatePendingTotalFast(db *mongo.Database) (float64, int) {
+	pendingPipe := mongo.Pipeline{
+		{{Key: "$match", Value: bson.D{{Key: "status", Value: bson.M{"$in": []string{"active", "Active", "Open"}}}}}},
+		{{Key: "$lookup", Value: bson.D{
+			{Key: "from", Value: "payments"},
+			{Key: "let", Value: bson.D{{Key: "planId", Value: "$_id"}}},
+			{Key: "pipeline", Value: mongo.Pipeline{
+				{{Key: "$match", Value: bson.D{
+					{Key: "$expr", Value: bson.D{
+						{Key: "$or", Value: bson.A{
+							bson.D{{Key: "$eq", Value: bson.A{"$installmentplanid", "$$planId"}}},
+							bson.D{{Key: "$eq", Value: bson.A{"$installmentPlanId", "$$planId"}}},
+						}},
+					}},
+				}}},
+				{{Key: "$group", Value: bson.D{
+					{Key: "_id", Value: nil},
+					{Key: "total", Value: bson.D{{Key: "$sum", Value: "$amount"}}},
+				}}},
+			}},
+			{Key: "as", Value: "paymentSummary"},
+		}}},
+	}
+	type pendingPlanResult struct {
+		ID             string  `bson:"_id"`
+		CustomerID     string  `bson:"customerid"`
+		TotalAmount    float64 `bson:"totalamount"`
+		PaymentSummary []struct {
+			Total float64 `bson:"total"`
+		} `bson:"paymentSummary"`
+	}
+	cursor, err := db.Collection("installment_plans").Aggregate(ctx(), pendingPipe)
+	if err != nil {
+		return 0, 0
+	}
+	defer cursor.Close(ctx())
+	var totalPending float64
+	custSet := make(map[string]bool)
+	for cursor.Next(ctx()) {
+		var pr pendingPlanResult
+		if cursor.Decode(&pr) != nil {
+			continue
+		}
+		totalPaid := 0.0
+		if len(pr.PaymentSummary) > 0 {
+			totalPaid = pr.PaymentSummary[0].Total
+		}
+		planRemaining := pr.TotalAmount - totalPaid
+		if planRemaining < 0 {
+			planRemaining = 0
+		}
+		if planRemaining > 0 {
+			totalPending += planRemaining
+			custSet[pr.CustomerID] = true
+		}
+	}
+	return totalPending, len(custSet)
 }
 
 // ═══════════════════════════════════════════════════════════════

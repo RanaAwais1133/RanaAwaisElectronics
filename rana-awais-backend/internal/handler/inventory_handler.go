@@ -22,14 +22,59 @@ func NewInventoryHandler(svc *service.InventoryService, prodSvc *service.Product
 }
 
 func (h *InventoryHandler) Create(w http.ResponseWriter, r *http.Request) {
-	var item domain.InventoryItem
-	if err := json.NewDecoder(r.Body).Decode(&item); err != nil {
+	// ✅ Use intermediate struct to handle date string (frontend sends "YYYY-MM-DD")
+	var input struct {
+		ProductID     string  `json:"productId"`
+		SerialNumber  string  `json:"serialNumber"`
+		Color         string  `json:"color"`
+		Model         string  `json:"model"`
+		EngineNo      string  `json:"engineNo"`
+		ChassisNo     string  `json:"chassisNo"`
+		IMEI          string  `json:"imei"`
+		Company       string  `json:"company"`
+		PurchaseDate  string  `json:"purchaseDate"`
+		PurchasePrice float64 `json:"purchasePrice"`
+		SellingPrice  float64 `json:"sellingPrice"`
+		CreatedBy     string  `json:"created_by"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		respondError(w, r, http.StatusBadRequest, "Invalid body", "غلط مواد")
 		return
 	}
-	if item.PurchaseDate.IsZero() { item.PurchaseDate = time.Now() }
-	item.Status = "in_stock"
-	if err := h.svc.Create(r.Context(), &item); err != nil {
+
+	// ✅ Parse purchaseDate from "YYYY-MM-DD" format
+	var purchaseDate time.Time
+	if input.PurchaseDate != "" {
+		parsed, err := time.Parse("2006-01-02", input.PurchaseDate)
+		if err != nil {
+			// Try RFC3339 as fallback
+			parsed, err = time.Parse(time.RFC3339, input.PurchaseDate)
+			if err != nil {
+				respondError(w, r, http.StatusBadRequest, "Invalid purchase date format", "غلط تاریخ فارمیٹ")
+				return
+			}
+		}
+		purchaseDate = parsed
+	} else {
+		purchaseDate = time.Now()
+	}
+
+	item := &domain.InventoryItem{
+		ProductID:     input.ProductID,
+		SerialNumber:  input.SerialNumber,
+		Color:         input.Color,
+		Model:         input.Model,
+		EngineNo:      input.EngineNo,
+		ChassisNo:     input.ChassisNo,
+		IMEI:          input.IMEI,
+		Company:       input.Company,
+		Status:        "in_stock",
+		PurchaseDate:  purchaseDate,
+		PurchasePrice: input.PurchasePrice,
+		SellingPrice:  input.SellingPrice,
+	}
+
+	if err := h.svc.Create(r.Context(), item); err != nil {
 		respondError(w, r, http.StatusInternalServerError, "Creation failed", "آئٹم نہیں بن سکا")
 		return
 	}
@@ -54,7 +99,22 @@ func (h *InventoryHandler) Update(w http.ResponseWriter, r *http.Request) {
 		respondError(w, r, http.StatusNotFound, "Item not found", "آئٹم نہیں ملا")
 		return
 	}
-	var input domain.InventoryItem
+	// ✅ Use intermediate struct to handle date string (frontend sends "YYYY-MM-DD")
+	var input struct {
+		ProductID     string  `json:"productId"`
+		SerialNumber  string  `json:"serialNumber"`
+		Color         string  `json:"color"`
+		Model         string  `json:"model"`
+		EngineNo      string  `json:"engineNo"`
+		ChassisNo     string  `json:"chassisNo"`
+		IMEI          string  `json:"imei"`
+		Company       string  `json:"company"`
+		Status        string  `json:"status"`
+		PurchaseDate  string  `json:"purchaseDate"`
+		PurchasePrice float64 `json:"purchasePrice"`
+		SellingPrice  float64 `json:"sellingPrice"`
+		CreatedBy     string  `json:"created_by"`
+	}
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		respondError(w, r, http.StatusBadRequest, "Invalid body", "غلط مواد")
 		return
@@ -68,7 +128,13 @@ func (h *InventoryHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if input.IMEI != "" { existing.IMEI = input.IMEI }
 	if input.Company != "" { existing.Company = input.Company }
 	if input.Status != "" { existing.Status = input.Status }
-	if !input.PurchaseDate.IsZero() { existing.PurchaseDate = input.PurchaseDate }
+	// ✅ Parse purchaseDate from string (frontend sends "YYYY-MM-DD")
+	if input.PurchaseDate != "" {
+		parsed, err := time.Parse("2006-01-02", input.PurchaseDate)
+		if err == nil {
+			existing.PurchaseDate = parsed
+		}
+	}
 	if input.PurchasePrice != 0 { existing.PurchasePrice = input.PurchasePrice }
 	if input.SellingPrice != 0 { existing.SellingPrice = input.SellingPrice }
 	if err := h.svc.Update(r.Context(), id, existing); err != nil {

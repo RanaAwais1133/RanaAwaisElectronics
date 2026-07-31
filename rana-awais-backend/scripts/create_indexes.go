@@ -242,28 +242,54 @@ func main() {
 	fmt.Println("   ✅ Payments indexes created")
 
 	// ═══════════════════════════════════════
-	// 6️⃣ INVENTORY COLLECTION INDEXES
+	// 6️⃣ INVENTORY_ITEMS COLLECTION INDEXES (DASHBOARD CRITICAL)
 	// ═══════════════════════════════════════
-	log.Println("📊 Creating inventory indexes...")
-	inventory := db.Collection("inventory")
+	log.Println("📊 Creating inventory_items indexes...")
+	inventory := db.Collection("inventory_items")
 
+	// ⚡ Critical for dashboard: productid + status for low stock queries
 	_, err = inventory.Indexes().CreateOne(ctx, mongo.IndexModel{
-		Keys:    bson.D{{Key: "productId", Value: 1}},
+		Keys: bson.D{
+			{Key: "status", Value: 1},
+			{Key: "productid", Value: 1},
+		},
 		Options: options.Index().SetBackground(true),
 	})
 	if err != nil {
-		log.Printf("⚠️  inventory productId index: %v", err)
+		log.Printf("⚠️  inventory_items status+productid index: %v", err)
 	}
 
+	// ⚡ Critical for dashboard: status only (in_stock count)
 	_, err = inventory.Indexes().CreateOne(ctx, mongo.IndexModel{
-		Keys:    bson.D{{Key: "serialNumber", Value: 1}},
-		Options: options.Index().SetUnique(true).SetSparse(true).SetBackground(true),
+		Keys:    bson.D{{Key: "status", Value: 1}},
+		Options: options.Index().SetBackground(true),
 	})
 	if err != nil {
-		log.Printf("⚠️  inventory serialNumber index: %v", err)
+		log.Printf("⚠️  inventory_items status index: %v", err)
 	}
 
-	fmt.Println("   ✅ Inventory indexes created")
+	// ⚡ Critical for ageing: createdat + status
+	_, err = inventory.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: bson.D{
+			{Key: "status", Value: 1},
+			{Key: "createdat", Value: 1},
+		},
+		Options: options.Index().SetBackground(true),
+	})
+	if err != nil {
+		log.Printf("⚠️  inventory_items status+createdat index: %v", err)
+	}
+
+	// ⚡ For purchaseprice aggregation
+	_, err = inventory.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.D{{Key: "purchaseprice", Value: 1}},
+		Options: options.Index().SetSparse(true).SetBackground(true),
+	})
+	if err != nil {
+		log.Printf("⚠️  inventory_items purchaseprice index: %v", err)
+	}
+
+	fmt.Println("   ✅ Inventory items indexes created")
 
 	// ═══════════════════════════════════════
 	// 7️⃣ GUARANTORS COLLECTION INDEXES
