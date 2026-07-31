@@ -12,7 +12,7 @@ import { APP_CONFIG } from '../../config/app';
 interface Props {
   onClose: () => void;
   onSuccess: () => void;
-  initialData?: any; // âœ… NEW: Edit mode support
+  initialData?: any;
 }
 
 const InventoryCreate: React.FC<Props> = ({ onClose, onSuccess, initialData }) => {
@@ -22,8 +22,11 @@ const InventoryCreate: React.FC<Props> = ({ onClose, onSuccess, initialData }) =
   
   const { products, fetchProducts } = useProductStore();
   
-  // âœ… State
   const [productId, setProductId] = useState(initialData?.productId || initialData?.product_id || '');
+  const [createNewProduct, setCreateNewProduct] = useState(false);
+  const [newProductName, setNewProductName] = useState('');
+  const [newProductNameUrdu, setNewProductNameUrdu] = useState('');
+  const [newProductCategory, setNewProductCategory] = useState('');
   const [serialNumber, setSerialNumber] = useState(initialData?.serialNumber || '');
   const [color, setColor] = useState(initialData?.color || '');
   const [model, setModel] = useState(initialData?.model || '');
@@ -42,50 +45,47 @@ const InventoryCreate: React.FC<Props> = ({ onClose, onSuccess, initialData }) =
   const [loading, setLoading] = useState(false);
   const [isEditMode] = useState(!!initialData?.id);
 
-  // âœ… Page title
   useEffect(() => {
-    document.title = `${isEditMode ? (isUrdu ? 'Ø§Ù†ÙˆÛŒÙ†Ù¹Ø±ÛŒ Ù…ÛŒÚº ØªØ±Ù…ÛŒÙ…' : 'Edit Inventory') : (isUrdu ? 'Ù†ÛŒØ§ Ø§Ù†ÙˆÛŒÙ†Ù¹Ø±ÛŒ' : t('add_inventory'))} | ${APP_CONFIG.companyName}`;
+    document.title = `${isEditMode ? (isUrdu ? 'انوینٹری میں ترمیم' : 'Edit Inventory') : (isUrdu ? 'نیا انوینٹری' : t('add_inventory'))} | ${APP_CONFIG.companyName}`;
   }, [isEditMode, t, isUrdu]);
 
-  // âœ… Fetch products
   useEffect(() => {
     fetchProducts();
   }, [fetchProducts]);
 
-  // âœ… Product options
   const productOptions = products.map(p => ({
     value: p.id,
     label: isUrdu ? `${p.nameUrdu || p.name} - Rs. ${p.price}` : `${p.name} - Rs. ${p.price}`,
     labelUrdu: `${p.nameUrdu || p.name} - Rs. ${p.price}`,
   }));
 
-  // âœ… Auto-fill product details
   const selectedProduct = products.find(p => p.id === productId);
   
   useEffect(() => {
-    if (selectedProduct && !isEditMode) {
-      // Auto-fill company from product
+    if (selectedProduct && !isEditMode && !createNewProduct) {
       if (!company && selectedProduct.company) {
         setCompany(selectedProduct.company);
       }
     }
-  }, [selectedProduct, company, isEditMode]);
+  }, [selectedProduct, company, isEditMode, createNewProduct]);
 
-  // âœ… Validation
   const validateForm = useCallback(() => {
-    if (!productId) {
-      setError(isUrdu ? 'Ø¨Ø±Ø§Û Ú©Ø±Ù… Ù¾Ø±ÙˆÚˆÚ©Ù¹ Ù…Ù†ØªØ®Ø¨ Ú©Ø±ÛŒÚº' : t('select_product'));
+    if (!createNewProduct && !productId) {
+      setError(isUrdu ? 'براہ کرم پروڈکٹ منتخب کریں' : t('select_product'));
+      return false;
+    }
+    if (createNewProduct && !newProductName.trim()) {
+      setError(isUrdu ? 'براہ کرم پروڈکٹ کا نام لکھیں' : 'Please enter product name');
       return false;
     }
     const price = parseFloat(purchasePrice);
     if (purchasePrice && isNaN(price) || price < 0) {
-      setError(isUrdu ? 'Ø®Ø±ÛŒØ¯Ø§Ø±ÛŒ Ú©ÛŒ Ù‚ÛŒÙ…Øª Ø¯Ø±Ø³Øª Ù†ÛÛŒÚº' : 'Invalid purchase price');
+      setError(isUrdu ? 'خریداری کی قیمت درست نہیں' : 'Invalid purchase price');
       return false;
     }
     return true;
-  }, [productId, purchasePrice, t, isUrdu]);
+  }, [createNewProduct, productId, newProductName, purchasePrice, t, isUrdu]);
 
-  // âœ… Submit handler
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -94,59 +94,71 @@ const InventoryCreate: React.FC<Props> = ({ onClose, onSuccess, initialData }) =
     setLoading(true);
     setError('');
 
-    const payload = {
-      ...(isEditMode && { id: initialData.id }),
-      product_id: productId,
-      serialNumber: serialNumber || '',
-      color: color || '',
-      model: model || '',
-      engineNo: engineNo || '',
-      chassisNo: chassisNo || '',
-      imei: imei || '',
-      company: company || '',
-      purchase_date: purchaseDate,
-      purchase_price: Number(purchasePrice) || 0,
-      selling_price: Number(sellingPrice) || 0,
-      created_by: currentUser?.displayName || currentUser?.username || '',
-    };
+    let finalProductId = productId;
 
     try {
+      // ✅ If creating a new product, create product first
+      if (createNewProduct) {
+        const productPayload = {
+          name: newProductName.trim(),
+          nameUrdu: newProductNameUrdu.trim() || newProductName.trim(),
+          category: newProductCategory.trim() || (isUrdu ? 'جنرل' : 'General'),
+          price: Number(sellingPrice) || Number(purchasePrice) || 0,
+          purchase_price: Number(purchasePrice) || 0,
+          selling_price: Number(sellingPrice) || 0,
+          company: company || '',
+          stock_count: 1,
+          in_stock: true,
+          created_by: currentUser?.displayName || currentUser?.username || '',
+        };
+        
+        const prodRes = await api.post('/products', productPayload);
+        finalProductId = prodRes.data?.id || prodRes.data?._id || prodRes.data?.data?.id;
+        
+        if (!finalProductId) {
+          throw new Error('Failed to create product');
+        }
+        
+        toast.success(isUrdu ? 'نیا پروڈکٹ بن گیا' : 'New product created');
+      }
+
+      const payload = {
+        ...(isEditMode && { id: initialData.id }),
+        product_id: finalProductId,
+        serialNumber: serialNumber || '',
+        color: color || '',
+        model: model || '',
+        engineNo: engineNo || '',
+        chassisNo: chassisNo || '',
+        imei: imei || '',
+        company: company || '',
+        purchase_date: purchaseDate,
+        purchase_price: Number(purchasePrice) || 0,
+        selling_price: Number(sellingPrice) || 0,
+        created_by: currentUser?.displayName || currentUser?.username || '',
+      };
+
       if (isEditMode) {
         await api.put(`/inventory/${initialData.id}`, payload);
-        toast.success(isUrdu ? 'Ø§Ù†ÙˆÛŒÙ†Ù¹Ø±ÛŒ Ø§Ù¾ ÚˆÛŒÙ¹ ÛÙˆ Ú¯Ø¦ÛŒ' : 'Inventory item updated successfully');
+        toast.success(isUrdu ? 'انوینٹری اپ ڈیٹ ہو گئی' : 'Inventory item updated successfully');
       } else {
         await api.post('/inventory', payload);
-        toast.success(isUrdu ? 'Ø§Ù†ÙˆÛŒÙ†Ù¹Ø±ÛŒ Ø´Ø§Ù…Ù„ ÛÙˆ Ú¯Ø¦ÛŒ' : t('inventory_item_added'));
+        toast.success(isUrdu ? 'انوینٹری شامل ہو گئی' : t('inventory_item_added'));
       }
       onSuccess();
       onClose();
     } catch (err: any) {
-      const errorMsg = err.response?.data?.error || err.response?.data?.message || 
-                       (isUrdu ? 'Ø§Ù†ÙˆÛŒÙ†Ù¹Ø±ÛŒ Ø¨Ù†Ø§Ù†Û’ Ù…ÛŒÚº Ù†Ø§Ú©Ø§Ù…ÛŒ' : t('error_creating_inventory'));
+      const errorMsg = err.response?.data?.error || err.response?.data?.message || err.message ||
+                       (isUrdu ? 'انوینٹری بنانے میں ناکامی' : t('error_creating_inventory'));
       setError(errorMsg);
     } finally {
       setLoading(false);
     }
   }, [
-    productId,
-    serialNumber,
-    color,
-    model,
-    engineNo,
-    chassisNo,
-    imei,
-    company,
-    purchaseDate,
-    purchasePrice,
-    sellingPrice,
-    isEditMode,
-    initialData,
-    currentUser,
-    onSuccess,
-    onClose,
-    t,
-    isUrdu,
-    validateForm,
+    createNewProduct, productId, newProductName, newProductNameUrdu, newProductCategory,
+    serialNumber, color, model, engineNo, chassisNo, imei, company,
+    purchaseDate, purchasePrice, sellingPrice, isEditMode, initialData,
+    currentUser, onSuccess, onClose, t, isUrdu, validateForm,
   ]);
 
   return (
@@ -158,10 +170,9 @@ const InventoryCreate: React.FC<Props> = ({ onClose, onSuccess, initialData }) =
         className="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl w-full max-w-lg max-h-[95vh] overflow-y-auto mx-2"
         onClick={e => e.stopPropagation()}
       >
-        {/* âœ… Header */}
         <div className="sticky top-0 bg-white dark:bg-gray-800 flex justify-between items-center px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-200 dark:border-gray-700 rounded-t-3xl z-10">
           <h2 className="text-lg sm:text-xl font-bold text-gray-800 dark:text-white">
-            {isEditMode ? (isUrdu ? 'Ø§Ù†ÙˆÛŒÙ†Ù¹Ø±ÛŒ Ù…ÛŒÚº ØªØ±Ù…ÛŒÙ…' : 'Edit Inventory') : (isUrdu ? 'Ù†ÛŒØ§ Ø§Ù†ÙˆÛŒÙ†Ù¹Ø±ÛŒ' : t('add_inventory'))}
+            {isEditMode ? (isUrdu ? 'انوینٹری میں ترمیم' : 'Edit Inventory') : (isUrdu ? 'نیا انوینٹری' : t('add_inventory'))}
           </h2>
           <button
             onClick={onClose}
@@ -171,19 +182,79 @@ const InventoryCreate: React.FC<Props> = ({ onClose, onSuccess, initialData }) =
           </button>
         </div>
 
-        {/* âœ… Form */}
         <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-3 sm:space-y-4">
-          {/* Product Selection */}
-          <SearchableSelect
-            label={isUrdu ? 'Ù¾Ø±ÙˆÚˆÚ©Ù¹' : t('product')}
-            name="productId"
-            value={productId}
-            onChange={setProductId}
-            options={productOptions}
-            placeholder={isUrdu ? 'Ù¾Ø±ÙˆÚˆÚ©Ù¹ Ù…Ù†ØªØ®Ø¨ Ú©Ø±ÛŒÚº' : t('select_product')}
-            required
-            disabled={isEditMode}
-          />
+          {/* Toggle: Select Product OR Create New */}
+          {!isEditMode && (
+            <div className="flex gap-2 mb-2">
+              <button
+                type="button"
+                onClick={() => { setCreateNewProduct(false); setProductId(''); }}
+                className={`flex-1 py-2 px-3 rounded-xl text-sm font-semibold transition-all ${
+                  !createNewProduct
+                    ? 'bg-blue-600 text-white shadow-md'
+                    : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
+                }`}
+              >
+                {isUrdu ? 'موجودہ پروڈکٹ' : 'Existing Product'}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setCreateNewProduct(true); setProductId(''); }}
+                className={`flex-1 py-2 px-3 rounded-xl text-sm font-semibold transition-all ${
+                  createNewProduct
+                    ? 'bg-emerald-600 text-white shadow-md'
+                    : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
+                }`}
+              >
+                {isUrdu ? 'نیا پروڈکٹ' : 'New Product'}
+              </button>
+            </div>
+          )}
+
+          {/* Product Selection (existing) */}
+          {!createNewProduct && (
+            <SearchableSelect
+              label={isUrdu ? 'پروڈکٹ' : t('product')}
+              name="productId"
+              value={productId}
+              onChange={setProductId}
+              options={productOptions}
+              placeholder={isUrdu ? 'پروڈکٹ منتخب کریں' : t('select_product')}
+              required
+              disabled={isEditMode}
+            />
+          )}
+
+          {/* New Product Fields */}
+          {createNewProduct && !isEditMode && (
+            <div className="space-y-3 p-4 bg-emerald-50 dark:bg-emerald-900/20 rounded-2xl border border-emerald-200 dark:border-emerald-800">
+              <p className="text-xs font-bold text-emerald-700 dark:text-emerald-300 uppercase tracking-wider">
+                {isUrdu ? 'نیا پروڈکٹ بنائیں' : 'Create New Product'}
+              </p>
+              <FormField
+                label={isUrdu ? 'پروڈکٹ کا نام' : 'Product Name'}
+                name="newProductName"
+                value={newProductName}
+                onChange={e => setNewProductName(e.target.value)}
+                placeholder={isUrdu ? 'مثلاً: LG Fridge' : 'e.g.: LG Fridge'}
+                required
+              />
+              <FormField
+                label={isUrdu ? 'اردو نام (اختیاری)' : 'Urdu Name (Optional)'}
+                name="newProductNameUrdu"
+                value={newProductNameUrdu}
+                onChange={e => setNewProductNameUrdu(e.target.value)}
+                placeholder={isUrdu ? 'ایل جی فریج' : 'e.g.: ایل جی فریج'}
+              />
+              <FormField
+                label={isUrdu ? 'کیٹیگری' : 'Category'}
+                name="newProductCategory"
+                value={newProductCategory}
+                onChange={e => setNewProductCategory(e.target.value)}
+                placeholder={isUrdu ? 'مثلاً: Electronics' : 'e.g.: Electronics'}
+              />
+            </div>
+          )}
 
           {/* Serial Number & Company */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
