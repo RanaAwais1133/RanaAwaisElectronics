@@ -1001,19 +1001,21 @@ const DashboardPage: React.FC = () => {
   // ✅ SSE real-time push from backend
   useEffect(() => {
     const token = localStorage.getItem('token');
-    if (!token) return;
-    try {
-      const baseUrl = api.defaults.baseURL || '';
-      const sseUrl = `${baseUrl}/events?token=${token}`;
-      const es = new EventSource(sseUrl);
-      const refresh = () => { try { handleRefresh(); } catch {} };
-      es.addEventListener('stock_added', refresh);
-      es.addEventListener('item_sold', refresh);
-      es.addEventListener('item_returned', refresh);
-      es.addEventListener('stock_removed', refresh);
-      es.onerror = () => es.close();
-      return () => es.close();
-    } catch { /* SSE not available, polling handles it */ }
+    let es: EventSource | null = null;
+    if (token) {
+      try {
+        const baseUrl = api.defaults.baseURL || '';
+        const sseUrl = `${baseUrl}/events?token=${token}`;
+        es = new EventSource(sseUrl);
+        const refresh = () => { try { handleRefresh(); } catch {} };
+        es.addEventListener('stock_added', refresh);
+        es.addEventListener('item_sold', refresh);
+        es.addEventListener('item_returned', refresh);
+        es.addEventListener('stock_removed', refresh);
+        es.onerror = () => es?.close();
+      } catch { /* SSE not available */ }
+    }
+    return () => { if (es) es.close(); };
   }, [handleRefresh]);
 
   if (loading && !summary) {
