@@ -333,6 +333,48 @@ const InstallmentCreate: React.FC = () => {
     toast.success(isUrdu ? 'قسط کا شیڈول تیار' : t('schedule_calculated'));
   }, [totalAmount, downPayment, perMonthInstallment, months, startDate, installmentDate, t, isUrdu]);
 
+  // ✅ Cash Save Handler - no schedule needed
+  const handleCashSave = useCallback(async () => {
+    if (!customerId) { toast.error(isUrdu ? 'گاہک منتخب کریں' : 'Select a customer'); return; }
+    if (!productId) { toast.error(isUrdu ? 'پروڈکٹ منتخب کریں' : 'Select a product'); return; }
+
+    setLoading(true);
+    try {
+      const total = parseFloat(totalAmount) || 0;
+      const payload = {
+        customerId, productId,
+        totalAmount: total,
+        downPayment: total, // ✅ Full amount as down payment = completed instantly
+        remainingAmount: 0,
+        numInstallments: 0,
+        installmentAmount: 0,
+        perMonthInstallment: 0,
+        startDate: new Date().toISOString().split('T')[0],
+        endDate: new Date().toISOString().split('T')[0],
+        gracePeriodDays: 0, finePerDay: 0, fineType: 'none', fixedFineAmount: 0,
+        serialNumber: serialNumber || '', imei: imei || '', engineNo: engineNo || '',
+        chassisNo: chassisNo || '', model: model || '', color: color || '',
+        company: company || '',
+        installmentDate: 0, processFee: 0, discount: 0,
+        paymentType: 'cash',
+        createdBy: createdBy || currentUser?.displayName || currentUser?.username || '',
+        inventoryItemId: inventoryItemId || '',
+      };
+
+      const res = await api.post('/installments', payload);
+      toast.success(isUrdu ? 'نقد پلان بن گیا' : 'Cash plan created');
+      if (res.data?.id) setSavedPlanId(res.data.id);
+
+      // Reset
+      setCustomerId(''); setCustomerSearch(''); setProductId(''); setProductSearch('');
+      setTotalAmount(''); setDownPayment('');
+      setSerialNumber(''); setImei(''); setEngineNo(''); setChassisNo(''); setModel(''); setColor(''); setCompany('');
+      setInventoryItemId(''); setSelectedVariantId('');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || (isUrdu ? 'پلان بنانے میں ناکامی' : t('error_creating')));
+    } finally { setLoading(false); }
+  }, [customerId, productId, totalAmount, serialNumber, imei, engineNo, chassisNo, model, color, company, createdBy, currentUser, inventoryItemId, t, isUrdu]);
+
   const handleSave = useCallback(async () => {
     if (!customerId) {
       toast.error(isUrdu ? 'گاہک منتخب کریں' : 'Select a customer');
@@ -375,9 +417,9 @@ const InstallmentCreate: React.FC = () => {
         installmentDate: installmentDate ? parseInt(installmentDate) : 0,
         processFee: parseFloat(processFee) || 0,
         discount: parseFloat(discount) || 0,
-        paymentType: paymentType || 'installments', // ✅ NEW: Payment type (cash or installments)
+        paymentType: paymentType || 'installments',
         createdBy: createdBy || currentUser?.displayName || currentUser?.username || '',
-        inventoryItemId: inventoryItemId || '', // ✅ FIX: Send selected inventory variant ID to backend
+        inventoryItemId: inventoryItemId || '',
       };
 
       const res = await api.post('/installments', payload);
@@ -388,27 +430,11 @@ const InstallmentCreate: React.FC = () => {
       }
       
       // Reset form
-      setCustomerId('');
-      setCustomerSearch('');
-      setProductId('');
-      setProductSearch('');
-      setTotalAmount('');
-      setDownPayment('');
-      setPerMonthInstallment('');
-      setMonths(0);
-      setSchedule([]);
-      setSerialNumber('');
-      setImei('');
-      setEngineNo('');
-      setChassisNo('');
-      setModel('');
-      setColor('');
-      setCompany('');
-      setInstallmentDate('');
-      setProcessFee('');
-      setDiscount('');
-      setInventoryItemId('');
-      setSelectedVariantId('');
+      setCustomerId(''); setCustomerSearch(''); setProductId(''); setProductSearch('');
+      setTotalAmount(''); setDownPayment(''); setPerMonthInstallment(''); setMonths(0); setSchedule([]);
+      setSerialNumber(''); setImei(''); setEngineNo(''); setChassisNo(''); setModel(''); setColor(''); setCompany('');
+      setInstallmentDate(''); setProcessFee(''); setDiscount('');
+      setInventoryItemId(''); setSelectedVariantId('');
       
     } catch (err: any) {
       const errorMsg = err?.response?.data?.error || err?.response?.data?.message || 
@@ -629,53 +655,70 @@ const InstallmentCreate: React.FC = () => {
           <div><label className="block text-sm font-semibold mb-1.5">{t('down_payment')}</label><input type="number" min="0" step="0.01" value={downPayment} onChange={e => setDownPayment(e.target.value)} className="w-full border rounded-xl px-4 py-2.5 bg-white dark:bg-gray-700 text-sm" /></div>
         </div>
 
-        {/* ✅ Per Month + Months */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div><label className="block text-sm font-semibold mb-1.5">{t('per_month_installment') || 'Per Month Installment'} *</label><input type="number" min="1" step="0.01" value={perMonthInstallment} onChange={e => setPerMonthInstallment(e.target.value)} className="w-full border rounded-xl px-4 py-2.5 bg-white dark:bg-gray-700 text-sm" /></div>
-          <div><label className="block text-sm font-semibold mb-1.5">{t('months')} <span className="text-blue-600 dark:text-blue-400 font-bold">({months})</span></label><div className="w-full border rounded-xl px-4 py-2.5 bg-gray-100 dark:bg-gray-600 text-sm">{months > 0 ? `${months} ${t('months')}` : (isUrdu ? 'خودکار حساب' : t('auto_calculated') || 'Auto-calculated')}</div></div>
-        </div>
-
-        {/* ✅ Start Date + Grace Days */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div><label className="block text-sm font-semibold mb-1.5">{t('start_date')} *</label><input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full border rounded-xl px-4 py-2.5 bg-white dark:bg-gray-700 text-sm" /></div>
-          <div><label className="block text-sm font-semibold mb-1.5">{t('grace_days')}</label><input type="number" min="0" value={graceDays} onChange={e => setGraceDays(Number(e.target.value))} className="w-full border rounded-xl px-4 py-2.5 bg-white dark:bg-gray-700 text-sm" /></div>
-        </div>
-
-        {/* ✅ Fine Type - Dynamic (Option C) */}
-        <div className="bg-red-50 dark:bg-red-900/20 rounded-2xl p-4 sm:p-5 border border-red-200 dark:border-red-800">
-          <h3 className="text-sm font-bold text-red-700 dark:text-red-300 mb-3">{isUrdu ? 'جرمانے کی قسم' : 'Fine Configuration'}</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            <div>
-              <label className="block text-xs font-medium mb-1">{isUrdu ? 'جرمانے کی قسم' : 'Fine Type'}</label>
-              <select value={fineType} onChange={e => setFineType(e.target.value)}
-                className="w-full border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-sm">
-                <option value="per_day">{isUrdu ? 'فی دن' : 'Per Day'}</option>
-                <option value="fixed">{isUrdu ? 'مقررہ' : 'Fixed'}</option>
-                <option value="both">{isUrdu ? 'دونوں' : 'Both'}</option>
-                <option value="none">{isUrdu ? 'کوئی نہیں' : 'None'}</option>
-              </select>
+        {/* ✅ Installment Fields - ONLY shown when payment type is "installments" */}
+        {paymentType === 'installments' && (
+          <>
+            {/* Per Month + Months */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div><label className="block text-sm font-semibold mb-1.5">{t('per_month_installment') || 'Per Month Installment'} *</label><input type="number" min="1" step="0.01" value={perMonthInstallment} onChange={e => setPerMonthInstallment(e.target.value)} className="w-full border rounded-xl px-4 py-2.5 bg-white dark:bg-gray-700 text-sm" /></div>
+              <div><label className="block text-sm font-semibold mb-1.5">{t('months')} <span className="text-blue-600 dark:text-blue-400 font-bold">({months})</span></label><div className="w-full border rounded-xl px-4 py-2.5 bg-gray-100 dark:bg-gray-600 text-sm">{months > 0 ? `${months} ${t('months')}` : (isUrdu ? 'خودکار حساب' : t('auto_calculated') || 'Auto-calculated')}</div></div>
             </div>
-            {(fineType === 'per_day' || fineType === 'both') && (
-              <div>
-                <label className="block text-xs font-medium mb-1">{isUrdu ? 'فی دن جرمانہ' : 'Fine Per Day (Rs.)'}</label>
-                <input type="number" min="0" step="0.01" value={finePerDay} onChange={e => setFinePerDay(Number(e.target.value))}
-                  className="w-full border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-sm" />
+
+            {/* Start Date + Grace Days */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div><label className="block text-sm font-semibold mb-1.5">{t('start_date')} *</label><input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full border rounded-xl px-4 py-2.5 bg-white dark:bg-gray-700 text-sm" /></div>
+              <div><label className="block text-sm font-semibold mb-1.5">{t('grace_days')}</label><input type="number" min="0" value={graceDays} onChange={e => setGraceDays(Number(e.target.value))} className="w-full border rounded-xl px-4 py-2.5 bg-white dark:bg-gray-700 text-sm" /></div>
+            </div>
+
+            {/* Fine Type */}
+            <div className="bg-red-50 dark:bg-red-900/20 rounded-2xl p-4 sm:p-5 border border-red-200 dark:border-red-800">
+              <h3 className="text-sm font-bold text-red-700 dark:text-red-300 mb-3">{isUrdu ? 'جرمانے کی قسم' : 'Fine Configuration'}</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <div>
+                  <label className="block text-xs font-medium mb-1">{isUrdu ? 'جرمانے کی قسم' : 'Fine Type'}</label>
+                  <select value={fineType} onChange={e => setFineType(e.target.value)}
+                    className="w-full border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-sm">
+                    <option value="per_day">{isUrdu ? 'فی دن' : 'Per Day'}</option>
+                    <option value="fixed">{isUrdu ? 'مقررہ' : 'Fixed'}</option>
+                    <option value="both">{isUrdu ? 'دونوں' : 'Both'}</option>
+                    <option value="none">{isUrdu ? 'کوئی نہیں' : 'None'}</option>
+                  </select>
+                </div>
+                {(fineType === 'per_day' || fineType === 'both') && (
+                  <div>
+                    <label className="block text-xs font-medium mb-1">{isUrdu ? 'فی دن جرمانہ' : 'Fine Per Day (Rs.)'}</label>
+                    <input type="number" min="0" step="0.01" value={finePerDay} onChange={e => setFinePerDay(Number(e.target.value))}
+                      className="w-full border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-sm" />
+                  </div>
+                )}
+                {(fineType === 'fixed' || fineType === 'both') && (
+                  <div>
+                    <label className="block text-xs font-medium mb-1">{isUrdu ? 'مقررہ جرمانہ' : 'Fixed Fine (Rs.)'}</label>
+                    <input type="number" min="0" step="0.01" value={fixedFineAmount} onChange={e => setFixedFineAmount(Number(e.target.value))}
+                      className="w-full border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-sm" />
+                  </div>
+                )}
+                {fineType === 'none' && (
+                  <div className="col-span-2 flex items-center">
+                    <p className="text-sm text-gray-500 italic">{isUrdu ? 'اس پلان پر کوئی جرمانہ نہیں لگے گا' : 'No fine will be applied to this plan'}</p>
+                  </div>
+                )}
               </div>
-            )}
-            {(fineType === 'fixed' || fineType === 'both') && (
-              <div>
-                <label className="block text-xs font-medium mb-1">{isUrdu ? 'مقررہ جرمانہ' : 'Fixed Fine (Rs.)'}</label>
-                <input type="number" min="0" step="0.01" value={fixedFineAmount} onChange={e => setFixedFineAmount(Number(e.target.value))}
-                  className="w-full border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-sm" />
-              </div>
-            )}
-            {fineType === 'none' && (
-              <div className="col-span-2 flex items-center">
-                <p className="text-sm text-gray-500 italic">{isUrdu ? 'اس پلان پر کوئی جرمانہ نہیں لگے گا' : 'No fine will be applied to this plan'}</p>
-              </div>
-            )}
+            </div>
+          </>
+        )}
+
+        {/* ✅ Cash Payment - Just show total + down payment, rest is automatic */}
+        {paymentType === 'cash' && (
+          <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-2xl p-4 sm:p-5 border border-emerald-200 dark:border-emerald-800">
+            <p className="text-xs text-emerald-700 dark:text-emerald-300 font-semibold">
+              {isUrdu ? '💵 نقد ادائیگی — صرف کل رقم درج کریں، ڈاؤن پیمنٹ اختیاری ہے' : '💵 Cash Payment — Just enter total amount, down payment is optional'}
+            </p>
+            <p className="text-[10px] text-emerald-600 dark:text-emerald-400 mt-1">
+              {isUrdu ? 'پلان فوراً مکمل ہو جائے گا اور رسید تیار ہو گی' : 'Plan will be completed instantly and receipt will be generated'}
+            </p>
           </div>
-        </div>
+        )}
 
         {/* ✅ Payment Type Selection */}
         <div className="bg-indigo-50 dark:bg-indigo-900/20 rounded-2xl p-4 sm:p-5 border border-indigo-200 dark:border-indigo-800">
@@ -744,18 +787,25 @@ const InstallmentCreate: React.FC = () => {
 
         {/* ✅ Buttons */}
         <div className="flex flex-wrap gap-3 pt-3">
-          <button onClick={calculateSchedule} className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl text-sm font-semibold shadow-lg shadow-blue-500/25 transition-all active:scale-95">
-            {isUrdu ? 'قسط کا حساب لگائیں' : t('calculate_schedule')}
-          </button>
-          {schedule.length > 0 && (
+          {paymentType === 'installments' && (
+            <button onClick={calculateSchedule} className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl text-sm font-semibold shadow-lg shadow-blue-500/25 transition-all active:scale-95">
+              {isUrdu ? 'قسط کا حساب لگائیں' : t('calculate_schedule')}
+            </button>
+          )}
+          {paymentType === 'installments' && schedule.length > 0 && (
             <button onClick={handleSave} disabled={loading} className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-sm font-semibold shadow-lg shadow-emerald-500/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed active:scale-95">
+              {loading ? (<span className="flex items-center gap-2"><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>{isUrdu ? 'محفوظ ہو رہا...' : t('saving')}</span>) : (isUrdu ? 'پلان محفوظ کریں' : t('save_plan'))}
+            </button>
+          )}
+          {paymentType === 'cash' && (
+            <button onClick={handleCashSave} disabled={loading || !totalAmount} className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-sm font-semibold shadow-lg shadow-emerald-500/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed active:scale-95">
               {loading ? (<span className="flex items-center gap-2"><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>{isUrdu ? 'محفوظ ہو رہا...' : t('saving')}</span>) : (isUrdu ? 'پلان محفوظ کریں' : t('save_plan'))}
             </button>
           )}
         </div>
 
         {/* ✅ Schedule Table */}
-        {schedule.length > 0 && (
+        {paymentType === 'installments' && schedule.length > 0 && (
           <div className="mt-4 overflow-x-auto rounded-2xl border border-gray-200 dark:border-gray-700">
             <table className="w-full text-sm">
               <thead><tr className="bg-gray-50 dark:bg-gray-700 text-gray-500 dark:text-gray-400 uppercase text-xs"><th className="px-5 py-3 text-start font-semibold">{t('installment_no')}</th><th className="px-5 py-3 text-start font-semibold">{t('due_date')}</th><th className="px-5 py-3 text-start font-semibold">{t('amount')}</th></tr></thead>
