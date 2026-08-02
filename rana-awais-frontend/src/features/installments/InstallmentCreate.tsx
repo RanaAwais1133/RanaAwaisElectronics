@@ -79,6 +79,7 @@ const InstallmentCreate: React.FC = () => {
   const [inventoryItemId, setInventoryItemId] = useState('');
   const [inventoryVariants, setInventoryVariants] = useState<any[]>([]);
   const [loadingVariants, setLoadingVariants] = useState(false);
+  const [selectedVariantIndex, setSelectedVariantIndex] = useState<number | null>(null);
 
   // ✅ Fields
   const [installmentDate, setInstallmentDate] = useState('');
@@ -341,7 +342,8 @@ const InstallmentCreate: React.FC = () => {
         processFee: parseFloat(processFee) || 0,
         discount: parseFloat(discount) || 0,
         paymentType: paymentType || 'installments', // ✅ NEW: Payment type (cash or installments)
-        createdBy: createdBy || currentUser?.displayName || currentUser?.username || ''
+        createdBy: createdBy || currentUser?.displayName || currentUser?.username || '',
+        inventoryItemId: inventoryItemId || '', // ✅ FIX: Send selected inventory variant ID to backend
       };
 
       const res = await api.post('/installments', payload);
@@ -371,6 +373,9 @@ const InstallmentCreate: React.FC = () => {
       setInstallmentDate('');
       setProcessFee('');
       setDiscount('');
+      setInventoryItemId('');
+      setInventoryVariants([]);
+      setSelectedVariantIndex(null);
       
     } catch (err: any) {
       const errorMsg = err?.response?.data?.error || err?.response?.data?.message || 
@@ -382,7 +387,7 @@ const InstallmentCreate: React.FC = () => {
   }, [
     customerId, productId, schedule, totalAmount, downPayment, months, perMonthInstallment,
     startDate, graceDays, finePerDay, serialNumber, imei, engineNo, chassisNo, model, color, company,
-    installmentDate, processFee, discount, paymentType, createdBy, currentUser, t, isUrdu
+    installmentDate, processFee, discount, paymentType, createdBy, currentUser, inventoryItemId, t, isUrdu
   ]);
 
   if (savedPlanId) {
@@ -508,6 +513,76 @@ const InstallmentCreate: React.FC = () => {
             </div>
           )}
         </div>
+
+        {/* ✅ Inventory Variant Selection - Clickable Grid */}
+        {selectedProduct && inventoryVariants.length > 0 && (
+          <div className="bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20 rounded-2xl p-4 sm:p-5 border border-emerald-200 dark:border-emerald-800">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-bold text-emerald-700 dark:text-emerald-300">
+                {isUrdu ? 'دستیاب ویریئنٹس' : 'Available Variants'} ({inventoryVariants.length})
+              </h3>
+              {selectedVariantIndex !== null && (
+                <span className="text-[10px] px-2 py-0.5 bg-emerald-200 dark:bg-emerald-800 text-emerald-700 dark:text-emerald-300 rounded-full font-semibold">
+                  {isUrdu ? 'منتخب' : 'Selected'}: #{selectedVariantIndex + 1}
+                </span>
+              )}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-64 overflow-y-auto pr-1">
+              {inventoryVariants.map((v: any, idx: number) => {
+                const isSelected = selectedVariantIndex === idx;
+                const variantId = v.id || v._id || '';
+                const displayDetails = [
+                  v.engineNo && `Eng: ${v.engineNo}`,
+                  v.chassisNo && `Ch: ${v.chassisNo}`,
+                  v.model && `Mdl: ${v.model}`,
+                  v.color && (isUrdu ? `رنگ: ${v.color}` : `Color: ${v.color}`),
+                  v.serialNumber && `S/N: ${v.serialNumber}`,
+                ].filter(Boolean).join(' | ');
+                
+                return (
+                  <button
+                    key={variantId || idx}
+                    onClick={() => {
+                      setSelectedVariantIndex(idx);
+                      setInventoryItemId(variantId);
+                      setSerialNumber(v.serialNumber || '');
+                      setImei(v.imei || '');
+                      setEngineNo(v.engineNo || '');
+                      setChassisNo(v.chassisNo || '');
+                      setModel(v.model || '');
+                      setColor(v.color || '');
+                      setCompany(v.company || selectedProduct.company || '');
+                    }}
+                    className={`text-left p-3 rounded-xl border-2 transition-all text-xs ${
+                      isSelected
+                        ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/40 dark:border-emerald-400 shadow-md ring-1 ring-emerald-400'
+                        : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 hover:border-emerald-300 dark:hover:border-emerald-600 hover:bg-emerald-50/50 dark:hover:bg-emerald-900/20'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-bold text-gray-800 dark:text-white text-xs">
+                        {isUrdu ? 'ویریئنٹ' : 'Variant'} #{idx + 1}
+                      </span>
+                      {isSelected && (
+                        <svg className="w-4 h-4 text-emerald-600 dark:text-emerald-400" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                        </svg>
+                      )}
+                    </div>
+                    <div className="text-gray-500 dark:text-gray-400 leading-relaxed text-[10px]">
+                      {displayDetails || (isUrdu ? 'کوئی تفصیل نہیں' : 'No details')}
+                    </div>
+                    {v.purchasePrice > 0 && (
+                      <div className="mt-1 text-[10px] text-gray-400">
+                        {isUrdu ? 'خرید قیمت' : 'Buy'}: Rs. {v.purchasePrice?.toLocaleString()} | {isUrdu ? 'فروخت' : 'Sell'}: Rs. {v.sellingPrice?.toLocaleString() || '—'}
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* ✅ Product Details */}
         <div className="bg-purple-50 dark:bg-purple-900/20 rounded-2xl p-4 sm:p-5 border border-purple-200 dark:border-purple-800">

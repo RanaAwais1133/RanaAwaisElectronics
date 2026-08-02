@@ -129,14 +129,23 @@ func (s *InstallmentService) CreatePlan(ctx context.Context, plan *domain.Instal
 			return errors.New("inventory item not available")
 		}
 	} else {
+		// ✅ FIX: If no specific variant selected, check if product has multiple variants
+		// If only one in-stock variant exists, auto-select it
+		// If multiple exist, return error to force user to select a specific variant
 		items, err := s.inventoryRepo.ListByProduct(ctx, plan.ProductID)
 		if err == nil {
+			var inStockItems []string
 			for _, item := range items {
 				if item.Status == "in_stock" {
-					plan.InventoryItemID = item.ID
-					break
+					inStockItems = append(inStockItems, item.ID)
 				}
 			}
+			if len(inStockItems) == 1 {
+				plan.InventoryItemID = inStockItems[0]
+			} else if len(inStockItems) > 1 {
+				return errors.New("multiple variants available, please select a specific variant")
+			}
+			// If 0 in-stock items, continue without assigning (stock check above already validated)
 		}
 	}
 
