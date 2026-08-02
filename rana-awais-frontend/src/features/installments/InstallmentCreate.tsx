@@ -538,6 +538,9 @@ const InstallmentCreate: React.FC = () => {
                         item.color && `Color: ${item.color}`,
                         item.serialNumber && `S/N: ${item.serialNumber}`,
                       ].filter(Boolean).join(' | ');
+                      // ✅ Support both camelCase and snake_case from different API endpoints
+                      const sellPrice = item.sellingPrice || item.selling_price || 0;
+                      const buyPrice = item.purchasePrice || item.purchase_price || 0;
                       return (
                         <button
                           key={itemId}
@@ -548,12 +551,19 @@ const InstallmentCreate: React.FC = () => {
                               : 'hover:bg-blue-50 dark:hover:bg-blue-900/20'
                           }`}
                         >
-                          <div className="font-semibold text-gray-900 dark:text-white text-xs">
-                            {isUrdu ? (item.product_name_urdu || item.product_name) : item.product_name}
-                            {isSelected && <span className="ml-1 text-emerald-600 dark:text-emerald-400 text-[10px]">✓</span>}
+                          <div className="flex justify-between items-start">
+                            <div className="flex-1">
+                              <div className="font-semibold text-gray-900 dark:text-white text-xs">
+                                {isUrdu ? (item.product_name_urdu || item.product_name) : item.product_name}
+                                {isSelected && <span className="ml-1 text-emerald-600 dark:text-emerald-400 text-[10px]">✓</span>}
+                              </div>
+                              {details && <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">{details}</div>}
+                            </div>
+                            <div className="text-right flex-shrink-0 ml-2">
+                              {sellPrice > 0 && <div className="font-bold text-emerald-600 dark:text-emerald-400 text-xs">Rs. {Number(sellPrice).toLocaleString()}</div>}
+                              {buyPrice > 0 && <div className="text-[10px] text-gray-400">{isUrdu ? 'خرید' : 'Buy'}: Rs. {Number(buyPrice).toLocaleString()}</div>}
+                            </div>
                           </div>
-                          {details && <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">{details}</div>}
-                          {item.sellingPrice > 0 && <div className="text-[10px] text-gray-400 mt-0.5">Rs. {item.sellingPrice?.toLocaleString()}</div>}
                         </button>
                       );
                     })}
@@ -664,16 +674,6 @@ const InstallmentCreate: React.FC = () => {
             <div><label className="block text-xs font-medium mb-1">{t('engine_no')}</label><input type="text" value={engineNo} onChange={e => setEngineNo(e.target.value)} className="w-full border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-sm" /></div>
             <div><label className="block text-xs font-medium mb-1">{t('chassis_no')}</label><input type="text" value={chassisNo} onChange={e => setChassisNo(e.target.value)} className="w-full border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-sm" /></div>
             <div className="sm:col-span-2 lg:col-span-1"><label className="block text-xs font-medium mb-1">{t('imei')}</label><input type="text" value={imei} onChange={e => setImei(e.target.value)} className="w-full border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-sm" /></div>
-          </div>
-        </div>
-
-        {/* ✅ Additional Plan Fields */}
-        <div className="bg-teal-50 dark:bg-teal-900/20 rounded-2xl p-4 sm:p-5 border border-teal-200 dark:border-teal-800">
-          <h3 className="text-sm font-bold text-teal-700 dark:text-teal-300 mb-3">{t('additional_plan_fields') || 'Additional Plan Fields'} ({t('optional')})</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div><label className="block text-xs font-medium mb-1">{t('installment_date') || 'Installment Date'}</label><input type="number" min="1" max="31" value={installmentDate} onChange={e => setInstallmentDate(e.target.value)} className="w-full border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-sm" placeholder={isUrdu ? 'مثلاً 15' : 'e.g. 15'} /></div>
-            <div><label className="block text-xs font-medium mb-1">{t('process_fee') || 'Process Fee'}</label><input type="number" min="0" step="0.01" value={processFee} onChange={e => setProcessFee(e.target.value)} className="w-full border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-sm" /></div>
-            <div><label className="block text-xs font-medium mb-1">{t('discount') || 'Discount'}</label><input type="number" min="0" step="0.01" value={discount} onChange={e => setDiscount(e.target.value)} className="w-full border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-sm" /></div>
           </div>
         </div>
 
