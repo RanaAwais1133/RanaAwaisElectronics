@@ -618,6 +618,41 @@ const InstallmentCreate: React.FC = () => {
           )}
         </div>
 
+        {/* ✅ Payment Type Selection - MOVED TO TOP (right after product) */}
+        <div className="bg-indigo-50 dark:bg-indigo-900/20 rounded-2xl p-4 sm:p-5 border border-indigo-200 dark:border-indigo-800">
+          <h3 className="text-sm font-bold text-indigo-700 dark:text-indigo-300 mb-3">{isUrdu ? 'ادائیگی کی قسم منتخب کریں' : 'Select Payment Type'}</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label className={`flex items-center cursor-pointer p-3 rounded-xl border-2 transition-all ${paymentType === 'installments' ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 shadow-sm' : 'border-gray-200 dark:border-gray-600'}`}>
+              <input
+                type="radio"
+                name="paymentType"
+                value="installments"
+                checked={paymentType === 'installments'}
+                onChange={e => setPaymentType(e.target.value)}
+                className="w-4 h-4 text-blue-600 rounded-full"
+              />
+              <span className="ml-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+                {isUrdu ? '📅 قسطوں میں' : '📅 Installments'}
+              </span>
+              <span className="ml-auto text-xs text-gray-500">({isUrdu ? 'ماہانہ' : 'Monthly'})</span>
+            </label>
+            <label className={`flex items-center cursor-pointer p-3 rounded-xl border-2 transition-all ${paymentType === 'cash' ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/30 shadow-sm' : 'border-gray-200 dark:border-gray-600'}`}>
+              <input
+                type="radio"
+                name="paymentType"
+                value="cash"
+                checked={paymentType === 'cash'}
+                onChange={e => setPaymentType(e.target.value)}
+                className="w-4 h-4 text-emerald-600 rounded-full"
+              />
+              <span className="ml-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+                {isUrdu ? '💵 نقد رقم' : '💵 Cash'}
+              </span>
+              <span className="ml-auto text-xs text-gray-500">({isUrdu ? 'فوری مکمل' : 'Instant Complete'})</span>
+            </label>
+          </div>
+        </div>
+
         {/* ✅ Product Details */}
         <div className="bg-purple-50 dark:bg-purple-900/20 rounded-2xl p-4 sm:p-5 border border-purple-200 dark:border-purple-800">
           <h3 className="text-sm font-bold text-purple-700 dark:text-purple-300 mb-3">{t('product_details') || 'Product Details'} ({t('optional')})</h3>
@@ -719,42 +754,6 @@ const InstallmentCreate: React.FC = () => {
             </p>
           </div>
         )}
-
-        {/* ✅ Payment Type Selection */}
-        <div className="bg-indigo-50 dark:bg-indigo-900/20 rounded-2xl p-4 sm:p-5 border border-indigo-200 dark:border-indigo-800">
-          <h3 className="text-sm font-bold text-indigo-700 dark:text-indigo-300 mb-3">{isUrdu ? 'ادائیگی کی قسم' : 'Payment Type'}</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <label className="flex items-center cursor-pointer">
-              <input
-                type="radio"
-                name="paymentType"
-                value="installments"
-                checked={paymentType === 'installments'}
-                onChange={e => setPaymentType(e.target.value)}
-                className="w-4 h-4 text-blue-600 rounded-full"
-              />
-              <span className="ml-2 text-sm font-medium text-gray-700 dark:text-gray-300">
-                {isUrdu ? 'قسطوں میں ادا کریں' : 'Installments'}
-              </span>
-              <span className="ml-auto text-xs text-gray-500">({isUrdu ? 'ماہانہ' : 'Monthly'})</span>
-            </label>
-            <label className="flex items-center cursor-pointer">
-              <input
-                type="radio"
-                name="paymentType"
-                value="cash"
-                checked={paymentType === 'cash'}
-                onChange={e => setPaymentType(e.target.value)}
-                className="w-4 h-4 text-emerald-600 rounded-full"
-              />
-              <span className="ml-2 text-sm font-medium text-gray-700 dark:text-gray-300">
-                {isUrdu ? 'نقد رقم' : 'Cash'}
-              </span>
-              <span className="ml-auto text-xs text-gray-500">({isUrdu ? 'فوری' : 'Immediate'})</span>
-            </label>
-          </div>
-        </div>
-
 
         {/* ✅ Undo/Redo Controls */}
         <div className="flex items-center gap-2 pt-2 pb-1">
