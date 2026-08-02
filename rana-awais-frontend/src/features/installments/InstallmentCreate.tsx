@@ -79,7 +79,17 @@ const InstallmentCreate: React.FC = () => {
   const [inventoryItemId, setInventoryItemId] = useState('');
   const [inventoryVariants, setInventoryVariants] = useState<any[]>([]);
   const [loadingVariants, setLoadingVariants] = useState(false);
-  const [selectedVariantIndex, setSelectedVariantIndex] = useState<number | null>(null);
+  const [selectedVariantId, setSelectedVariantId] = useState<string>('');
+  const [showVariantDropdown, setShowVariantDropdown] = useState(false);
+
+  // ✅ Fetch inventory variants for ALL in-stock products on mount (cached)
+  const [allInventoryItems, setAllInventoryItems] = useState<any[]>([]);
+  useEffect(() => {
+    api.get('/inventory?show_all=false&limit=9999').then(res => {
+      const data = res.data?.data || res.data || [];
+      setAllInventoryItems(Array.isArray(data) ? data.filter((i: any) => i.status === 'in_stock') : []);
+    }).catch(() => {});
+  }, []);
 
   // ✅ Fields
   const [installmentDate, setInstallmentDate] = useState('');
@@ -145,8 +155,29 @@ const InstallmentCreate: React.FC = () => {
     );
   }, [customers, customerSearch]);
 
+  // ✅ Filtered inventory items (individual variants) for search dropdown
+  // Each item has: id, productId, product_name, serialNumber, engineNo, chassisNo, model, color, company, imei, etc.
+  const filteredInventoryItems = useMemo(() => {
+    if (!productSearch) {
+      // Show all in-stock items grouped by product name when no search
+      return [];
+    }
+    const q = productSearch.toLowerCase();
+    return allInventoryItems.filter((item: any) => {
+      const pn = (item.product_name || '').toLowerCase();
+      const pnu = (item.product_name_urdu || '').toLowerCase();
+      const sn = (item.serialNumber || '').toLowerCase();
+      const eng = (item.engineNo || '').toLowerCase();
+      const ch = (item.chassisNo || '').toLowerCase();
+      const mdl = (item.model || '').toLowerCase();
+      const clr = (item.color || '').toLowerCase();
+      const cmp = (item.company || '').toLowerCase();
+      return pn.includes(q) || pnu.includes(q) || sn.includes(q) || eng.includes(q) || ch.includes(q) || mdl.includes(q) || clr.includes(q) || cmp.includes(q);
+    });
+  }, [allInventoryItems, productSearch]);
+
+  // ✅ Also filter products (for cases where no inventory items exist)
   const filteredProducts = useMemo(() => {
-    // ✅ Only show products that have stock (in_stock and stockCount > 0)
     const inStockProducts = products.filter(p => p.in_stock !== false && (p.stockCount ?? 0) > 0);
     if (!productSearch) return inStockProducts;
     const q = productSearch.toLowerCase();
@@ -170,55 +201,50 @@ const InstallmentCreate: React.FC = () => {
   const selectedProduct = products.find(p => p.id === productId);
   const selectedCustomer = customers.find(c => c.id === customerId);
 
-  // ✅ Auto-fill product details when product is selected (fetches from inventory)
+  // ✅ Auto-fill product details when product is selected without a variant
   useEffect(() => {
-    if (!selectedProduct || !productId) return;
+    if (!selectedProduct || !productId || inventoryItemId) return;
+    // Only auto-fill from product if no inventory variant was explicitly selected
+    setSerialNumber(selectedProduct.serialNumber || '');
+    setImei(selectedProduct.imei || '');
+    setEngineNo(selectedProduct.engineNo || '');
+    setChassisNo(selectedProduct.chassisNo || '');
+    setModel(selectedProduct.model || '');
+    setColor(selectedProduct.color || '');
+    setCompany(selectedProduct.company || selectedProduct.companyUrdu || '');
+  }, [selectedProduct, productId, inventoryItemId]);
 
-    const fetchInventoryDetails = async () => {
-      setLoadingVariants(true);
-      try {
-        const productName = isUrdu ? (selectedProduct.nameUrdu || selectedProduct.name) : selectedProduct.name;
-        const res = await api.get(`/inventory/variants/${encodeURIComponent(productName)}`);
-        const variants = res.data || [];
-        setInventoryVariants(variants);
+  // ✅ Handler: Select a specific inventory variant (one click = everything set)
+  const handleSelectInventoryItem = useCallback((item: any) => {
+    setProductId(item.productId || '');
+    setInventoryItemId(item.id || '');
+    setSelectedVariantId(item.id || '');
+    setSerialNumber(item.serialNumber || '');
+    setImei(item.imei || '');
+    setEngineNo(item.engineNo || '');
+    setChassisNo(item.chassisNo || '');
+    setModel(item.model || '');
+    setColor(item.color || '');
+    setCompany(item.company || '');
+    setProductSearch('');
+    setShowProductDropdown(false);
+  }, []);
 
-        if (variants.length > 0) {
-          // ✅ Auto-fill from first available inventory variant
-          const first = variants[0];
-          setSerialNumber(first.serialNumber || '');
-          setImei(first.imei || '');
-          setEngineNo(first.engineNo || '');
-          setChassisNo(first.chassisNo || '');
-          setModel(first.model || '');
-          setColor(first.color || '');
-          setCompany(first.company || selectedProduct.company || '');
-          setInventoryItemId(first.id || first._id || '');
-        } else {
-          // Fallback to product fields if no inventory variants found
-          setSerialNumber(selectedProduct.serialNumber || '');
-          setImei(selectedProduct.imei || '');
-          setEngineNo(selectedProduct.engineNo || '');
-          setChassisNo(selectedProduct.chassisNo || '');
-          setModel(selectedProduct.model || '');
-          setColor(selectedProduct.color || '');
-          setCompany(selectedProduct.company || selectedProduct.companyUrdu || '');
-        }
-      } catch {
-        // API fail - fallback to product fields
-        setSerialNumber(selectedProduct.serialNumber || '');
-        setImei(selectedProduct.imei || '');
-        setEngineNo(selectedProduct.engineNo || '');
-        setChassisNo(selectedProduct.chassisNo || '');
-        setModel(selectedProduct.model || '');
-        setColor(selectedProduct.color || '');
-        setCompany(selectedProduct.company || selectedProduct.companyUrdu || '');
-      } finally {
-        setLoadingVariants(false);
-      }
-    };
-
-    fetchInventoryDetails();
-  }, [selectedProduct, productId, isUrdu]);
+  // ✅ Handler: Select just a product (no variant)
+  const handleSelectProductOnly = useCallback((p: any) => {
+    setProductId(p.id);
+    setProductSearch('');
+    setShowProductDropdown(false);
+    setInventoryItemId('');
+    setSelectedVariantId('');
+    setSerialNumber(p.serialNumber || '');
+    setImei(p.imei || '');
+    setEngineNo(p.engineNo || '');
+    setChassisNo(p.chassisNo || '');
+    setModel(p.model || '');
+    setColor(p.color || '');
+    setCompany(p.company || p.companyUrdu || '');
+  }, []);
 
   useEffect(() => {
     const total = parseFloat(totalAmount) || 0;
@@ -374,8 +400,7 @@ const InstallmentCreate: React.FC = () => {
       setProcessFee('');
       setDiscount('');
       setInventoryItemId('');
-      setInventoryVariants([]);
-      setSelectedVariantIndex(null);
+      setSelectedVariantId('');
       
     } catch (err: any) {
       const errorMsg = err?.response?.data?.error || err?.response?.data?.message || 
@@ -444,7 +469,7 @@ const InstallmentCreate: React.FC = () => {
           </div>
         </div>
 
-        {/* ✅ Product - Enhanced with full details */}
+        {/* ✅ Product - Individual Inventory Items in Dropdown (One-Click Selection) */}
         <div>
           <label className="block text-sm font-semibold mb-1.5 text-gray-700 dark:text-gray-300">{t('product')} *</label>
           <div className="relative" ref={productDropdownRef}>
@@ -453,136 +478,111 @@ const InstallmentCreate: React.FC = () => {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M11 19a8 8 0 1 1 0-16 8 8 0 0 1 0 16z" />
               </svg>
             </div>
-            <input type="text" placeholder={isUrdu ? 'نام، سیریل، انجن، چیسس، کیٹیگری سے تلاش کریں...' : `${t('search')} by name, serial, engine, chassis, category...`}
-              value={productSearch || (selectedProduct && !showProductDropdown ? `${isUrdu ? selectedProduct.nameUrdu || selectedProduct.name : selectedProduct.name} - Rs. ${selectedProduct.price?.toLocaleString()}` : productSearch)}
-              onChange={e => { setProductSearch(e.target.value); setShowProductDropdown(true); if (!e.target.value) setProductId(''); }}
+            <input
+              type="text"
+              placeholder={isUrdu ? 'نام، انجن#، چیسس#، ماڈل سے تلاش کریں...' : `${t('search')} by name, engine#, chassis#, model...`}
+              value={productSearch || (selectedVariantId && !showProductDropdown ? `${isUrdu ? 'منتخب' : 'Selected'}: ${serialNumber || model || engineNo || chassisNo || (selectedProduct ? (isUrdu ? selectedProduct.nameUrdu || selectedProduct.name : selectedProduct.name) : '—')}` : productSearch)}
+              onChange={e => { setProductSearch(e.target.value); setShowProductDropdown(true); }}
               onFocus={() => { setShowProductDropdown(true); setProductSearch(''); }}
-              className="w-full pl-10 pr-4 py-2.5 border rounded-xl bg-white dark:bg-gray-700 text-sm focus:ring-2 focus:ring-blue-400 focus:border-transparent outline-none transition-colors" />
+              className="w-full pl-10 pr-4 py-2.5 border rounded-xl bg-white dark:bg-gray-700 text-sm focus:ring-2 focus:ring-blue-400 focus:border-transparent outline-none transition-colors"
+            />
             {showProductDropdown && (
               <div className="absolute z-20 mt-1 w-full bg-white dark:bg-gray-700 border rounded-xl shadow-lg max-h-72 overflow-y-auto">
-                {filteredProducts.length === 0 ? (
-                  <p className="px-4 py-3 text-sm text-gray-500">{isUrdu ? 'کوئی پروڈکٹ نہیں' : t('no_products')}</p>
-                ) : (
-                  filteredProducts.map(p => (
-                    <button key={p.id} onClick={() => { setProductId(p.id); setProductSearch(''); setShowProductDropdown(false); }}
-                      className="w-full text-left px-4 py-3 text-sm hover:bg-blue-50 dark:hover:bg-blue-900/20 border-b last:border-0 transition-colors">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <div className="font-semibold text-gray-900 dark:text-white">{isUrdu ? p.nameUrdu || p.name : p.name}</div>
-                          <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] text-gray-500 mt-0.5">
-                            {p.category && <span className="bg-blue-50 dark:bg-blue-900/30 px-1.5 py-0.5 rounded">{isUrdu ? 'زمرہ' : 'Cat'}: {p.category}</span>}
-                            {p.company && <span className="bg-purple-50 dark:bg-purple-900/30 px-1.5 py-0.5 rounded">{isUrdu ? 'کمپنی' : 'Co'}: {p.company}</span>}
-                            {p.serialNumber && <span className="bg-gray-50 dark:bg-gray-700 px-1.5 py-0.5 rounded font-mono">S/N: {p.serialNumber}</span>}
-                            {p.engineNo && <span className="bg-gray-50 dark:bg-gray-700 px-1.5 py-0.5 rounded font-mono">Eng: {p.engineNo}</span>}
-                            {p.chassisNo && <span className="bg-gray-50 dark:bg-gray-700 px-1.5 py-0.5 rounded font-mono">Ch: {p.chassisNo}</span>}
-                            {p.model && <span className="bg-gray-50 dark:bg-gray-700 px-1.5 py-0.5 rounded">Mdl: {p.model}</span>}
-                            {p.color && <span className="bg-gray-50 dark:bg-gray-700 px-1.5 py-0.5 rounded">{isUrdu ? 'رنگ' : 'Color'}: {p.color}</span>}
+                {/* Show individual inventory items matching search */}
+                {filteredInventoryItems.length > 0 && (
+                  <>
+                    <p className="px-3 py-1.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider bg-emerald-50/50 dark:bg-emerald-900/20">
+                      {isUrdu ? 'موجودہ اسٹاک' : 'In Stock'} ({filteredInventoryItems.length})
+                    </p>
+                    {filteredInventoryItems.map((item: any) => {
+                      const itemId = item.id || '';
+                      const isSelected = selectedVariantId === itemId;
+                      const details = [
+                        item.engineNo && `Eng: ${item.engineNo}`,
+                        item.chassisNo && `Ch: ${item.chassisNo}`,
+                        item.model && `Mdl: ${item.model}`,
+                        item.color && `Color: ${item.color}`,
+                        item.serialNumber && `S/N: ${item.serialNumber}`,
+                      ].filter(Boolean).join(' | ');
+                      return (
+                        <button
+                          key={itemId}
+                          onClick={() => handleSelectInventoryItem(item)}
+                          className={`w-full text-left px-4 py-2.5 text-sm border-b last:border-0 transition-colors ${
+                            isSelected
+                              ? 'bg-emerald-50 dark:bg-emerald-900/30 border-l-4 border-emerald-500'
+                              : 'hover:bg-blue-50 dark:hover:bg-blue-900/20'
+                          }`}
+                        >
+                          <div className="font-semibold text-gray-900 dark:text-white text-xs">
+                            {isUrdu ? (item.product_name_urdu || item.product_name) : item.product_name}
+                            {isSelected && <span className="ml-1 text-emerald-600 dark:text-emerald-400 text-[10px]">✓</span>}
                           </div>
+                          {details && <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">{details}</div>}
+                          {item.sellingPrice > 0 && <div className="text-[10px] text-gray-400 mt-0.5">Rs. {item.sellingPrice?.toLocaleString()}</div>}
+                        </button>
+                      );
+                    })}
+                  </>
+                )}
+
+                {/* Also show product-level entries (fallback when no inventory items match) */}
+                {filteredProducts.length > 0 && (
+                  <>
+                    {filteredInventoryItems.length > 0 && (
+                      <p className="px-3 py-1.5 text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider bg-blue-50/50 dark:bg-blue-900/20 border-t border-gray-200 dark:border-gray-600">
+                        {isUrdu ? 'پروڈکٹس' : 'Products'} ({filteredProducts.length})
+                      </p>
+                    )}
+                    {filteredProducts.map(p => (
+                      <button key={`prod-${p.id}`} onClick={() => handleSelectProductOnly(p)}
+                        className={`w-full text-left px-4 py-2.5 text-sm hover:bg-blue-50 dark:hover:bg-blue-900/20 border-b last:border-0 transition-colors ${
+                          selectedProduct?.id === p.id && !selectedVariantId ? 'bg-blue-50 dark:bg-blue-900/30 border-l-4 border-blue-500' : ''
+                        }`}>
+                        <div className="font-semibold text-gray-900 dark:text-white text-xs">
+                          {isUrdu ? p.nameUrdu || p.name : p.name}
+                          {selectedProduct?.id === p.id && !selectedVariantId && <span className="ml-1 text-blue-600 dark:text-blue-400 text-[10px]">✓</span>}
                         </div>
-                        <div className="text-right flex-shrink-0 ml-2">
-                          <div className="font-bold text-emerald-600 dark:text-emerald-400 text-sm">Rs. {p.price?.toLocaleString()}</div>
-                          {(p.purchasePrice ?? 0) > 0 && <div className="text-[10px] text-gray-400">{isUrdu ? 'خرید' : 'Buy'}: Rs. {(p.purchasePrice ?? 0).toLocaleString()}</div>}
+                        <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] text-gray-500 mt-0.5">
+                          {p.category && <span className="bg-blue-50 dark:bg-blue-900/30 px-1 py-0.5 rounded">Cat: {p.category}</span>}
+                          {p.company && <span className="bg-purple-50 dark:bg-purple-900/30 px-1 py-0.5 rounded">Co: {p.company}</span>}
+                          {p.model && <span className="bg-gray-50 dark:bg-gray-700 px-1 py-0.5 rounded">Mdl: {p.model}</span>}
                         </div>
-                      </div>
-                    </button>
-                  ))
+                        <div className="text-right text-[10px] font-bold text-emerald-600 dark:text-emerald-400">Rs. {p.price?.toLocaleString()}</div>
+                      </button>
+                    ))}
+                  </>
+                )}
+
+                {filteredInventoryItems.length === 0 && filteredProducts.length === 0 && (
+                  <p className="px-4 py-3 text-sm text-gray-500">{isUrdu ? 'کوئی پروڈکٹ نہیں' : t('no_products')}</p>
                 )}
               </div>
             )}
           </div>
-          {selectedProduct && (
-            <div className="mt-2 p-3 bg-blue-50 dark:bg-blue-900/30 rounded-xl text-xs space-y-1">
-              <p>
-                <strong>{t('category')}:</strong> {selectedProduct.category || '—'} | 
-                <strong>{t('company')}:</strong> {isUrdu ? selectedProduct.companyUrdu || selectedProduct.company || '—' : selectedProduct.company || '—'}
-                {selectedProduct.model && <> | <strong>{t('model')}:</strong> {selectedProduct.model}</>}
-                {selectedProduct.color && <> | <strong>{t('color')}:</strong> {selectedProduct.color}</>}
-              </p>
-              <p>
-                <strong>{t('selling_price')}:</strong> Rs. {selectedProduct.price?.toLocaleString()} | 
-                <strong>{t('purchase_price')}:</strong> Rs. {selectedProduct.purchasePrice?.toLocaleString() || '—'}
-                {selectedProduct.serialNumber && <> | <strong>{t('serial_number')}:</strong> {selectedProduct.serialNumber}</>}
-              </p>
-              {(selectedProduct.engineNo || selectedProduct.chassisNo || selectedProduct.imei) && (
-                <p className="text-gray-500">
-                  {selectedProduct.engineNo && <><strong>{t('engine_no')}:</strong> {selectedProduct.engineNo} </>}
-                  {selectedProduct.chassisNo && <><strong>{t('chassis_no')}:</strong> {selectedProduct.chassisNo} </>}
-                  {selectedProduct.imei && <><strong>{t('imei')}:</strong> {selectedProduct.imei}</>}
+          {/* Selected product/variant summary */}
+          {(selectedProduct || selectedVariantId) && (
+            <div className={`mt-2 p-3 rounded-xl text-xs space-y-1 ${selectedVariantId ? 'bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800' : 'bg-blue-50 dark:bg-blue-900/30'}`}>
+              {selectedVariantId && (
+                <p className="text-emerald-700 dark:text-emerald-300 font-semibold text-[10px]">
+                  {isUrdu ? '✓ منتخب ویریئنٹ' : '✓ Variant Selected'}
                 </p>
               )}
+              <p>
+                <strong>{t('product')}:</strong> {selectedProduct ? (isUrdu ? selectedProduct.nameUrdu || selectedProduct.name : selectedProduct.name) : '—'} | 
+                <strong>{t('company')}:</strong> {company || (isUrdu ? selectedProduct?.companyUrdu || selectedProduct?.company || '—' : selectedProduct?.company || '—')}
+              </p>
+              <p className="text-gray-500">
+                {serialNumber && <><strong>S/N:</strong> {serialNumber} </>}
+                {engineNo && <><strong>Eng:</strong> {engineNo} </>}
+                {chassisNo && <><strong>Ch:</strong> {chassisNo} </>}
+                {model && <><strong>Mdl:</strong> {model} </>}
+                {color && <><strong>{isUrdu ? 'رنگ' : 'Color'}:</strong> {color}</>}
+                {imei && <><strong> IMEI:</strong> {imei}</>}
+              </p>
             </div>
           )}
         </div>
-
-        {/* ✅ Inventory Variant Selection - Clickable Grid */}
-        {selectedProduct && inventoryVariants.length > 0 && (
-          <div className="bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20 rounded-2xl p-4 sm:p-5 border border-emerald-200 dark:border-emerald-800">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-bold text-emerald-700 dark:text-emerald-300">
-                {isUrdu ? 'دستیاب ویریئنٹس' : 'Available Variants'} ({inventoryVariants.length})
-              </h3>
-              {selectedVariantIndex !== null && (
-                <span className="text-[10px] px-2 py-0.5 bg-emerald-200 dark:bg-emerald-800 text-emerald-700 dark:text-emerald-300 rounded-full font-semibold">
-                  {isUrdu ? 'منتخب' : 'Selected'}: #{selectedVariantIndex + 1}
-                </span>
-              )}
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-64 overflow-y-auto pr-1">
-              {inventoryVariants.map((v: any, idx: number) => {
-                const isSelected = selectedVariantIndex === idx;
-                const variantId = v.id || v._id || '';
-                const displayDetails = [
-                  v.engineNo && `Eng: ${v.engineNo}`,
-                  v.chassisNo && `Ch: ${v.chassisNo}`,
-                  v.model && `Mdl: ${v.model}`,
-                  v.color && (isUrdu ? `رنگ: ${v.color}` : `Color: ${v.color}`),
-                  v.serialNumber && `S/N: ${v.serialNumber}`,
-                ].filter(Boolean).join(' | ');
-                
-                return (
-                  <button
-                    key={variantId || idx}
-                    onClick={() => {
-                      setSelectedVariantIndex(idx);
-                      setInventoryItemId(variantId);
-                      setSerialNumber(v.serialNumber || '');
-                      setImei(v.imei || '');
-                      setEngineNo(v.engineNo || '');
-                      setChassisNo(v.chassisNo || '');
-                      setModel(v.model || '');
-                      setColor(v.color || '');
-                      setCompany(v.company || selectedProduct.company || '');
-                    }}
-                    className={`text-left p-3 rounded-xl border-2 transition-all text-xs ${
-                      isSelected
-                        ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/40 dark:border-emerald-400 shadow-md ring-1 ring-emerald-400'
-                        : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 hover:border-emerald-300 dark:hover:border-emerald-600 hover:bg-emerald-50/50 dark:hover:bg-emerald-900/20'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="font-bold text-gray-800 dark:text-white text-xs">
-                        {isUrdu ? 'ویریئنٹ' : 'Variant'} #{idx + 1}
-                      </span>
-                      {isSelected && (
-                        <svg className="w-4 h-4 text-emerald-600 dark:text-emerald-400" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                        </svg>
-                      )}
-                    </div>
-                    <div className="text-gray-500 dark:text-gray-400 leading-relaxed text-[10px]">
-                      {displayDetails || (isUrdu ? 'کوئی تفصیل نہیں' : 'No details')}
-                    </div>
-                    {v.purchasePrice > 0 && (
-                      <div className="mt-1 text-[10px] text-gray-400">
-                        {isUrdu ? 'خرید قیمت' : 'Buy'}: Rs. {v.purchasePrice?.toLocaleString()} | {isUrdu ? 'فروخت' : 'Sell'}: Rs. {v.sellingPrice?.toLocaleString() || '—'}
-                      </div>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
 
         {/* ✅ Product Details */}
         <div className="bg-purple-50 dark:bg-purple-900/20 rounded-2xl p-4 sm:p-5 border border-purple-200 dark:border-purple-800">
