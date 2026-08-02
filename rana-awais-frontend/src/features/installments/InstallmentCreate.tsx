@@ -158,11 +158,9 @@ const InstallmentCreate: React.FC = () => {
   // ✅ Filtered inventory items (individual variants) for search dropdown
   // Each item has: id, productId, product_name, serialNumber, engineNo, chassisNo, model, color, company, imei, etc.
   const filteredInventoryItems = useMemo(() => {
-    if (!productSearch) {
-      // Show all in-stock items grouped by product name when no search
-      return [];
-    }
     const q = productSearch.toLowerCase();
+    // ✅ When empty search, show ALL in-stock items so user can browse & pick
+    if (!q) return allInventoryItems;
     return allInventoryItems.filter((item: any) => {
       const pn = (item.product_name || '').toLowerCase();
       const pnu = (item.product_name_urdu || '').toLowerCase();
@@ -172,16 +170,26 @@ const InstallmentCreate: React.FC = () => {
       const mdl = (item.model || '').toLowerCase();
       const clr = (item.color || '').toLowerCase();
       const cmp = (item.company || '').toLowerCase();
-      return pn.includes(q) || pnu.includes(q) || sn.includes(q) || eng.includes(q) || ch.includes(q) || mdl.includes(q) || clr.includes(q) || cmp.includes(q);
+      const im = (item.imei || '').toLowerCase();
+      const purc = (item.purchasePrice?.toString() || '').includes(q);
+      const sell = (item.sellingPrice?.toString() || '').includes(q);
+      return pn.includes(q) || pnu.includes(q) || sn.includes(q) || eng.includes(q) || ch.includes(q) || mdl.includes(q) || clr.includes(q) || cmp.includes(q) || im.includes(q) || purc || sell;
     });
   }, [allInventoryItems, productSearch]);
 
-  // ✅ Also filter products (for cases where no inventory items exist)
+  // ✅ Filter products: only show products that have NO inventory items (avoid duplicate)
+  const productIdsInInventory = useMemo(() => {
+    const ids = new Set<string>();
+    allInventoryItems.forEach((item: any) => { if (item.productId) ids.add(item.productId); });
+    return ids;
+  }, [allInventoryItems]);
+
   const filteredProducts = useMemo(() => {
-    const inStockProducts = products.filter(p => p.in_stock !== false && (p.stockCount ?? 0) > 0);
-    if (!productSearch) return inStockProducts;
     const q = productSearch.toLowerCase();
-    return inStockProducts.filter(p => {
+    // Only products without inventory entries
+    const productsWithoutInventory = products.filter(p => p.in_stock !== false && (p.stockCount ?? 0) > 0 && !productIdsInInventory.has(p.id));
+    if (!q) return productsWithoutInventory;
+    return productsWithoutInventory.filter(p => {
       return (
         (p.name || '').toLowerCase().includes(q) ||
         (p.nameUrdu || '').includes(q) ||
@@ -196,7 +204,7 @@ const InstallmentCreate: React.FC = () => {
         (p.color || '').toLowerCase().includes(q)
       );
     });
-  }, [products, productSearch]);
+  }, [products, productSearch, productIdsInInventory]);
 
   const selectedProduct = products.find(p => p.id === productId);
   const selectedCustomer = customers.find(c => c.id === customerId);
