@@ -234,6 +234,9 @@ const InstallmentCreate: React.FC = () => {
     setModel(item.model || '');
     setColor(item.color || '');
     setCompany(item.company || '');
+    // ✅ Auto-fill total amount with selling price
+    const price = item.sellingPrice || item.selling_price || 0;
+    if (price > 0) setTotalAmount(price.toString());
     setProductSearch('');
     setShowProductDropdown(false);
   }, []);
@@ -252,6 +255,8 @@ const InstallmentCreate: React.FC = () => {
     setModel(p.model || '');
     setColor(p.color || '');
     setCompany(p.company || p.companyUrdu || '');
+    // ✅ Auto-fill total amount with product price
+    if (p.price > 0) setTotalAmount(p.price.toString());
   }, []);
 
   useEffect(() => {
