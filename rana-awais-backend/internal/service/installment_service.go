@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"sort"
 	"time"
 
 	"github.com/RanaAwais1133/RanaAwaisElectronics/rana-awais-backend/internal/domain"
@@ -293,6 +294,11 @@ func (s *InstallmentService) RecordPayment(
 		return nil, errors.New("plan is not active")
 	}
 
+	// ✅ FIX: Sort installments by installment_no to guarantee sequential processing
+	sort.Slice(plan.Installments, func(i, j int) bool {
+		return plan.Installments[i].InstallmentNo < plan.Installments[j].InstallmentNo
+	})
+
 	instIdx := -1
 	for i, inst := range plan.Installments {
 		if inst.InstallmentNo == installmentNo && !inst.Paid {
@@ -334,7 +340,17 @@ func (s *InstallmentService) RecordPayment(
 		}
 		fine := s.CalculateFine(plan, *inst, payTime)
 		totalDue := mathutil.RoundMoney(inst.Amount + fine - inst.PartialPaid)
+		// ✅ FIX: Auto-heal corrupted state instead of silently skipping
 		if totalDue <= 0 {
+			// This installment is overpaid (PartialPaid >= Amount+Fine) but not marked paid
+			// Auto-correct: mark as paid so excess correctly flows to next installment
+			inst.Paid = true
+			paidDate := payTime
+			inst.PaidDate = &paidDate
+			inst.Remaining = 0
+			if err := s.planRepo.AddPaymentDetail(ctx, planID, inst.InstallmentNo, *inst); err != nil {
+				return nil, err
+			}
 			continue
 		}
 		applyAmount := excess
@@ -484,6 +500,11 @@ func (s *InstallmentService) BulkPayment(
 		return errors.New("plan is not active")
 	}
 
+	// ✅ FIX: Sort installments by installment_no to guarantee sequential processing
+	sort.Slice(plan.Installments, func(i, j int) bool {
+		return plan.Installments[i].InstallmentNo < plan.Installments[j].InstallmentNo
+	})
+
 	var payTime time.Time
 	if paymentDate != "" {
 		payTime, err = time.ParseInLocation("2006-01-02", paymentDate, pkLoc)
@@ -620,6 +641,11 @@ func (s *InstallmentService) AdvancePayment(
 	if plan.Status != "active" && plan.Status != "overdue" {
 		return errors.New("plan is not active")
 	}
+
+	// ✅ FIX: Sort installments by installment_no to guarantee sequential processing
+	sort.Slice(plan.Installments, func(i, j int) bool {
+		return plan.Installments[i].InstallmentNo < plan.Installments[j].InstallmentNo
+	})
 
 	var payTime time.Time
 	if paymentDate != "" {
