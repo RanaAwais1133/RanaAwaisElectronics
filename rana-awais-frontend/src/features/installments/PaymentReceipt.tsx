@@ -52,7 +52,7 @@ const PaymentReceipt: React.FC<Props> = ({ planId, onClose }) => {
   const ia = plan?.installmentAmount || 0;
   const ni = plan?.numInstallments || plan?.installments?.length || 0;
   const rm = plan?.remainingAmount || (ta - dp);
-  const comp = prod?.company || plan?.company || '';
+  const comp = isUrdu ? (clientInfo.nameUr || clientInfo.name) : (clientInfo.name || '');
   const mdl = prod?.model || plan?.model || '';
   const srn = prod?.serialNumber || plan?.serialNumber || '';
   const pdn = prod?.name || plan?.productName || '';

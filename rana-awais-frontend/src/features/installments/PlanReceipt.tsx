@@ -88,9 +88,14 @@ const PlanReceipt: React.FC<Props> = ({ planId, onClose }) => {
   const rag = cust?.reprAsGar || '';
   const pac = cust?.prepAC || '';
 
+  // ✅ Dynamic config from global store - settings change karte hi update ho jayega
+  const clientInfo = useClientStore((s) => s.info);
+  const companyName = clientInfo.name || 'Company Name';
+  const companyNameUr = clientInfo.nameUr || 'کمپنی کا نام';
+
   // ✅ Product fields
   const pdn = prod?.name || plan?.productName || '—';
-  const comp = prod?.company || plan?.company || '';
+  const comp = isUrdu ? (companyNameUr || companyName) : (companyName || '');
   const mdl = prod?.model || plan?.model || '';
   const sn = prod?.serialNumber || plan?.serialNumber || '';
   const imei = prod?.imei || plan?.imei || '';
@@ -122,10 +127,6 @@ const PlanReceipt: React.FC<Props> = ({ planId, onClose }) => {
   // ✅ Created by
   const plc = plan?.createdBy || cu?.displayName || cu?.username || '—';
 
-  // ✅ Dynamic config from global store - settings change karte hi update ho jayega
-  const clientInfo = useClientStore((s) => s.info);
-  const companyName = clientInfo.name || 'Company Name';
-  const companyNameUr = clientInfo.nameUr || 'کمپنی کا نام';
   const address = clientInfo.address || '';
   const addressUr = clientInfo.addressUr || '';
   const phones = clientInfo.phones.filter(p => p.number.trim()).map(p => p.number);
